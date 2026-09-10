@@ -1742,6 +1742,13 @@
   // real tube geometry extracted from the same 3mf, swapped in for
   // APILLAR_FILES instead of overlaid alongside it.
   const APILLAR_2PIECE_FILES = ["253-15 left lower.stl", "253-15 left upper.stl", "253-15 right lower.stl", "253-15 right upper.stl"];
+  const APILLAR_2PC_GUSSET_FILES = [
+    "253-15 gusset left upper front.stl", "253-15 gusset left upper rear.stl",
+    "253-15 gusset left lower front.stl", "253-15 gusset left lower rear.stl",
+    "253-15 gusset right upper front.stl", "253-15 gusset right upper rear.stl",
+    "253-15 gusset right lower front.stl", "253-15 gusset right lower rear.stl",
+  ];
+  const APILLAR_SIDE_GUSSET_FILES = ["253-15 side gusset left.stl", "253-15 side gusset right.stl"];
   const SILL_FILES = ["Sill bar Left.stl", "Sill bar Right.stl"];
   const BACKSTAY_FILES = ["Left backstay.stl", "Right backstay.stl"];
   const ROOF_BAR_FILES = ["Roof bar 1.stl", "Roof bar 2.stl"];
@@ -1921,11 +1928,11 @@
     windshield_reinforcement_present: (v) =>
       v === "yes" ? { files: ["253-31 windshield left.stl", "253-31 windshield right.stl"], color: CAGE_COLOR.windshieldReinforcement } : null,
 
-    a_pillar_reinforcement: (v) => {
-      if (v === "continuous") return { files: APILLAR_FILES, color: CAGE_COLOR.aPillar };
-      if (v === "two_bars") return { files: APILLAR_2PIECE_FILES, color: CAGE_COLOR.aPillar };
-      return null;
-    },
+    // a_pillar_reinforcement itself is handled separately, below the main
+    // per-element loop -- continuous vs 2-bar are mutually exclusive
+    // alternate geometries (like the gusset design swap), not an
+    // independently-claimable part, and it needs to default to previewing
+    // the continuous build before anything is answered.
     a_pillar_reinforcement_grandfathered: (v) => (v === "yes" ? { files: APILLAR_FILES, color: CAGE_COLOR.aPillar } : null),
     windscreen_support_each_side: (v) => (v === "yes" ? { files: APILLAR_FILES, color: CAGE_COLOR.aPillar } : null),
 
@@ -1934,10 +1941,12 @@
     sill_bar_note: () => null,
   };
 
-  // Fully hidden (background-matched, not just dim ghost) while
-  // 253-1/253-2/253-3 base-structure coloring is still being tuned -- see
-  // the note on ITEM_PART_RULES above.
-  const HIDDEN_WHILE_TUNING_FILES = [].concat(APILLAR_FILES, APILLAR_2PIECE_FILES);
+  // a_pillar_reinforcement's alternate-geometry files (continuous tube vs
+  // 2-bar tube+gussets vs side gusset) used to default here to fully hidden
+  // -- now handled by the dedicated block below computeCageColors()'s main
+  // loop instead, which defaults to previewing the continuous build ghosted
+  // rather than hiding everything until answered.
+  const HIDDEN_WHILE_TUNING_FILES = [];
 
   // Maps each STL file to the row id it represents in the "Tube
   // classification" table (tubing_bar_classification), for the Part 2
@@ -2204,20 +2213,30 @@
     // Mounting feet aren't gated by a single per-element value the main
     // loop above can see (their answers live per-cell under
     // "mounting_feet_design__<row>__design"), so each foot is resolved
-    // separately here: ghosted/hidden by default (nothing answered yet).
-    // Once a design is picked: "multiplane_box" (253-54) swaps the flat
-    // plate for the placeholder cube; "double_plane" (253-53) keeps the
-    // flat plate AND adds the rotated duplicate plate; "multiplane_rocker"
-    // (253-55/56) is a second 253-53 step on top, so it shows all four
-    // (real plate + fold + rocker base + rocker fold); every other design
-    // just shows the flat plate alone -- unused parts stay hidden either way.
+    // separately here. Once a design is picked: "multiplane_box" (253-54)
+    // swaps the flat plate for the placeholder cube; "double_plane" (253-53)
+    // keeps the flat plate AND adds the rotated duplicate plate;
+    // "multiplane_rocker" (253-55/56) is a second 253-53 step on top, so it
+    // shows all four (real plate + fold + rocker base + rocker fold); every
+    // other design just shows the flat plate alone -- unused parts stay
+    // hidden either way. Before anything is answered, this previews 253-50
+    // (the plain single-plane plate, the simplest/most common design)
+    // ghosted -- hiding the other designs' extra geometry so only the one
+    // real plate mesh ghosts, rather than every possible design's parts
+    // (box/double-plane/rocker) all overlapping as ghosts at once.
     FOOT_LOCATIONS.forEach(({ row, plateFile }) => {
       const cubeFile = footCubeFile(row);
       const doubleFile = doublePlaneFile(row);
       const rockerBase = rockerBaseFile(row);
       const rockerFold = rockerFoldFile(row);
       const design = getAnswer("mounting_feet_design__" + row + "__design").value;
-      if (!design) return;
+      if (!design) {
+        colors[cubeFile] = "hidden";
+        colors[doubleFile] = "hidden";
+        colors[rockerBase] = "hidden";
+        colors[rockerFold] = "hidden";
+        return;
+      }
       if (design === "multiplane_box") {
         colors[plateFile] = "hidden";
         colors[doubleFile] = "hidden";
@@ -2249,6 +2268,31 @@
         owner[plateFile] = "mounting_feet_design";
       }
     });
+
+    // A-pillar (253-15) tube: continuous vs 2-bar are mutually exclusive
+    // alternate geometries (real tube + their own gusset sets), not
+    // independently-claimable parts, so they're resolved here rather than
+    // through ITEM_PART_RULES. Before anything is answered, this previews
+    // the continuous (single-bar) build ghosted -- the common/simpler case
+    // -- rather than hiding the whole area until a choice is made; once
+    // answered, the chosen build's real geometry lights up and the other
+    // build's tube + gussets are explicitly hidden (not just left to
+    // default-ghost, which would otherwise clutter both builds together).
+    const aPillarValue = getAnswer("a_pillar_reinforcement").value;
+    const aPillarPreview = aPillarValue || "continuous";
+    if (aPillarPreview === "continuous") {
+      APILLAR_2PIECE_FILES.forEach((f) => { colors[f] = "hidden"; });
+      APILLAR_2PC_GUSSET_FILES.forEach((f) => { colors[f] = "hidden"; });
+      if (aPillarValue === "continuous") {
+        APILLAR_FILES.forEach((f) => { colors[f] = CAGE_COLOR.aPillar; owner[f] = "a_pillar_reinforcement"; });
+      }
+    } else {
+      APILLAR_FILES.forEach((f) => { colors[f] = "hidden"; });
+      APILLAR_SIDE_GUSSET_FILES.forEach((f) => { colors[f] = "hidden"; });
+      if (aPillarValue === "two_bars") {
+        APILLAR_2PIECE_FILES.forEach((f) => { colors[f] = CAGE_COLOR.aPillar; owner[f] = "a_pillar_reinforcement"; });
+      }
+    }
 
     // Gusset design: "Gusset design" table (rules-data.js) drives whether
     // each gusset shows at all -- Taco and Single plate both use the same
