@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Rollcage assembly viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: sans-serif; background: #222; }
+  #toolbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+    background: rgba(20,20,20,0.85); color: #eee; padding: 8px 12px;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  button { cursor: pointer; padding: 6px 10px; border-radius: 6px; border: 1px solid #555; background: #333; color: #eee; }
+  button:hover { background: #444; }
+  #info { color: #aaa; font-size: 12px; }
+  .ctl { color: #ccc; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <span id="pickedLabel" style="color:#fff;font-weight:bold;padding:4px 8px;">Click a part to identify it</span>
+  <span class="ctl">Roll <input type="range" id="rollSlider" min="-180" max="180" value="0"><span id="rollVal">0</span>&deg;</span>
+  <button id="resetView">Reset view</button>
+  <button id="legendToggle">Hide parts</button>
+  <span id="info">Loading parts...</span>
+</div>
+<div id="legend" style="position:absolute;bottom:0;right:0;z-index:9;background:rgba(20,20,20,0.85);color:#eee;padding:10px;max-height:85%;overflow-y:auto;font-size:12px;width:320px;border-top-left-radius:8px;"></div>
+<div id="canvasWrap" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // Each entry: filename under cage_parts/, and a display name. Colors are
+  // auto-assigned from PALETTE below in this same order.
+  const PARTS = [
+    ["Main rollbar.stl", "Main rollbar"],
+    ["Front left lateral.stl", "Front left lateral (half rollbar)"],
+    ["Front right lateral.stl", "Front right lateral (half rollbar)"],
+    ["Transverse member.stl", "Transverse member"],
+    ["Left backstay.stl", "Left backstay"],
+    ["Right backstay.stl", "Right backstay"],
+    ["Main diagonal  1-  253-7.stl", "253-7 main hoop diagonal 1"],
+    ["Main diagonal  2-  253-7.stl", "253-7 main hoop diagonal 2"],
+    ["Rear diagonal 1.stl", "253-21 backstay diagonal 1"],
+    ["Rear diagonal 2.stl", "253-21 backstay diagonal 2"],
+    ["Roof bar 1.stl", "253-12 roof bar 1"],
+    ["Roof bar 2.stl", "253-12 roof bar 2"],
+    ["Left door bar 1-  253-9.stl", "253-9 left door bar 1"],
+    ["Left door bar 2-  253-9.stl", "253-9 left door bar 2"],
+    ["Right door bar 1-  253-9.stl", "253-9 right door bar 1"],
+    ["Right door bar 2-  253-9.stl", "253-9 right door bar 2"],
+    ["253-15 Left.stl", "253-15 left (windscreen pillar)"],
+    ["253-15 Right.stl", "253-15 right (windscreen pillar)"],
+    ["253-17 left upper.stl", "253-17 left upper (optional reinforcement)"],
+    ["253-17 right upper.stl", "253-17 right upper (optional reinforcement)"],
+    ["253-17 left lower.stl", "253-17 left lower (optional reinforcement)"],
+    ["253-17 right lower.stl", "253-17 right lower (optional reinforcement)"],
+    ["253-18.stl", "253-18 (optional reinforcement)"],
+    ["Dash bar 253-29.stl", "253-29 dash bar"],
+    ["Sill bar Left.stl", "Sill bar left"],
+    ["Sill bar Right.stl", "Sill bar right"],
+    ["Foot front left.stl", "Mounting foot - front left"],
+    ["Foot front right.stl", "Mounting foot - front right"],
+    ["Foot main rollbar left.stl", "Mounting foot - main rollbar left"],
+    ["Foot main rollbar right.stl", "Mounting foot - main rollbar right"],
+    ["Foot rear left.stl", "Mounting foot - rear left"],
+    ["Foot rear right.stl", "Mounting foot - rear right"],
+    // Extracted from "all options rollcage.3mf" (2026-09-08) -- world
+    // coordinates already baked in via that file's own MASTER_OFFSET, so
+    // (like the 253-17 upper/lower parts above) none of these need a
+    // Z_FIXUPS entry below.
+    ["Door bar 253-10 upper left.stl", "253-10 upper left"],
+    ["Door bar 253-10 upper right.stl", "253-10 upper right"],
+    ["Door bar 253-10 front left.stl", "253-10 front left"],
+    ["Door bar 253-10 front right.stl", "253-10 front right"],
+    ["Door bar 253-10 rear left.stl", "253-10 rear left"],
+    ["Door bar 253-10 rear right.stl", "253-10 rear right"],
+  ];
+  // Most parts were exported from the source CAD assembly using a local
+  // (per-part) origin instead of the shared assembly origin, so they load at
+  // the correct X/Y position but the wrong Z (height). These offsets were
+  // derived from "253-3 rollcage.3mf" (a BambuStudio project containing the
+  // same 30 parts with correct per-part assembly transforms baked in): each
+  // part's vertices were nearest-point matched against the 3mf reference at
+  // matching X/Y (which lines up exactly, confirming X/Y needs no change),
+  // then the Z delta was read off. Filename -> Z offset to add.
+  const Z_FIXUPS = {
+    "Transverse member.stl": 104.91,
+    "Left backstay.stl": 55.62,
+    "Right backstay.stl": 55.10,
+    "Main diagonal  1-  253-7.stl": 9.06,
+    "Main diagonal  2-  253-7.stl": 9.06,
+    "Rear diagonal 1.stl": 57.91,
+    "Rear diagonal 2.stl": 58.60,
+    "Roof bar 1.stl": 105.45,
+    "Roof bar 2.stl": 105.45,
+    "Left door bar 1-  253-9.stl": 7.84,
+    "Left door bar 2-  253-9.stl": 8.17,
+    "Right door bar 1-  253-9.stl": 8.17,
+    "Right door bar 2-  253-9.stl": 7.84,
+    "253-15 Left.stl": 3.61,
+    "253-15 Right.stl": 4.38,
+    "253-18.stl": 57.41,
+    "Dash bar 253-29.stl": 55.88,
+    "Sill bar Left.stl": 4.91,
+    "Sill bar Right.stl": 4.91,
+    "Foot front left.stl": -1.61,
+    "Foot front right.stl": -2.61,
+    "Foot main rollbar left.stl": -1.61,
+    "Foot main rollbar right.stl": -2.61,
+    "Foot rear left.stl": 49.54,
+    "Foot rear right.stl": 49.54,
+  };
+  const PALETTE = [
+    "#e0483e", "#d4a017", "#3b6fd6", "#2f9e57", "#9b3fd1", "#ff8c00", "#00bcd4", "#e91e8c",
+    "#795548", "#8bc34a", "#3f51b5", "#ffeb3b", "#607d8b", "#00e676", "#f44336", "#673ab7",
+    "#cddc39", "#ff5722", "#03a9f4", "#4caf50", "#9c27b0", "#ffc107", "#009688", "#e040fb",
+    "#5d4037", "#7cb342", "#1976d2", "#fbc02d", "#c2185b", "#00acc1",
+  ];
+
+  const wrap = document.getElementById("canvasWrap");
+  const info = document.getElementById("info");
+  const legendEl = document.getElementById("legend");
+  const pickedLabel = document.getElementById("pickedLabel");
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x222222);
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100000);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  wrap.appendChild(renderer.domElement);
+
+  // ---- camera: same 3-axis orbit+roll+pan as the labeler tool ----
+  let target = new THREE.Vector3(0, 0, 0);
+  let radius = 500;
+  let theta = Math.PI / 4, phi = Math.PI / 3;
+  let roll = 0;
+  function updateCamera() {
+    camera.position.set(
+      target.x + radius * Math.sin(phi) * Math.cos(theta),
+      target.y + radius * Math.cos(phi),
+      target.z + radius * Math.sin(phi) * Math.sin(theta)
+    );
+    const viewDir = target.clone().sub(camera.position).normalize();
+    camera.up.copy(new THREE.Vector3(0, 1, 0).applyAxisAngle(viewDir, roll));
+    camera.lookAt(target);
+    camera.updateMatrixWorld(true);
+  }
+  let dragging = false, lastX = 0, lastY = 0, dragButton = 0;
+  renderer.domElement.addEventListener("mousedown", (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; dragButton = e.button; });
+  window.addEventListener("mouseup", () => { dragging = false; });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    if (dragButton === 2 || e.shiftKey) {
+      const panSpeed = radius * 0.0015;
+      const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
+      const up = camera.up.clone();
+      const rightVec = new THREE.Vector3().crossVectors(camDir, up).normalize();
+      target.addScaledVector(rightVec, -dx * panSpeed);
+      target.addScaledVector(up, dy * panSpeed);
+    } else {
+      theta -= dx * 0.005;
+      phi -= dy * 0.005;
+      phi = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
+    }
+    updateCamera();
+  });
+  renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
+  renderer.domElement.addEventListener("wheel", (e) => {
+    radius *= e.deltaY > 0 ? 1.1 : 0.9;
+    radius = Math.max(10, Math.min(5000, radius));
+    updateCamera();
+    e.preventDefault();
+  }, { passive: false });
+  document.getElementById("rollSlider").addEventListener("input", (e) => {
+    roll = (parseFloat(e.target.value) * Math.PI) / 180;
+    document.getElementById("rollVal").textContent = e.target.value;
+    updateCamera();
+  });
+  document.getElementById("resetView").addEventListener("click", () => {
+    theta = Math.PI / 4; phi = Math.PI / 3; roll = 0;
+    document.getElementById("rollSlider").value = 0;
+    document.getElementById("rollVal").textContent = "0";
+    fitCameraToParts();
+  });
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+  dirLight.position.set(1, 1, 1);
+  scene.add(dirLight);
+
+  function parseBinarySTL(buf) {
+    const dv = new DataView(buf);
+    const triCount = dv.getUint32(80, true);
+    const positions = new Float32Array(triCount * 9);
+    let offset = 84;
+    for (let i = 0; i < triCount; i++) {
+      offset += 12;
+      for (let j = 0; j < 9; j++) { positions[i * 9 + j] = dv.getFloat32(offset, true); offset += 4; }
+      offset += 2;
+    }
+    return { positions, triCount };
+  }
+
+  const parts = []; // { name, mesh, color, visible }
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+
+  function fitCameraToParts() {
+    const box = new THREE.Box3();
+    parts.forEach((p) => { p.mesh.updateMatrixWorld(true); box.expandByObject(p.mesh); });
+    if (box.isEmpty()) return;
+    const sphere = new THREE.Sphere();
+    box.getBoundingSphere(sphere);
+    target.copy(sphere.center);
+    radius = sphere.radius * 2.4;
+    updateCamera();
+  }
+
+  function setPartVisible(p, visible) {
+    p.visible = visible;
+    p.mesh.visible = visible;
+  }
+
+  function renderLegend() {
+    legendEl.innerHTML = "";
+    const title = document.createElement("div");
+    title.style.fontWeight = "bold"; title.style.marginBottom = "6px";
+    title.textContent = "Parts (" + parts.length + ")";
+    legendEl.appendChild(title);
+
+    const controls = document.createElement("div");
+    controls.style.display = "flex"; controls.style.gap = "4px"; controls.style.marginBottom = "8px"; controls.style.flexWrap = "wrap";
+    const mkBtn = (label) => { const b = document.createElement("button"); b.textContent = label; b.style.fontSize = "10px"; b.style.padding = "3px 6px"; return b; };
+    const showAllBtn = mkBtn("Show all");
+    const isolateNoneBtn = mkBtn("Hide all");
+    const prevBtn = mkBtn("◀ Prev");
+    const nextBtn = mkBtn("Next ▶");
+    controls.appendChild(showAllBtn); controls.appendChild(isolateNoneBtn);
+    controls.appendChild(prevBtn); controls.appendChild(nextBtn);
+    legendEl.appendChild(controls);
+
+    let stepIndex = -1;
+    showAllBtn.addEventListener("click", () => { parts.forEach((p) => setPartVisible(p, true)); stepIndex = -1; renderLegend(); });
+    isolateNoneBtn.addEventListener("click", () => { parts.forEach((p) => setPartVisible(p, false)); stepIndex = -1; renderLegend(); });
+    prevBtn.addEventListener("click", () => {
+      if (!parts.length) return;
+      stepIndex = stepIndex <= 0 ? parts.length - 1 : stepIndex - 1;
+      parts.forEach((p, i) => setPartVisible(p, i === stepIndex));
+      renderLegend();
+    });
+    nextBtn.addEventListener("click", () => {
+      if (!parts.length) return;
+      stepIndex = stepIndex >= parts.length - 1 ? 0 : stepIndex + 1;
+      parts.forEach((p, i) => setPartVisible(p, i === stepIndex));
+      renderLegend();
+    });
+
+    parts.forEach((p) => {
+      const row = document.createElement("div");
+      row.style.display = "flex"; row.style.alignItems = "center"; row.style.gap = "6px"; row.style.marginBottom = "4px"; row.style.padding = "2px";
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = p.visible; cb.style.flexShrink = "0";
+      cb.addEventListener("change", () => setPartVisible(p, cb.checked));
+      const sw = document.createElement("div");
+      sw.style.width = "16px"; sw.style.height = "16px"; sw.style.borderRadius = "4px"; sw.style.background = p.color; sw.style.flexShrink = "0"; sw.style.cursor = "pointer";
+      sw.title = "Isolate this part";
+      sw.addEventListener("click", () => { parts.forEach((q) => setPartVisible(q, q === p)); renderLegend(); });
+      const label = document.createElement("span");
+      label.textContent = p.name; label.style.flex = "1";
+      row.appendChild(cb); row.appendChild(sw); row.appendChild(label);
+      legendEl.appendChild(row);
+    });
+  }
+  document.getElementById("legendToggle").addEventListener("click", (e) => {
+    const hidden = legendEl.style.display === "none";
+    legendEl.style.display = hidden ? "block" : "none";
+    e.target.textContent = hidden ? "Hide parts" : "Show parts";
+  });
+
+  renderer.domElement.addEventListener("click", (e) => {
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(parts.map((p) => p.mesh));
+    if (hits.length) {
+      const hitMesh = hits[0].object;
+      const p = parts.find((x) => x.mesh === hitMesh);
+      pickedLabel.textContent = p ? p.name : "?";
+      pickedLabel.style.background = p ? p.color : "";
+      pickedLabel.style.color = "#000";
+    }
+  });
+
+  let loaded = 0;
+  PARTS.forEach(([file, name], i) => {
+    fetch("cage_parts/" + encodeURIComponent(file)).then((r) => {
+      if (!r.ok) throw new Error(r.status + " for " + file);
+      return r.arrayBuffer();
+    }).then((buf) => {
+      const { positions } = parseBinarySTL(buf);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geometry.computeVertexNormals();
+      const color = PALETTE[i % PALETTE.length];
+      const material = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide });
+      const mesh = new THREE.Mesh(geometry, material);
+      if (Z_FIXUPS[file] !== undefined) mesh.position.z = Z_FIXUPS[file];
+      scene.add(mesh);
+      parts.push({ name, mesh, color, visible: true });
+    }).catch((e) => {
+      console.error(e);
+      parts.push({ name: name + " (FAILED TO LOAD: " + file + ")", mesh: new THREE.Object3D(), color: "#444", visible: false });
+    }).finally(() => {
+      loaded++;
+      info.textContent = "Loaded " + loaded + "/" + PARTS.length + " parts.";
+      renderLegend();
+      if (loaded === PARTS.length) {
+        fitCameraToParts();
+        info.textContent = "All " + PARTS.length + " parts loaded. Click a part to identify it, or use the list to isolate/hide parts.";
+      }
+    });
+  });
+
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  window.__debug = { scene, parts, THREE, camera, target: () => target, fitCameraToParts, parseBinarySTL };
+})();
+</script>
+</body>
+</html>

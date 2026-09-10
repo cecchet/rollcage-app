@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rollcage validator</title>
+<link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="images/favicon-192.png">
+<link rel="apple-touch-icon" href="images/favicon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="app-header">
+  <h1>Rollcage validator <span class="brand-link">by <a href="https://frogracing.us" target="_blank" rel="noopener">Frog Racing</a></span></h1>
+  <p class="disclaimer">
+    <strong>This is a pre-screening tool, not a certification.</strong> It confirms whether the visible
+    structural elements a sanctioning body requires appear to be present. Tube material, wall thickness,
+    weld quality, and exact angles/distances generally cannot be verified from photos and must be measured
+    or attested to directly. A logbook can only be issued by an authorized scrutineer.
+  </p>
+</header>
+
+<div class="cage-viewer-row">
+  <div id="cage-viewer-panel" class="panel cage-viewer-panel">
+    <div class="cage-viewer-header" title="Bars light up as you confirm them below. Click a bar to jump to its section. Drag to rotate, scroll to zoom, shift+drag to pan.">
+      <strong>Live cage model</strong>
+      <button id="cageViewerReset" class="btn small secondary">Reset</button>
+      <button id="cageViewerGhostToggle" class="btn small secondary" title="Toggle whether bars not yet confirmed show dimmed for context, or are hidden entirely">Hide ghost bars</button>
+      <button id="cageViewerToggle" class="btn small secondary">Hide</button>
+    </div>
+    <div id="cageViewerContainer" class="cage-viewer-container">
+      <img class="cage-viewer-watermark" src="images/favicon-192.png" alt="Frog Racing">
+    </div>
+  </div>
+</div>
+
+<main id="app"></main>
+
+<footer class="app-footer">
+  <p>Rules encoded from each sanctioning body's own published technical regulations and grandfathering
+  appendices. See the "notCoveredNote" and per-item references shown in the checklist for exactly what
+  was and wasn't covered for the selected sanctioning body.</p>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="cage_view.js?v=33"></script>
+<script src="diagrams.js?v=10"></script>
+<script src="rules-data.js?v=22"></script>
+<script src="app.js?v=27"></script>
+</body>
+</html>

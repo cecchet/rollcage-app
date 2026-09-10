@@ -1,0 +1,2463 @@
+// Rollcage pre-screening checklist app. Vanilla JS, no build step, no server
+// required — everything (including rules-data.js) loads via plain <script>
+// tags so the app works from a double-clicked index.html.
+
+(function () {
+  "use strict";
+
+  const STORAGE_KEY = "rollcage_inspections_v1";
+  const RULES = window.RULES_DATA;
+  // Photo uploads are disabled everywhere for now, to be reintroduced later
+  // where actually needed -- flip this back on rather than re-deriving the
+  // removed rendering.
+  const PHOTOS_ENABLED = false;
+
+  const state = {
+    sessionId: null,
+    vehicle: { name: "", org: "nasa", logbookStatus: "new", logbookDate: "" },
+    pathId: null,
+    answers: {}, // elementId -> { value, note, photos: [{name, dataUrl}] }
+    resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
+    vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
+    logbookExpanded: false, // UI-only: Logbook panel starts collapsed
+    expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
+    activeTab: 1, // UI-only: which phase (Part 1/2/3) tab is currently shown
+    justSaved: false, // UI-only: briefly true right after the Save button is clicked
+    showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
+  };
+
+  function uid() {
+    return "insp_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+  }
+
+  function loadAll() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveCurrent() {
+    if (!state.sessionId) return;
+    const all = loadAll();
+    all[state.sessionId] = {
+      sessionId: state.sessionId,
+      vehicle: state.vehicle,
+      pathId: state.pathId,
+      answers: state.answers,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  }
+
+  function startNew() {
+    state.sessionId = uid();
+    state.vehicle = { name: "", org: "nasa", logbookStatus: "new", logbookDate: "" };
+    state.pathId = suggestPath(state.vehicle);
+    state.answers = {};
+    render();
+  }
+
+  function loadSession(id) {
+    const all = loadAll();
+    const s = all[id];
+    if (!s) return;
+    state.sessionId = s.sessionId;
+    state.vehicle = s.vehicle;
+    state.pathId = s.pathId;
+    state.answers = s.answers || {};
+    render();
+  }
+
+  function suggestPath(vehicle) {
+    if (vehicle.logbookStatus === "new") return "new_construction";
+    if (!vehicle.logbookDate) return null;
+    const orgRules = RULES[vehicle.org];
+    if (!orgRules) return null;
+    const cutoff = new Date(orgRules.logbookCutoffDate);
+    const issued = new Date(vehicle.logbookDate);
+    return issued >= cutoff ? "new_construction" : "grandfathered";
+  }
+
+  function getAnswer(id) {
+    return state.answers[id] || { value: "", note: "", photos: [], extra: {} };
+  }
+
+  function setAnswer(id, patch) {
+    state.answers[id] = Object.assign({}, getAnswer(id), patch);
+    saveCurrent();
+    render();
+  }
+
+  // ---- Scoring -------------------------------------------------------
+
+  function compareOk(v, compare) {
+    if (!compare) return true;
+    switch (compare.op) {
+      case "lt": return v < compare.value;
+      case "lte": return v <= compare.value;
+      case "gt": return v > compare.value;
+      case "gte": return v >= compare.value;
+      case "between": return v >= compare.min && v <= compare.max;
+      default: return true;
+    }
+  }
+
+  // Status for one entry of elm.extraFields -- "numeric" (default) compares
+  // against f.compare like the standalone numeric type; "boolean" is a
+  // plain yes/no. Each field can carry its own `requirement` (e.g. a
+  // "recommended" field merged onto an otherwise "required" card); falls
+  // back to the parent element's requirement if not given.
+  // Whether one elm.extraFields entry applies given the parent element's
+  // own current answer.value (e.g. a "Sill bar" sub-field merged onto a
+  // door-bar-design choice, only relevant for some of that choice's
+  // options).
+  function extraFieldApplies(f, parentValue) {
+    if (!f.showIf) return true;
+    if (f.showIf.equals !== undefined) return parentValue === f.showIf.equals;
+    if (f.showIf.in) return f.showIf.in.includes(parentValue);
+    return true;
+  }
+
+  function extraFieldStatus(f, raw, parentRequirement) {
+    const requirement = f.requirement || parentRequirement;
+    if (f.type === "boolean") {
+      if (raw !== "yes" && raw !== "no") return requirement === "recommended" ? "neutral" : "warn";
+      if (raw === "no") return requirement === "recommended" ? "warn" : "fail";
+      return "pass";
+    }
+    if (raw === "" || raw == null) return requirement === "recommended" ? "neutral" : "warn";
+    const v = parseFloat(raw);
+    if (isNaN(v)) return "warn";
+    return compareOk(v, f.compare) ? "pass" : requirement === "recommended" ? "warn" : "fail";
+  }
+
+  function elementStatus(el, answer) {
+    // returns one of: pass, fail, warn (unsure/incomplete), neutral (not applicable / informational-only)
+    if (el.requirement === "informational") {
+      return "neutral";
+    }
+    if (el.extraFields) {
+      const core = Object.assign({}, el);
+      delete core.extraFields;
+      let worst = elementStatus(core, answer);
+      const extra = answer.extra || {};
+      el.extraFields.forEach((f) => {
+        if (!extraFieldApplies(f, answer.value)) return;
+        const s = extraFieldStatus(f, extra[f.key], el.requirement);
+        if (s === "fail") worst = "fail";
+        else if (s === "warn" && worst !== "fail") worst = "warn";
+        else if (s === "neutral" && worst === "pass") worst = "neutral";
+      });
+      return worst;
+    }
+    if (el.evaluationType === "choice") {
+      if (!answer.value) return el.requirement === "recommended" ? "neutral" : "warn";
+      const opt = el.options.find((o) => o.id === answer.value);
+      if (!opt) return "warn";
+      if (opt.outcome === "exempt") return "pass";
+      if (opt.outcome === "fail") return el.requirement === "recommended" ? "warn" : "fail";
+      return "pass";
+    }
+    if (el.evaluationType === "tubing3solo") {
+      return tubing3Status(el, answer);
+    }
+    if (el.evaluationType === "plateSolo") {
+      return plateSoloStatus(answer);
+    }
+    if (el.evaluationType === "gussetSolo") {
+      return gussetSoloStatus(answer);
+    }
+    if (el.evaluationType === "numeric" && el.fields) {
+      const values = answer.value || {};
+      let worst = "pass";
+      el.fields.forEach((f) => {
+        const raw = values[f.key];
+        let s;
+        if (raw === "" || raw == null) s = el.requirement === "recommended" ? "neutral" : "warn";
+        else {
+          const v = parseFloat(raw);
+          if (isNaN(v)) s = "warn";
+          else s = compareOk(v, f.compare) ? "pass" : el.requirement === "recommended" ? "warn" : "fail";
+        }
+        if (s === "fail") worst = "fail";
+        else if (s === "warn" && worst !== "fail") worst = "warn";
+        else if (s === "neutral" && worst === "pass") worst = "neutral";
+      });
+      return worst;
+    }
+    if (el.evaluationType === "numeric") {
+      if (answer.value === "" || answer.value == null) return el.requirement === "recommended" ? "neutral" : "warn";
+      const v = parseFloat(answer.value);
+      if (isNaN(v)) return "warn";
+      if (!compareOk(v, el.compare)) return el.requirement === "recommended" ? "warn" : "fail";
+      return "pass";
+    }
+    if (el.evaluationType === "table") {
+      return tableElementStatus(el);
+    }
+    // boolean / attestation share yes/no/unsure
+    if (answer.value === "yes") return "pass";
+    if (answer.value === "no") return el.requirement === "recommended" ? "warn" : "fail";
+    if (answer.value === "unsure") return "warn";
+    return el.requirement === "recommended" ? "neutral" : "warn";
+  }
+
+  // ---- Tubing (material / diameter / thickness) -----------------------
+  // Diameter/thickness are entered via a dropdown of common preset sizes
+  // (mixed inch and mm, since FIA-homologated T45 cages are metric) plus an
+  // "Other" option that reveals a free numeric entry + unit picker, for
+  // anything bigger or smaller than the expected set. Everything is
+  // compared in inches internally regardless of which unit was entered.
+  const DIAMETER_PRESETS = [
+    { val: 1.5, unit: "in" }, { val: 1.75, unit: "in" }, { val: 2.0, unit: "in" },
+    { val: 38, unit: "mm" }, { val: 40, unit: "mm" }, { val: 45, unit: "mm" }, { val: 50, unit: "mm" },
+  ];
+  const THICKNESS_PRESETS = [
+    { val: 0.065, unit: "in" }, { val: 0.083, unit: "in" }, { val: 0.095, unit: "in" }, { val: 0.12, unit: "in" },
+    { val: 2.0, unit: "mm" }, { val: 2.5, unit: "mm" }, { val: 3.0, unit: "mm" },
+  ];
+  function dimLabel(d) { return d.val + (d.unit === "mm" ? "mm" : '"'); }
+  function toInches(dim) {
+    if (!dim || dim.val === "" || dim.val == null) return null;
+    const v = parseFloat(dim.val);
+    if (isNaN(v)) return null;
+    return dim.unit === "mm" ? v / 25.4 : v;
+  }
+
+  // Legacy single-dropdown tubing sub-item (still used by untouched
+  // grandfathered paths).
+  function tubingStatus(sub, answer) {
+    if (sub.requirements) return tubing3Status(sub, answer);
+    if (!answer.value) return "warn";
+    const opt = sub.options.find((o) => o.id === answer.value);
+    if (!opt) return "warn";
+    return opt.outcome === "fail" ? "fail" : "pass";
+  }
+
+  // New 3-field tubing sub-item: material + diameter + thickness, checked
+  // against whichever material's minimums were matched. Material "other"
+  // (a spec we don't have a rule for) is left as "warn" for the inspector
+  // to judge manually via the notes field, rather than auto-failing it.
+  function tubing3Status(sub, answer) {
+    const v = answer.value;
+    if (!v || !v.material) return "warn";
+    if (v.material === "other") return "warn";
+    const req = sub.requirements.find((r) => r.material === v.material);
+    if (!req) return "warn";
+    if (req.manualOnly) return "warn";
+    const diamIn = toInches(v.diameter);
+    const thickIn = toInches(v.thickness);
+    if (diamIn == null || thickIn == null) return "warn";
+    // A material can have more than one acceptable (diameter, thickness)
+    // floor -- e.g. NASA's CDS/DOM allows EITHER 1.75x0.095 OR 2.00x0.083 --
+    // so pass if the entered size clears any one combo.
+    return req.combos.some((c) => diamIn >= c.minDiameterIn && thickIn >= c.minThicknessIn) ? "pass" : "fail";
+  }
+
+  // Mounting foot plates: material (free text, no rule tied to it) +
+  // thickness only (no diameter -- a flat plate, not a tube). FIA's rule is
+  // a flat 3mm minimum regardless of material.
+  const PLATE_MIN_THICKNESS_IN = 3 / 25.4;
+  function plateSoloStatus(answer) {
+    const v = answer.value;
+    if (!v || !v.thickness) return "warn";
+    const thickIn = toInches(v.thickness);
+    if (thickIn == null) return "warn";
+    return thickIn >= PLATE_MIN_THICKNESS_IN ? "pass" : "fail";
+  }
+  // Gusset material/thickness: pure capture like the rest of Part 2 -- no
+  // minimum enforced here (unlike mounting feet's flat 3mm FIA rule), since
+  // the actual per-junction minimum varies and is judged in Part 4 instead.
+  function gussetSoloStatus(answer) {
+    const v = answer.value;
+    return v && v.material && dimHasValue(v.thickness) ? "pass" : "warn";
+  }
+
+  // ---- Table elements (named rows x columns, e.g. weld locations, gusset
+  // specs, mounting feet) -- one shared answer id per cell:
+  // elm.id + "__" + row.id + "__" + col.key.
+  function tableCellId(elm, row, col) { return elm.id + "__" + row.id + "__" + col.key; }
+  // elm.rows is normally a static array, but some tables (e.g. the tube
+  // classification table's door-bar rows) need a different row set
+  // depending on another answer -- those declare rows as a function taking
+  // getAnswer instead, resolved fresh on every render/status computation.
+  function resolveRows(elm) { return typeof elm.rows === "function" ? elm.rows(getAnswer) : elm.rows; }
+  function tableCellStatus(col, answer) {
+    if (col.type === "boolean") {
+      if (answer.value === "yes") return "pass";
+      if (answer.value === "no") return "fail";
+      return "warn";
+    }
+    if (col.type === "number") {
+      if (answer.value === "" || answer.value == null) return "warn";
+      const v = parseFloat(answer.value);
+      if (isNaN(v)) return "warn";
+      return compareOk(v, col.compare) ? "pass" : "fail";
+    }
+    if (col.type === "tubing3") {
+      return tubing3Status(col, answer);
+    }
+    if (col.type === "area") {
+      // Just needs an entry -- Part 2 captures the size, Part 4 is where
+      // it's actually judged against the FIA minimum for that location.
+      const v = answer.value;
+      return v && v.value !== "" && v.value != null ? "pass" : "warn";
+    }
+    // text/select: just needs an entry, no automatic pass/fail judgement
+    return answer.value ? "pass" : "warn";
+  }
+  function tableElementStatus(elm) {
+    let worst = "pass";
+    resolveRows(elm).forEach((row) => {
+      elm.columns.forEach((col) => {
+        if (col.optional) return;
+        const cellAnswer = getAnswer(tableCellId(elm, row, col));
+        const s = tableCellStatus(col, cellAnswer);
+        if (s === "fail") worst = "fail";
+        else if (s === "warn" && worst !== "fail") worst = "warn";
+      });
+    });
+    return worst;
+  }
+
+  // Whether an element applies given the answers so far -- used to skip
+  // alternate-design subsections that don't match what was picked upstream
+  // (e.g. only show the 253-14/253-22 detail section if that roof-bar
+  // design was actually selected), rather than showing every design's full
+  // detail unconditionally and scoring the ones not chosen as "incomplete".
+  // A showIf condition is either {id, equals} / {id, in: [...]} (checked
+  // against that field's own answer), or {any: [cond, cond, ...]} for OR
+  // logic across different fields (e.g. "this main rollbar sub-question
+  // applies if EITHER the base structure was identified as 253-1/2/3, OR
+  // the separate 'main rollbar present' question was answered yes").
+  function showIfCondMet(c) {
+    if (c.any) return c.any.some(showIfCondMet);
+    const v = getAnswer(c.id).value;
+    if (c.equals !== undefined) return v === c.equals;
+    if (c.notEquals !== undefined) return v !== c.notEquals;
+    if (c.in) return c.in.includes(v);
+    return true;
+  }
+  function elementVisible(elm) {
+    if (!elm.showIf) return true;
+    const conds = Array.isArray(elm.showIf) ? elm.showIf : [elm.showIf];
+    return conds.every(showIfCondMet);
+  }
+
+  function computeResults(path) {
+    const routeAnswer = getAnswer("homologation_route");
+    const visibleElements = path.elements.filter(elementVisible);
+    const exempt = visibleElements.some(
+      (el) => el.isRoutingQuestion && getAnswer(el.id).value &&
+        el.options.find((o) => o.id === getAnswer(el.id).value && o.outcome === "exempt")
+    );
+
+    const rows = visibleElements.map((el) => {
+      const answer = getAnswer(el.id);
+      const status = el.isRoutingQuestion ? (answer.value ? "pass" : "warn") : elementStatus(el, answer);
+      return { el, answer, status };
+    });
+
+    let requiredTotal = 0;
+    let requiredSatisfied = 0;
+    const failures = [];
+    const unresolved = [];
+    const advisories = [];
+
+    rows.forEach(({ el, status }) => {
+      if (el.isRoutingQuestion) return;
+      const counts = el.requirement === "required" || el.requirement === "conditional" || el.requirement === "exception";
+      if (counts) {
+        requiredTotal++;
+        if (status === "pass") requiredSatisfied++;
+        if (status === "fail") failures.push(el);
+        if (status === "warn") unresolved.push(el);
+      } else if (el.requirement === "recommended" && status === "warn") {
+        advisories.push(el);
+      }
+
+      if (el.tubing && el.tubing.length) {
+        el.tubing.forEach((sub, idx) => {
+          const subId = el.id + "__tubing_" + idx;
+          const subAnswer = getAnswer(subId);
+          const subStatus = tubingStatus(sub, subAnswer);
+          const pseudoEl = {
+            name: el.name + " — " + sub.label,
+            reference: sub.reference,
+            hardFailMessage: "Tubing does not meet the minimum " + sub.classification + " spec.",
+          };
+          requiredTotal++;
+          if (subStatus === "pass") requiredSatisfied++;
+          if (subStatus === "fail") failures.push(pseudoEl);
+          if (subStatus === "warn") unresolved.push(pseudoEl);
+        });
+      }
+    });
+
+    let verdict;
+    if (exempt) {
+      verdict = { level: "warn", exempt: true, label: "HOMOLOGATED ROUTE — verify against FIA/ASN papers directly", detail: "This checklist does not apply to an exact-match homologated cage." };
+    } else if (failures.length > 0) {
+      verdict = { level: "fail", label: "NOT COMPLIANT — required element(s) missing or failing", detail: failures.length + " required item(s) failed." };
+    } else if (unresolved.length > 0) {
+      verdict = { level: "warn", label: "INCOMPLETE — needs verification before a call can be made", detail: unresolved.length + " required item(s) not yet answered or unsure." };
+    } else {
+      verdict = { level: "pass", label: "MEETS MINIMUM REQUIREMENTS (as entered)", detail: "All required items satisfied based on your answers." };
+    }
+
+    return {
+      rows,
+      requiredTotal,
+      requiredSatisfied,
+      failures,
+      unresolved,
+      advisories,
+      verdict,
+      scorePct: requiredTotal ? Math.round((requiredSatisfied / requiredTotal) * 100) : 0,
+    };
+  }
+
+  // ---- Rendering -------------------------------------------------------
+
+  function el(tag, attrs, children) {
+    const node = document.createElement(tag);
+    if (attrs) {
+      Object.keys(attrs).forEach((k) => {
+        if (k === "class") node.className = attrs[k];
+        else if (k === "html") node.innerHTML = attrs[k];
+        else if (k.startsWith("on")) node.addEventListener(k.slice(2), attrs[k]);
+        else if (typeof attrs[k] === "boolean") {
+          // Boolean HTML attributes (disabled, etc.) are presence-based --
+          // setAttribute(k, false) would still add the attribute as the
+          // string "false" and disable the element regardless.
+          if (attrs[k]) node.setAttribute(k, "");
+          else node.removeAttribute(k);
+        } else node.setAttribute(k, attrs[k]);
+      });
+    }
+    (children || []).forEach((c) => {
+      if (c == null) return;
+      node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    });
+    return node;
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  let saveFlashTimeout = null;
+  function saveWithFlash() {
+    saveCurrent();
+    state.justSaved = true;
+    render();
+    clearTimeout(saveFlashTimeout);
+    saveFlashTimeout = setTimeout(() => { state.justSaved = false; render(); }, 1200);
+  }
+
+  function exportSessionToFile() {
+    const data = { sessionId: state.sessionId, vehicle: state.vehicle, pathId: state.pathId, answers: state.answers };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = (state.vehicle.name || "rollcage") + ".json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Always lands as a new, separate saved rollcage (a fresh sessionId)
+  // rather than silently overwriting whatever's currently open or
+  // colliding with an existing save that happens to reuse an old id.
+  function importSessionFromFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      let data;
+      try {
+        data = JSON.parse(reader.result);
+      } catch (e) {
+        alert("That file isn't a valid rollcage export (not JSON).");
+        return;
+      }
+      if (!data || typeof data !== "object" || !data.vehicle || !data.answers) {
+        alert("That file isn't a valid rollcage export.");
+        return;
+      }
+      state.sessionId = uid();
+      state.vehicle = data.vehicle;
+      state.pathId = data.pathId || null;
+      state.answers = data.answers || {};
+      saveCurrent();
+      render();
+    };
+    reader.readAsText(file);
+  }
+
+  function renderSessionBar(root) {
+    const all = loadAll();
+    const select = el("select", {
+      onchange: (e) => {
+        if (e.target.value === "__new__") startNew();
+        else loadSession(e.target.value);
+      },
+    });
+    select.appendChild(el("option", { value: "__new__" }, ["New rollcage..."]));
+    Object.values(all)
+      .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+      .forEach((s) => {
+        const label = (s.vehicle.name || "Unnamed vehicle") + " — " + new Date(s.updatedAt).toLocaleString();
+        const opt = el("option", { value: s.sessionId }, [label]);
+        if (s.sessionId === state.sessionId) opt.selected = true;
+        select.appendChild(opt);
+      });
+
+    const importInput = el("input", {
+      type: "file",
+      accept: "application/json",
+      class: "visually-hidden",
+      onchange: (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) importSessionFromFile(file);
+        e.target.value = "";
+      },
+    });
+
+    const nameInput = el("input", {
+      type: "text",
+      class: "session-bar-name-input",
+      placeholder: "Name this rollcage...",
+      value: state.vehicle.name,
+      oninput: (e) => {
+        state.vehicle.name = e.target.value;
+        saveCurrent();
+      },
+    });
+
+    root.appendChild(
+      el("div", { class: "panel session-bar" }, [
+        el("div", { class: "session-bar-group" }, [
+          el("div", {}, ["Saved Rollcages (this browser only): "]),
+          select,
+        ]),
+        el("div", { class: "session-bar-group" }, [
+          el("label", { for: "rollcageNameInput" }, ["Rollcage name: "]),
+          Object.assign(nameInput, { id: "rollcageNameInput" }),
+        ]),
+        el("div", { class: "session-bar-group" }, [
+          el("button", { class: "btn small secondary", onclick: saveWithFlash }, [state.justSaved ? "Saved ✓" : "Save"]),
+          el("button", { class: "btn small secondary", onclick: exportSessionToFile }, ["Export to file"]),
+          el("button", { class: "btn small secondary", onclick: () => importInput.click() }, ["Import from file"]),
+          importInput,
+          el(
+            "button",
+            {
+              class: "btn small secondary",
+              onclick: () => {
+                const all2 = loadAll();
+                delete all2[state.sessionId];
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(all2));
+                startNew();
+              },
+            },
+            ["Delete this rollcage"]
+          ),
+        ]),
+      ])
+    );
+  }
+
+  function collapsiblePanelHeader(title, isExpanded, onToggle) {
+    return el("div", { class: "results-header" }, [
+      el("h2", {}, [title]),
+      el("button", { class: "btn secondary", onclick: onToggle }, [isExpanded ? "Hide ▴" : "Show ▾"]),
+    ]);
+  }
+
+  function textAnswerField(label, id) {
+    const answer = getAnswer(id);
+    return el("div", { class: "field" }, [
+      el("label", {}, [label]),
+      el("input", {
+        type: "text",
+        value: answer.value || "",
+        onchange: (e) => setAnswer(id, { value: e.target.value }),
+      }),
+    ]);
+  }
+
+  function renderVehicleForm(root) {
+    const vehiclePanel = el("div", { class: "panel" });
+    vehiclePanel.appendChild(
+      collapsiblePanelHeader("Vehicle description", state.vehicleExpanded, () => {
+        state.vehicleExpanded = !state.vehicleExpanded;
+        render();
+      })
+    );
+
+    if (state.vehicleExpanded) {
+      const nameField = el("div", { class: "field" }, [
+        el("label", {}, ["Vehicle / entry name"]),
+        el("input", {
+          type: "text",
+          value: state.vehicle.name,
+          oninput: (e) => {
+            state.vehicle.name = e.target.value;
+            saveCurrent();
+          },
+        }),
+      ]);
+      vehiclePanel.appendChild(nameField);
+      vehiclePanel.appendChild(
+        el("div", { class: "field-row" }, [
+          textAnswerField("Manufacturer", "vehicle_manufacturer"),
+          textAnswerField("Model", "vehicle_model"),
+          textAnswerField("Year", "vehicle_year"),
+        ])
+      );
+      vehiclePanel.appendChild(
+        el("div", { class: "field-row" }, [
+          textAnswerField("VIN", "vehicle_vin"),
+          textAnswerField("Rollcage builder (name & address)", "vehicle_builder"),
+          textAnswerField("Build date", "vehicle_build_date"),
+        ])
+      );
+    }
+    root.appendChild(vehiclePanel);
+
+    const logbookPanel = el("div", { class: "panel" });
+    logbookPanel.appendChild(
+      collapsiblePanelHeader("Logbook", state.logbookExpanded, () => {
+        state.logbookExpanded = !state.logbookExpanded;
+        render();
+      })
+    );
+    if (!state.logbookExpanded) {
+      root.appendChild(logbookPanel);
+      return;
+    }
+
+    const statusField = el("div", { class: "field" }, [
+      el("label", {}, ["Logbook status"]),
+      el("div", { class: "radio-group" }, [
+        radioOption("logbookStatus", "new", "New build (logbook not yet issued)", state.vehicle.logbookStatus === "new", (v) => {
+          state.vehicle.logbookStatus = v;
+          state.vehicle.logbookDate = "";
+          state.pathId = suggestPath(state.vehicle);
+          saveCurrent();
+          render();
+        }),
+        radioOption("logbookStatus", "existing", "Existing logbook", state.vehicle.logbookStatus === "existing", (v) => {
+          state.vehicle.logbookStatus = v;
+          state.pathId = suggestPath(state.vehicle);
+          saveCurrent();
+          render();
+        }),
+      ]),
+    ]);
+
+    const dateField = el("div", { class: "field" }, [
+      el("label", {}, ["Logbook issue date"]),
+      el("input", {
+        type: "date",
+        value: state.vehicle.logbookDate || "",
+        disabled: state.vehicle.logbookStatus !== "existing",
+        oninput: (e) => {
+          state.vehicle.logbookDate = e.target.value;
+          state.pathId = suggestPath(state.vehicle);
+          saveCurrent();
+          render();
+        },
+      }),
+    ]);
+
+    logbookPanel.appendChild(el("div", { class: "field-row" }, [statusField, dateField]));
+
+    const orgRules = RULES[state.vehicle.org];
+    const suggested = suggestPath(state.vehicle);
+    const activePath = state.pathId && orgRules.paths[state.pathId];
+    const routeElm = activePath && activePath.elements.find((e) => e.id === "homologation_route");
+    const routeAnswer = getAnswer("homologation_route");
+
+    const certAnswer = getAnswer("vehicle_certificate_number");
+    const certField = el("div", { class: "field" }, [
+      el("label", {}, ["Certificate #, ASN (if applicable)"]),
+      el("input", {
+        type: "text",
+        value: certAnswer.value || "",
+        disabled: routeAnswer.value !== "homologated",
+        onchange: (e) => setAnswer("vehicle_certificate_number", { value: e.target.value }),
+      }),
+    ]);
+
+    const orgSelect = el("select", {
+      onchange: (e) => {
+        state.vehicle.org = e.target.value;
+        // Answers are intentionally kept, not reset: element/option ids are
+        // shared with the FIA 253 base across orgs, so existing answers
+        // re-validate against the new org's rules automatically (a choice
+        // that was a pass under one org but is disallowed under another
+        // will now show as a fail/needs-review, via elementStatus/
+        // tubingStatus's existing "unrecognized value" handling).
+        if (!RULES[state.vehicle.org].paths[state.pathId]) {
+          state.pathId = suggestPath(state.vehicle);
+        }
+        setAnswer("vehicle_logbook_body", { value: e.target.value });
+        saveCurrent();
+        render();
+      },
+    });
+    Object.keys(RULES).forEach((orgKey) => {
+      const opt = el("option", { value: orgKey }, [RULES[orgKey].orgFullName]);
+      if (state.vehicle.org === orgKey) opt.selected = true;
+      orgSelect.appendChild(opt);
+    });
+    const orgField = el("div", { class: "field" }, [el("label", {}, ["Logbook sanctioning body"]), orgSelect]);
+
+    const logbookNumberAnswer = getAnswer("vehicle_logbook_number");
+    const logbookNumberField = el("div", { class: "field" }, [
+      el("label", {}, ["Logbook number"]),
+      el("input", {
+        type: "text",
+        value: logbookNumberAnswer.value || "",
+        onchange: (e) => setAnswer("vehicle_logbook_number", { value: e.target.value }),
+      }),
+    ]);
+
+    logbookPanel.appendChild(el("div", { class: "field-row" }, [certField, orgField, logbookNumberField]));
+
+    const pathField = el("div", { class: "field" }, [
+      el("label", {}, ["Compliance path to check against"]),
+      el("div", { class: "radio-group" }, [
+        radioOption("pathId", "new_construction", orgRules.paths.new_construction.label, state.pathId === "new_construction", (v) => {
+          state.pathId = v;
+          saveCurrent();
+          render();
+        }),
+        radioOption("pathId", "grandfathered", orgRules.paths.grandfathered.label, state.pathId === "grandfathered", (v) => {
+          state.pathId = v;
+          saveCurrent();
+          render();
+        }),
+      ]),
+      suggested
+        ? el("div", { class: "path-suggestion" }, ["Suggested based on logbook date/status: " + orgRules.paths[suggested].label])
+        : el("div", { class: "path-suggestion" }, ["Enter a logbook date, or choose 'new build', to get a suggestion."]),
+    ]);
+    logbookPanel.appendChild(pathField);
+
+    if (routeElm) {
+      const routeField = el("div", { class: "field" });
+      routeField.appendChild(el("label", {}, [routeElm.name]));
+      if (routeElm.description) routeField.appendChild(el("div", { class: "element-desc" }, [routeElm.description]));
+      const group = el("div", { class: "choice-radio-group" });
+      routeElm.options.forEach((opt) => {
+        const inputId = "homologation_route_" + opt.id;
+        const radio = el("input", {
+          type: "radio",
+          name: "homologation_route",
+          id: inputId,
+          onchange: () => setAnswer("homologation_route", { value: opt.id }),
+        });
+        radio.checked = routeAnswer.value === opt.id;
+        group.appendChild(
+          el(
+            "label",
+            { class: "choice-option" + (routeAnswer.value === opt.id ? " selected" : ""), for: inputId },
+            [radio, el("div", { class: "choice-label" }, [opt.label])]
+          )
+        );
+      });
+      routeField.appendChild(group);
+      const chosenOpt = routeElm.options.find((o) => o.id === routeAnswer.value);
+      if (chosenOpt && chosenOpt.note) {
+        routeField.appendChild(el("div", { class: "visual-flag" }, [chosenOpt.note]));
+      }
+      logbookPanel.appendChild(routeField);
+    }
+
+    const notesAnswer = getAnswer("vehicle_description_notes");
+    const notesInput = el("textarea", {
+      class: "note-input",
+      placeholder: "Notes for this vehicle (e.g. anything unusual about the identification info above)...",
+      onchange: (e) => setAnswer("vehicle_description_notes", { value: e.target.value }),
+    });
+    notesInput.value = notesAnswer.value || "";
+    logbookPanel.appendChild(el("div", { class: "field" }, [el("label", {}, ["Notes"]), notesInput]));
+
+    root.appendChild(logbookPanel);
+  }
+
+  function radioOption(name, value, label, checked, onChange) {
+    const input = el("input", {
+      type: "radio",
+      name,
+      value,
+      onchange: (e) => onChange(e.target.value),
+    });
+    input.checked = checked;
+    return el("label", {}, [input, label]);
+  }
+
+  // Rendered inline in the Logbook panel instead (renderVehicleForm) --
+  // not part of the per-category checklist body below.
+  const RENDERED_IN_LOGBOOK_PANEL = ["homologation_route", "vehicle_description_notes"];
+
+  // ---- Phase grouping ---------------------------------------------------
+  // Mirrors how an inspector actually works through a physical car: first
+  // settle which bars/design exist at all (these are also exactly the
+  // choices that drive the live 3D model), then measure every tube's
+  // material/diameter/thickness in one pass with the sizing tool, then
+  // finish everything else -- angles, distances, welds, gussets -- one
+  // element at a time. A given document section (e.g. "7. Optional bars")
+  // can and does have elements in more than one phase; its category
+  // heading then simply reappears in each phase it has content in.
+  const PHASE_1_DESIGN_CHOICE_IDS = new Set([
+    "main_structure_layout",
+    "main_rollbar_present",
+    "lateral_rollbars_other",
+    "transverse_member_253_3",
+    "transverse_members_253_1",
+    "main_hoop_diagonals",
+    "backstays",
+    "backstay_diagonals",
+    "roof_bars",
+    "door_bars",
+    "a_pillar_reinforcement",
+    "harness_bar_present",
+    "rear_lateral_reinforcement_present",
+    "rear_transversal_present",
+    "rear_lower_x_present",
+    "anti_intrusion_present",
+    "dash_bar_present",
+    "temple_bar_present",
+    "windshield_reinforcement_present",
+    "mounting_feet_design",
+    "gusset_design",
+  ]);
+  const PHASE_LABELS = {
+    1: "Part 1 — Structure & design choices",
+    2: "Part 2 — Tubing sizes & materials",
+    3: "Part 3 — Measurements, angles & welds",
+    4: "Part 4 — Rule compliance & Logbook",
+  };
+  function isTubingSizingTable(elm) {
+    if (elm.evaluationType === "tubing3solo") return true;
+    if (elm.evaluationType === "plateSolo") return true;
+    if (elm.evaluationType === "gussetSolo") return true;
+    if (elm.id === "tubing_bar_classification") return true;
+    if (elm.id === "mounting_feet_size") return true;
+    if (elm.evaluationType !== "table" || !elm.columns) return false;
+    const hasTubing3 = elm.columns.some((c) => c.type === "tubing3");
+    const isGusset = elm.columns.some((c) => c.key === "corner_cutout"); // gusset tables also carry a tubing3 "tube" reference column
+    return hasTubing3 && !isGusset;
+  }
+  function elementPhase(elm) {
+    if (PHASE_1_DESIGN_CHOICE_IDS.has(elm.id)) return 1;
+    if (isTubingSizingTable(elm)) return 2;
+    return 3;
+  }
+
+  // Part 4 is a virtual phase -- it never holds checklist elements (nothing
+  // is ever classified into it by elementPhase), it just gives the Result /
+  // Vehicle description / Logbook panels their own tab alongside Part 1-3
+  // instead of always trailing every phase's content. render() checks
+  // isPart4Active on the return value to decide whether to show those
+  // panels below this one.
+  function renderChecklist(root, path) {
+    const panel = el("div", { class: "panel" });
+    panel.appendChild(el("h2", {}, ["Rollcage design"]));
+
+    const visible = path.elements.filter(elementVisible).filter((elm) => !RENDERED_IN_LOGBOOK_PANEL.includes(elm.id));
+    const phases = { 1: [], 2: [], 3: [] };
+    visible.forEach((elm) => phases[elementPhase(elm)].push(elm));
+    const usedPhases = [1, 2, 3].filter((p) => phases[p].length);
+    const showTabs = usedPhases.length > 1;
+    const tabPhases = showTabs ? usedPhases.concat([4]) : [];
+    if (showTabs && !tabPhases.includes(state.activeTab)) state.activeTab = usedPhases[0];
+    const isPart4Active = showTabs && state.activeTab === 4;
+    const shownPhases = showTabs ? (isPart4Active ? [] : [state.activeTab]) : usedPhases;
+
+    if (showTabs) {
+      panel.appendChild(
+        el(
+          "div",
+          { class: "phase-tabs" },
+          tabPhases.map((p) =>
+            el(
+              "button",
+              {
+                class: "phase-tab" + (state.activeTab === p ? " active" : ""),
+                onclick: () => { state.activeTab = p; render(); },
+              },
+              [PHASE_LABELS[p]]
+            )
+          )
+        )
+      );
+    }
+
+    shownPhases.forEach((p) => {
+      const byCategory = {};
+      phases[p].forEach((elm) => {
+        byCategory[elm.category] = byCategory[elm.category] || [];
+        byCategory[elm.category].push(elm);
+      });
+      Object.keys(byCategory).forEach((cat) => {
+        // "Cage Design" is skipped here -- it would just repeat the "Rollcage
+        // design" panel heading right above it.
+        if (cat !== "Cage Design") panel.appendChild(el("div", { class: "category-heading" }, [cat]));
+        byCategory[cat].forEach((elm) => panel.appendChild(elm.evaluationType === "table" ? renderTableElement(elm) : renderElementCard(elm)));
+      });
+    });
+
+    root.appendChild(panel);
+    return { showTabs, isPart4Active };
+  }
+
+  // Whether elm has a definitive answer already -- used to auto-collapse a
+  // completed question's card so answered items take up less room. Text/
+  // longtext (identification fields, shared notes) are excluded: there's no
+  // useful "collapsed" summary for those and they aren't the kind of
+  // question this is for.
+  // A dim field ({val, unit}) picking "Other" starts as {val:"", unit:"in"}
+  // (see renderDimField) so its own custom-value input can appear -- that's
+  // a truthy object but not actually filled in yet, so completeness checks
+  // need this instead of just truthiness, or the card auto-collapses the
+  // instant "Other" is picked, before there's anywhere left to type into.
+  function dimHasValue(dim) { return !!dim && dim.val !== "" && dim.val !== undefined && dim.val !== null; }
+  function isElementComplete(elm) {
+    if (elm.evaluationType === "text" || elm.evaluationType === "longtext") return false;
+    const answer = getAnswer(elm.id);
+    if (elm.evaluationType === "numeric" && elm.fields) {
+      const extra = answer.extra || {};
+      return elm.fields.every((f) => extra[f.key] !== undefined && extra[f.key] !== "");
+    }
+    if (elm.evaluationType === "tubing3solo") {
+      const v = answer.value;
+      return !!(v && v.material && dimHasValue(v.diameter) && dimHasValue(v.thickness));
+    }
+    if (elm.evaluationType === "plateSolo" || elm.evaluationType === "gussetSolo") {
+      const v = answer.value;
+      return !!(v && v.material && dimHasValue(v.thickness));
+    }
+    return answer.value !== undefined && answer.value !== null && answer.value !== "";
+  }
+
+  // Short one-line summary shown on a collapsed card in place of its full
+  // question body.
+  function elementSummary(elm, answer) {
+    if (elm.evaluationType === "choice") {
+      const opt = (elm.options || []).find((o) => o.id === answer.value);
+      return opt ? opt.label : String(answer.value);
+    }
+    if (elm.evaluationType === "boolean") {
+      return answer.value === "yes" ? "Yes" : "No";
+    }
+    if (elm.evaluationType === "numeric" && elm.fields) {
+      const extra = answer.extra || {};
+      return elm.fields.map((f) => f.label + ": " + extra[f.key] + (f.unit ? " " + f.unit : "")).join(" · ");
+    }
+    if (elm.evaluationType === "numeric") {
+      return answer.value + (elm.unit ? " " + elm.unit : "");
+    }
+    if (elm.evaluationType === "tubing3solo") {
+      const v = answer.value || {};
+      const req = (elm.requirements || []).find((r) => r.material === v.material);
+      const matLabel = req ? req.label : v.material;
+      const dim = (d) => (d ? d.val + (d.unit === "mm" ? "mm" : '"') : "");
+      return matLabel + ", " + dim(v.diameter) + " x " + dim(v.thickness);
+    }
+    if (elm.evaluationType === "plateSolo" || elm.evaluationType === "gussetSolo") {
+      const v = answer.value || {};
+      const dim = (d) => (d ? d.val + (d.unit === "mm" ? "mm" : '"') : "");
+      return (v.material || "") + ", " + dim(v.thickness);
+    }
+    return String(answer.value);
+  }
+
+  function renderElementCard(elm) {
+    const answer = getAnswer(elm.id);
+    const status = elementStatus(elm, answer);
+    const reqBadgeClass = { required: "req", recommended: "rec", conditional: "cond", exception: "exc", informational: "info" }[elm.requirement] || "info";
+    // Parts 1-3 are pure capture now (geometry, then tubing sizes/materials,
+    // then measurements/angles/welds) -- required/recommended is a
+    // compliance judgment, made against all that captured data in Part 4
+    // instead, so the badge doesn't belong on any of these cards.
+    const showReqBadge = false;
+
+    if (isElementComplete(elm) && !state.expandedIds[elm.id]) {
+      const card = el("div", { class: "element-card collapsed-card state-" + status, id: "section-" + elm.id });
+      card.appendChild(
+        el(
+          "div",
+          {
+            class: "element-head collapsed-head",
+            onclick: () => { state.expandedIds[elm.id] = true; render(); },
+          },
+          [
+            el("span", { class: "element-name" }, [elm.name]),
+            el("span", { class: "collapsed-summary" }, [elementSummary(elm, answer)]),
+            showReqBadge ? el("span", { class: "badge " + reqBadgeClass }, [elm.requirement]) : null,
+          ]
+        )
+      );
+      return card;
+    }
+
+    const card = el("div", { class: "element-card state-" + status, id: "section-" + elm.id });
+
+    const headChildren = [
+      el("span", { class: "element-name" }, [elm.name]),
+      showReqBadge ? el("span", { class: "badge " + reqBadgeClass }, [elm.requirement]) : null,
+    ];
+    if (isElementComplete(elm)) {
+      headChildren.push(
+        el("button", { class: "btn small secondary collapse-btn", onclick: () => { state.expandedIds[elm.id] = false; render(); } }, ["Collapse"])
+      );
+    }
+    card.appendChild(el("div", { class: "element-head" }, headChildren));
+    card.appendChild(el("div", { class: "element-ref" }, [elm.reference]));
+    card.appendChild(el("div", { class: "element-desc" }, [elm.description]));
+
+    if (elm.diagram && window.DIAGRAMS && window.DIAGRAMS[elm.diagram]) {
+      card.appendChild(el("div", { class: "element-diagram", html: window.DIAGRAMS[elm.diagram] }));
+    }
+
+    if (elm.evaluationType === "choice") {
+      const group = el("div", { class: "choice-radio-group" });
+      elm.options.forEach((opt) => {
+        const inputId = elm.id + "_" + opt.id;
+        const radio = el("input", {
+          type: "radio",
+          name: elm.id,
+          id: inputId,
+          onchange: () => {
+            // 253-1/253-2/253-3 all structurally guarantee a main rollbar
+            // and 2 backstays by definition -- pre-select those (still
+            // shown/editable) rather than hiding them outright.
+            if (elm.id === "main_structure_layout" && ["253-1", "253-2", "253-3"].includes(opt.id)) {
+              setAnswer("main_rollbar_present", { value: "yes" });
+              setAnswer("backstays", { value: "yes" });
+              // Clear any stale "Lateral rollbars" answer from a previous
+              // visit to the "Other design" branch -- otherwise a leftover
+              // "none" here would keep wrongly hiding roof/door/dash bars
+              // (their showIf checks this field's raw answer, which
+              // doesn't itself know the question is no longer relevant).
+              setAnswer("lateral_rollbars_other", { value: "" });
+            }
+            setAnswer(elm.id, { value: opt.id });
+          },
+        });
+        radio.checked = answer.value === opt.id;
+        const diagramHtml = opt.diagram && window.DIAGRAMS && window.DIAGRAMS[opt.diagram] ? window.DIAGRAMS[opt.diagram] : null;
+        const legend = opt.diagram && window.DIAGRAM_LEGENDS && window.DIAGRAM_LEGENDS[opt.diagram];
+        const legendEl = legend
+          ? el(
+              "div",
+              { class: "diagram-legend" },
+              legend.map((item) => el("div", { style: "color:" + item.color }, [item.label]))
+            )
+          : null;
+        const optionLabel = el(
+          "label",
+          { class: "choice-option" + (answer.value === opt.id ? " selected" : ""), for: inputId },
+          [
+            radio,
+            diagramHtml ? el("div", { class: "choice-diagram", html: diagramHtml }) : null,
+            legendEl,
+            el("div", { class: "choice-label" }, [opt.label]),
+          ]
+        );
+        group.appendChild(optionLabel);
+      });
+      card.appendChild(group);
+      const chosenOpt = elm.options.find((o) => o.id === answer.value);
+      if (chosenOpt && chosenOpt.note) {
+        card.appendChild(el("div", { class: "visual-flag" }, [chosenOpt.note]));
+      }
+    } else if (elm.evaluationType === "tubing3solo") {
+      card.appendChild(renderTubing3Fields(elm, elm.id, answer));
+    } else if (elm.evaluationType === "plateSolo" || elm.evaluationType === "gussetSolo") {
+      card.appendChild(renderPlateSoloFields(elm.id, answer));
+    } else if (elm.evaluationType === "numeric" && elm.fields) {
+      const values = answer.value || {};
+      elm.fields.forEach((f) => {
+        const input = el("input", {
+          type: "number",
+          step: "any",
+          class: "numeric-input",
+          value: values[f.key] || "",
+          onchange: (e) => {
+            const next = Object.assign({}, getAnswer(elm.id).value || {}, { [f.key]: e.target.value });
+            setAnswer(elm.id, { value: next });
+          },
+        });
+        card.appendChild(
+          el("div", { class: "numeric-row" }, [
+            el("span", { class: "numeric-field-label" }, [f.label]),
+            input,
+            el("span", { class: "unit-label" }, [f.unit || ""]),
+          ])
+        );
+      });
+    } else if (elm.evaluationType === "numeric") {
+      const input = el("input", {
+        type: "number",
+        step: "any",
+        class: "numeric-input",
+        value: answer.value || "",
+        onchange: (e) => setAnswer(elm.id, { value: e.target.value }),
+      });
+      card.appendChild(el("div", { class: "numeric-row" }, [input, el("span", { class: "unit-label" }, [elm.unit || ""])]));
+    } else if (elm.evaluationType === "text") {
+      const input = el("input", {
+        type: "text",
+        class: "text-input",
+        value: answer.value || "",
+        onchange: (e) => setAnswer(elm.id, { value: e.target.value }),
+      });
+      card.appendChild(input);
+    } else if (elm.evaluationType === "longtext") {
+      const input = el("textarea", {
+        class: "note-input",
+        placeholder: elm.placeholder || "Notes...",
+        onchange: (e) => setAnswer(elm.id, { value: e.target.value }),
+      });
+      input.value = answer.value || "";
+      card.appendChild(input);
+    } else {
+      const opts = [["yes", "Yes / Present"], ["no", "No / Absent"]];
+      const row = el(
+        "div",
+        { class: "answer-row" },
+        opts.map(([val, label]) =>
+          el(
+            "button",
+            {
+              class: "answer-btn " + (answer.value === val ? "active " + val : ""),
+              onclick: () => setAnswer(elm.id, { value: val }),
+            },
+            [label]
+          )
+        )
+      );
+      card.appendChild(row);
+    }
+
+    if (elm.extraFields) {
+      const extra = answer.extra || {};
+      elm.extraFields.forEach((f) => {
+        if (!extraFieldApplies(f, answer.value)) return;
+        if (f.type === "boolean") {
+          const setVal = (val) => {
+            const next = Object.assign({}, getAnswer(elm.id).extra || {}, { [f.key]: val });
+            setAnswer(elm.id, { extra: next });
+          };
+          card.appendChild(
+            el("div", { class: "extra-field-row" }, [
+              el("span", { class: "numeric-field-label" }, [f.label]),
+              el("div", { class: "answer-row" }, [
+                el("button", { class: "answer-btn " + (extra[f.key] === "yes" ? "active yes" : ""), onclick: () => setVal("yes") }, ["Yes"]),
+                el("button", { class: "answer-btn " + (extra[f.key] === "no" ? "active no" : ""), onclick: () => setVal("no") }, ["No"]),
+              ]),
+            ])
+          );
+          return;
+        }
+        const input = el("input", {
+          type: "number",
+          step: "any",
+          class: "numeric-input",
+          value: extra[f.key] || "",
+          onchange: (e) => {
+            const next = Object.assign({}, getAnswer(elm.id).extra || {}, { [f.key]: e.target.value });
+            setAnswer(elm.id, { extra: next });
+          },
+        });
+        card.appendChild(
+          el("div", { class: "numeric-row" }, [
+            el("span", { class: "numeric-field-label" }, [f.label]),
+            input,
+            el("span", { class: "unit-label" }, [f.unit || ""]),
+          ])
+        );
+      });
+    }
+
+    // Part 1 is pure geometry capture with no photo upload at all (see
+    // PHOTOS_ENABLED) -- this hint is entirely about photo-verifiability,
+    // so it doesn't belong on those cards.
+    if (
+      elm.evaluationType !== "text" &&
+      elm.evaluationType !== "longtext" &&
+      !elm.noCapture &&
+      !PHASE_1_DESIGN_CHOICE_IDS.has(elm.id)
+    ) {
+      card.appendChild(
+        el("div", { class: "visual-flag" }, [
+          elm.visuallyVerifiable
+            ? "Can usually be checked from a clear photo."
+            : "Usually requires direct measurement, documentation, or scrutineer attestation — a photo alone is unlikely to confirm this.",
+        ])
+      );
+    }
+
+    if (elm.tubing && elm.tubing.length) {
+      const tubingWrap = el("div", { class: "tubing-block" });
+      elm.tubing.forEach((sub, idx) => {
+        const subId = elm.id + "__tubing_" + idx;
+        const subAnswer = getAnswer(subId);
+        const subStatus = tubingStatus(sub, subAnswer);
+        const subField = el("div", { class: "tubing-field state-" + subStatus });
+        subField.appendChild(
+          el("div", { class: "tubing-label" }, [sub.label + " — " + sub.classification, el("span", { class: "element-ref" }, [" (" + sub.reference + ")"])])
+        );
+        subField.appendChild(sub.requirements ? renderTubing3Fields(sub, subId, subAnswer) : renderTubingLegacySelect(sub, subId, subAnswer));
+        tubingWrap.appendChild(subField);
+      });
+      card.appendChild(tubingWrap);
+    }
+
+    // Notes -- skipped for pure identification fields (text) and the
+    // shared section-level notes field itself (longtext), which don't
+    // need their own separate per-field note. Also skipped for every Part 1
+    // design-choice card: those are quick yes/no/which-design picks meant to
+    // drive the live 3D model, not a place to record observations.
+    if (
+      elm.evaluationType !== "text" &&
+      elm.evaluationType !== "longtext" &&
+      !elm.noCapture &&
+      !elm.hideNotes &&
+      !PHASE_1_DESIGN_CHOICE_IDS.has(elm.id)
+    ) {
+      const noteInput = el("textarea", {
+        class: "note-input",
+        placeholder: "Notes (e.g. measured value, what you observed)...",
+        oninput: (e) => {
+          answer.note = e.target.value;
+          state.answers[elm.id] = answer;
+          // debounce save on blur instead of every keystroke render
+        },
+        onblur: () => setAnswer(elm.id, { note: answer.note }),
+      });
+      noteInput.value = answer.note || "";
+      card.appendChild(noteInput);
+    }
+
+    // Photos -- not applicable to pure identification fields (vehicle
+    // description: manufacturer, VIN, etc.) since there's nothing to
+    // visually verify there. `sectionPhotos` is the one exception: a
+    // shared section-level notes (longtext) field that also collects
+    // photos on behalf of the whole section, instead of every element in
+    // it carrying its own upload.
+    if (PHOTOS_ENABLED && ((elm.evaluationType !== "text" && elm.evaluationType !== "longtext" && !elm.noCapture && !elm.hidePhotos) || elm.sectionPhotos)) {
+      const photoRow = el(
+        "div",
+        { class: "photo-row" },
+        (answer.photos || []).map((p, idx) =>
+          el("div", { class: "photo-thumb" }, [
+            el("img", { src: p.dataUrl, alt: p.name }),
+            el(
+              "button",
+              {
+                onclick: () => {
+                  const photos = (answer.photos || []).slice();
+                  photos.splice(idx, 1);
+                  setAnswer(elm.id, { photos });
+                },
+              },
+              ["x"]
+            ),
+          ])
+        )
+      );
+      card.appendChild(photoRow);
+
+      const fileInput = el("input", {
+        type: "file",
+        accept: "image/*",
+        multiple: "multiple",
+        onchange: async (e) => {
+          const files = Array.from(e.target.files || []);
+          const newPhotos = [];
+          for (const f of files) {
+            const dataUrl = await fileToDataUrl(f);
+            newPhotos.push({ name: f.name, dataUrl });
+          }
+          setAnswer(elm.id, { photos: (answer.photos || []).concat(newPhotos) });
+        },
+      });
+      card.appendChild(fileInput);
+    }
+
+    return card;
+  }
+
+  function renderTubingLegacySelect(sub, subId, subAnswer) {
+    const select = el("select", { onchange: (e) => setAnswer(subId, { value: e.target.value }) });
+    select.appendChild(el("option", { value: "" }, ["-- select tubing --"]));
+    sub.options.forEach((opt) => {
+      const o = el("option", { value: opt.id }, [opt.label]);
+      if (subAnswer.value === opt.id) o.selected = true;
+      select.appendChild(o);
+    });
+    return select;
+  }
+
+  function renderDimField(labelText, presets, current, onChange) {
+    const isPreset = current && presets.some((p) => p.val === current.val && p.unit === current.unit);
+    const isOther = !!current && !isPreset;
+    const select = el("select", {
+      onchange: (e) => {
+        if (e.target.value === "other") { onChange({ val: "", unit: "in" }); return; }
+        const [val, unit] = e.target.value.split("|");
+        onChange({ val: parseFloat(val), unit });
+      },
+    });
+    select.appendChild(el("option", { value: "" }, ["-- select --"]));
+    presets.forEach((p) => {
+      const key = p.val + "|" + p.unit;
+      const o = el("option", { value: key }, [dimLabel(p)]);
+      if (current && current.val === p.val && current.unit === p.unit) o.selected = true;
+      select.appendChild(o);
+    });
+    const otherOpt = el("option", { value: "other" }, ["Other"]);
+    if (isOther) otherOpt.selected = true;
+    select.appendChild(otherOpt);
+
+    const children = [el("label", {}, [labelText]), select];
+    if (isOther) {
+      const numInput = el("input", {
+        type: "number", step: "any", class: "dim-other-value",
+        value: current.val === "" || current.val == null ? "" : current.val,
+        onchange: (e) => onChange({ val: e.target.value, unit: current.unit || "in" }),
+      });
+      const unitSelect = el("select", { onchange: (e) => onChange({ val: current.val, unit: e.target.value }) });
+      ["in", "mm"].forEach((u) => {
+        const o = el("option", { value: u }, [u]);
+        if ((current.unit || "in") === u) o.selected = true;
+        unitSelect.appendChild(o);
+      });
+      children.push(numInput, unitSelect);
+    }
+    return el("div", { class: "tubing3-field" }, children);
+  }
+
+  function renderTubing3Fields(sub, subId, subAnswer) {
+    const v = subAnswer.value || {};
+    const wrap = el("div", { class: "tubing3-fields" });
+
+    const matSelect = el("select", {
+      onchange: (e) => setAnswer(subId, { value: Object.assign({}, v, { material: e.target.value }) }),
+    });
+    matSelect.appendChild(el("option", { value: "" }, ["-- material --"]));
+    sub.requirements.forEach((r) => {
+      const o = el("option", { value: r.material }, [r.label]);
+      if (v.material === r.material) o.selected = true;
+      matSelect.appendChild(o);
+    });
+    const otherMatOpt = el("option", { value: "other" }, ["Other"]);
+    if (v.material === "other") otherMatOpt.selected = true;
+    matSelect.appendChild(otherMatOpt);
+    wrap.appendChild(el("div", { class: "tubing3-field" }, [el("label", {}, ["Material"]), matSelect]));
+
+    wrap.appendChild(renderDimField("Diameter", DIAMETER_PRESETS, v.diameter, (dim) => setAnswer(subId, { value: Object.assign({}, v, { diameter: dim }) })));
+    wrap.appendChild(renderDimField("Thickness", THICKNESS_PRESETS, v.thickness, (dim) => setAnswer(subId, { value: Object.assign({}, v, { thickness: dim }) })));
+
+    return wrap;
+  }
+
+  // Mounting foot plates: material (free text -- no material-specific rule,
+  // unlike tubes) + thickness only (reusing the same preset-dropdown +
+  // "Other" mechanism as tube thickness, which already includes 3mm/0.12"
+  // -- right at the FIA minimum for plates).
+  function renderPlateSoloFields(subId, subAnswer) {
+    const v = subAnswer.value || {};
+    const wrap = el("div", { class: "tubing3-fields" });
+    const matInput = el("input", {
+      type: "text", value: v.material || "", placeholder: "e.g. Mild steel",
+      onchange: (e) => setAnswer(subId, { value: Object.assign({}, v, { material: e.target.value }) }),
+    });
+    wrap.appendChild(el("div", { class: "tubing3-field" }, [el("label", {}, ["Material"]), matInput]));
+    wrap.appendChild(renderDimField("Thickness", THICKNESS_PRESETS, v.thickness, (dim) => setAnswer(subId, { value: Object.assign({}, v, { thickness: dim }) })));
+    return wrap;
+  }
+
+  // ---- Table elements (named rows x columns) --------------------------
+  function renderTableCellInput(col, cellId, cellAnswer, row) {
+    if (col.type === "boolean") {
+      return el("div", { class: "cell-answer-row" }, [
+        el("button", { class: "answer-btn small " + (cellAnswer.value === "yes" ? "active yes" : ""), onclick: () => setAnswer(cellId, { value: "yes" }) }, ["Yes"]),
+        el("button", { class: "answer-btn small " + (cellAnswer.value === "no" ? "active no" : ""), onclick: () => setAnswer(cellId, { value: "no" }) }, ["No"]),
+      ]);
+    }
+    if (col.type === "number") {
+      return el("input", { type: "number", step: "any", class: "cell-number", value: cellAnswer.value || "", onchange: (e) => setAnswer(cellId, { value: e.target.value }) });
+    }
+    if (col.type === "select") {
+      const select = el("select", { onchange: (e) => setAnswer(cellId, { value: e.target.value }) });
+      select.appendChild(el("option", { value: "" }, ["--"]));
+      (col.options || []).forEach((opt) => {
+        const o = el("option", { value: opt.id }, [opt.label]);
+        if (cellAnswer.value === opt.id) o.selected = true;
+        select.appendChild(o);
+      });
+      return select;
+    }
+    if (col.type === "tubing3") {
+      return renderTubing3Fields(col, cellId, cellAnswer);
+    }
+    if (col.type === "area") {
+      const v = cellAnswer.value || {};
+      const mode = v.mode === "xy" ? "xy" : "direct";
+      const unit = v.unit || "cm2";
+      const unitSelect = el("select", {
+        onchange: (e) => setAnswer(cellId, { value: Object.assign({}, v, { unit: e.target.value }) }),
+      });
+      [{ id: "cm2", label: "cm²" }, { id: "in2", label: "in²" }].forEach((u) => {
+        const o = el("option", { value: u.id }, [u.label]);
+        if (unit === u.id) o.selected = true;
+        unitSelect.appendChild(o);
+      });
+      const modeToggle = el("div", { class: "cell-answer-row area-mode-toggle" }, [
+        el("button", {
+          class: "answer-btn small" + (mode === "direct" ? " active info" : ""),
+          onclick: () => setAnswer(cellId, { value: Object.assign({}, v, { mode: "direct" }) }),
+        }, ["Area"]),
+        el("button", {
+          class: "answer-btn small" + (mode === "xy" ? " active info" : ""),
+          onclick: () => setAnswer(cellId, { value: Object.assign({}, v, { mode: "xy" }) }),
+        }, ["X × Y"]),
+      ]);
+      if (mode === "xy") {
+        // X/Y are in the same unit as the area itself (cm or in, matching
+        // cm2/in2) -- area is recomputed and written into the same
+        // `value`/`unit` fields the direct-entry mode uses, so everything
+        // downstream (status, Part 4 compliance) reads area answers the
+        // same way regardless of how the plate's size was captured.
+        const lengthUnit = unit === "in2" ? "in" : "cm";
+        function recompute(nx, ny) {
+          const fx = parseFloat(nx), fy = parseFloat(ny);
+          const area = nx !== "" && ny !== "" && !isNaN(fx) && !isNaN(fy) ? String(fx * fy) : "";
+          setAnswer(cellId, { value: Object.assign({}, v, { x: nx, y: ny, value: area }) });
+        }
+        const xInput = el("input", {
+          type: "number", step: "any", class: "cell-number small", placeholder: "X", value: v.x ?? "",
+          onchange: (e) => recompute(e.target.value, v.y ?? ""),
+        });
+        const yInput = el("input", {
+          type: "number", step: "any", class: "cell-number small", placeholder: "Y", value: v.y ?? "",
+          onchange: (e) => recompute(v.x ?? "", e.target.value),
+        });
+        const area = parseFloat(v.value);
+        const computed = el("span", { class: "area-computed" }, [
+          !isNaN(area) && v.value !== "" ? "= " + area.toFixed(1) + " " + (unit === "in2" ? "in²" : "cm²") : "",
+        ]);
+        return el("div", { class: "cell-answer-row area-cell" }, [
+          modeToggle,
+          xInput, el("span", { class: "area-xy-sep" }, [lengthUnit + " ×"]), yInput, el("span", { class: "area-xy-sep" }, [lengthUnit]),
+          unitSelect, computed,
+        ]);
+      }
+      const numInput = el("input", {
+        type: "number", step: "any", class: "cell-number", value: v.value ?? "",
+        onchange: (e) => setAnswer(cellId, { value: Object.assign({}, v, { value: e.target.value }) }),
+      });
+      return el("div", { class: "cell-answer-row area-cell" }, [modeToggle, numInput, unitSelect]);
+    }
+    if (col.type === "radio") {
+      // A row can restrict which of the column's options actually apply to
+      // it (e.g. A-pillar/253-15 gussets can only ever be a taco, never a
+      // single plate) via row.restrictOptionIds -- the "clear" option (id
+      // "") is always kept regardless, so there's still a way to unanswer
+      // the row.
+      const options = row && row.restrictOptionIds
+        ? (col.options || []).filter((o) => o.id === "" || row.restrictOptionIds.includes(o.id))
+        : (col.options || []);
+      return el(
+        "div",
+        { class: "cell-answer-row" },
+        options.map((opt) => {
+          const active = cellAnswer.value === opt.id;
+          const color = RADIO_OPTION_COLOR[opt.id];
+          return el(
+            "button",
+            {
+              class: "answer-btn small" + (active && !color ? " active info" : ""),
+              style: active && color ? "background:" + color + "22;border-color:" + color + ";color:" + color : "",
+              onclick: () => setAnswer(cellId, { value: opt.id }),
+            },
+            [opt.label]
+          );
+        })
+      );
+    }
+    return el("input", { type: "text", class: "cell-text", value: cellAnswer.value || "", onchange: (e) => setAnswer(cellId, { value: e.target.value }) });
+  }
+
+  function renderTableElement(elm) {
+    const status = tableElementStatus(elm);
+    const card = el("div", { class: "element-card state-" + status, id: "section-" + elm.id });
+    const reqBadgeClass = { required: "req", recommended: "rec", conditional: "cond", exception: "exc", informational: "info" }[elm.requirement] || "info";
+    // Same as renderElementCard -- Parts 1-3 are pure capture, no
+    // compliance judgment shown there (that's Part 4's job).
+    const showReqBadge = false;
+    card.appendChild(
+      el("div", { class: "element-head" }, [
+        el("span", { class: "element-name" }, [elm.name]),
+        showReqBadge ? el("span", { class: "badge " + reqBadgeClass }, [elm.requirement]) : null,
+      ])
+    );
+    card.appendChild(el("div", { class: "element-ref" }, [elm.reference]));
+    if (elm.description) card.appendChild(el("div", { class: "element-desc" }, [elm.description]));
+
+    const table = el("table", { class: "row-table" });
+    table.appendChild(el("thead", {}, [el("tr", {}, [el("th", {}, ["Location"])].concat(elm.columns.map((c) => el("th", {}, [c.label]))))]));
+    const tbody = el("tbody");
+    resolveRows(elm).forEach((row) => {
+      const tr = el("tr", { id: "row-" + elm.id + "__" + row.id });
+      tr.appendChild(el("td", { class: "row-table-label" }, [row.label]));
+      elm.columns.forEach((col) => {
+        const cellId = tableCellId(elm, row, col);
+        const cellAnswer = getAnswer(cellId);
+        const cellStatus = tableCellStatus(col, cellAnswer);
+        const td = el("td", { class: "state-" + cellStatus });
+        td.appendChild(renderTableCellInput(col, cellId, cellAnswer, row));
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    card.appendChild(el("div", { class: "row-table-wrap" }, [table]));
+    return card;
+  }
+
+  function renderResults(root, path) {
+    const results = computeResults(path);
+
+    if (!state.resultsExpanded) {
+      const collapsed = el("div", { class: "panel results-panel results-panel-collapsed" }, [
+        el("div", { class: "verdict compact " + results.verdict.level }, [results.verdict.label]),
+        el("div", { class: "results-summary" }, [
+          results.requiredSatisfied + " / " + results.requiredTotal + " required items (" + results.scorePct + "%)",
+        ]),
+        el(
+          "button",
+          { class: "btn secondary", onclick: () => { state.resultsExpanded = true; render(); } },
+          ["Show details ▾"]
+        ),
+      ]);
+      root.appendChild(collapsed);
+      return;
+    }
+
+    const panel = el("div", { class: "panel results-panel" });
+
+    panel.appendChild(
+      el("div", { class: "results-header" }, [
+        el("h2", {}, ["Result"]),
+        el(
+          "button",
+          { class: "btn secondary", onclick: () => { state.resultsExpanded = false; render(); } },
+          ["Hide details ▴"]
+        ),
+      ])
+    );
+    panel.appendChild(el("div", { class: "verdict " + results.verdict.level }, [results.verdict.label]));
+    panel.appendChild(el("div", {}, [results.verdict.detail]));
+
+    panel.appendChild(
+      el("div", { class: "score-bar-outer" }, [
+        el("div", { class: "score-bar-inner", style: "width:" + results.scorePct + "%" }),
+      ])
+    );
+    panel.appendChild(el("div", {}, [results.requiredSatisfied + " / " + results.requiredTotal + " required items satisfied (" + results.scorePct + "%)"]));
+
+    if (!results.verdict.exempt && results.failures.length) {
+      panel.appendChild(el("h2", {}, ["Failing required items"]));
+      panel.appendChild(
+        el(
+          "ul",
+          { class: "issue-list" },
+          results.failures.map((f) => el("li", {}, [f.name + " — " + (f.hardFailMessage || "") + " (" + f.reference + ")"]))
+        )
+      );
+    }
+    if (!results.verdict.exempt && results.unresolved.length) {
+      panel.appendChild(el("h2", {}, ["Needs verification"]));
+      panel.appendChild(
+        el(
+          "ul",
+          { class: "issue-list" },
+          results.unresolved.map((f) => el("li", {}, [f.name + " (" + f.reference + ")"]))
+        )
+      );
+    }
+    if (!results.verdict.exempt && results.advisories.length) {
+      panel.appendChild(el("h2", {}, ["Advisory (recommended, not required)"]));
+      panel.appendChild(
+        el(
+          "ul",
+          { class: "issue-list" },
+          results.advisories.map((f) => el("li", {}, [f.name + " (" + f.reference + ")"]))
+        )
+      );
+    }
+
+    panel.appendChild(
+      el("div", { class: "toolbar" }, [
+        el("button", { class: "btn secondary", onclick: () => window.print() }, ["Print / Save as PDF"]),
+        el(
+          "button",
+          {
+            class: "btn secondary",
+            onclick: () => {
+              const blob = new Blob([JSON.stringify({ vehicle: state.vehicle, pathId: state.pathId, answers: state.answers, results }, null, 2)], {
+                type: "application/json",
+              });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = (state.vehicle.name || "inspection") + ".json";
+              a.click();
+              URL.revokeObjectURL(url);
+            },
+          },
+          ["Export JSON"]
+        ),
+      ])
+    );
+
+    root.appendChild(panel);
+  }
+
+  // ---- Live 3D cage view wiring -------------------------------------------
+  // Maps checklist answers to STL part files + category colors for
+  // window.CageView (cage_view.js). Only items that correspond to real
+  // geometry in the one modeled car light anything up; everything else
+  // (tubing spec, weld quality, padding, gussets, ...) has no 3D part and is
+  // simply left out of this table.
+  const CAGE_COLOR = {
+    main: "#e0483e", side: "#d4a017", member: "#3b6fd6", backstay: "#2f9e57", foot: "#9b3fd1",
+    roofBar: "#ff7f0e", backstayDiag: "#17becf", mainDiag: "#e377c2", doorBar: "#bcbd22",
+    aPillar: "#ffdd00", sill: "#8c564b", harnessBar: "#c9a227",
+    rearLateral: "#4dd0e1", rearTransversal: "#ff5252", dashBar: "#7986cb",
+    rearLowerX: "#b565d8", antiIntrusion: "#ff9e4a", templeBar: "#5ec9a3", windshieldReinforcement: "#ef6ba0",
+    // Taco and single-plate gussets reuse the same modeled geometry (per the
+    // source model), distinguished only by color until a distinct
+    // single-plate mesh exists -- deliberately a warm/cool complementary
+    // pair (not 2 shades of the same hue) so they read apart at a glance.
+    gussetTaco: "#f97316", gussetSinglePlate: "#2563eb",
+    tubingPrimary: "#3b82f6", tubingSecondary: "#f59e0b", tubingUnclassified: "#9ca3af",
+  };
+  // Ties the Tube classification table's Primary/Secondary buttons to the
+  // exact same colors the Part 2 3D view paints those bars -- so the
+  // checklist itself becomes the color legend, not just the section nav.
+  const RADIO_OPTION_COLOR = {
+    primary: CAGE_COLOR.tubingPrimary, secondary: CAGE_COLOR.tubingSecondary,
+    taco: CAGE_COLOR.gussetTaco, single_plate: CAGE_COLOR.gussetSinglePlate,
+  };
+  const FEET_FILES = [
+    "Foot front left.stl", "Foot front right.stl",
+    "Foot main rollbar left.stl", "Foot main rollbar right.stl",
+    "Foot rear left.stl", "Foot rear right.stl",
+  ];
+  // Mirrors cage_view.js's own FOOT_LOCATIONS/footCubeFile() -- each foot's
+  // row in the "Mounting feet design" table (rules-data.js) drives which of
+  // its two candidate meshes (the real flat-plate STL, or the procedural
+  // cube standing in for 253-54 until real geometry exists) actually shows.
+  const FOOT_LOCATIONS = [
+    { row: "front_left", plateFile: "Foot front left.stl" },
+    { row: "front_right", plateFile: "Foot front right.stl" },
+    { row: "main_hoop_left", plateFile: "Foot main rollbar left.stl" },
+    { row: "main_hoop_right", plateFile: "Foot main rollbar right.stl" },
+    { row: "backstay_left", plateFile: "Foot rear left.stl" },
+    { row: "backstay_right", plateFile: "Foot rear right.stl" },
+  ];
+  function footCubeFile(row) { return "Foot cube " + row + ".virtual"; }
+  function doublePlaneFile(row) { return "Foot double-plane " + row + ".virtual"; }
+  function rockerBaseFile(row) { return "Foot rocker base " + row + ".virtual"; }
+  function rockerFoldFile(row) { return "Foot rocker fold " + row + ".virtual"; }
+  // Mirrors cage_view.js's own GUSSET_LOCATIONS -- each row in the "Gusset
+  // design" table (rules-data.js) drives whether its matching gusset mesh
+  // shows at all (both Taco and Single plate reuse the same modeled
+  // geometry for now, per the source model -- see gussetDesignColor()).
+  const GUSSET_LOCATIONS = [
+    { row: "main_hoop_diag_left", file: "253-7 gusset left.stl" },
+    { row: "main_hoop_diag_right", file: "253-7 gusset right.stl" },
+    { row: "main_hoop_diag_upper", file: "253-7 gusset upper.stl" },
+    { row: "main_hoop_diag_lower", file: "253-7 gusset lower.stl" },
+    { row: "roof_left", file: "Roof bars gusset left.stl" },
+    { row: "roof_right", file: "Roof bars gusset right.stl" },
+    { row: "roof_front", file: "Roof bars gusset front.stl" },
+    { row: "roof_rear", file: "Roof bars gusset rear.stl" },
+    { row: "backstay_diag_left", file: "Rear backstay gusset left.stl" },
+    { row: "backstay_diag_right", file: "Rear backstay gusset right.stl" },
+    { row: "backstay_diag_upper", file: "Rear backstay gusset upper.stl" },
+    { row: "backstay_diag_lower", file: "Rear backstay gusset lower.stl" },
+    { row: "door_front_left", file: "Door bar gusset front left.stl" },
+    { row: "door_front_right", file: "Door bar gusset front right.stl" },
+    { row: "door_rear_left", file: "Door bar gusset rear left.stl" },
+    { row: "door_rear_right", file: "Door bar gusset rear right.stl" },
+    { row: "a_pillar_left", file: "A-pillar gusset left.stl" },
+    { row: "a_pillar_right", file: "A-pillar gusset right.stl" },
+    { row: "a_pillar_side_left", file: "253-15 side gusset left.stl" },
+    { row: "a_pillar_side_right", file: "253-15 side gusset right.stl" },
+    { row: "a_pillar_2pc_left_upper_front", file: "253-15 gusset left upper front.stl" },
+    { row: "a_pillar_2pc_left_upper_rear", file: "253-15 gusset left upper rear.stl" },
+    { row: "a_pillar_2pc_left_lower_front", file: "253-15 gusset left lower front.stl" },
+    { row: "a_pillar_2pc_left_lower_rear", file: "253-15 gusset left lower rear.stl" },
+    { row: "a_pillar_2pc_right_upper_front", file: "253-15 gusset right upper front.stl" },
+    { row: "a_pillar_2pc_right_upper_rear", file: "253-15 gusset right upper rear.stl" },
+    { row: "a_pillar_2pc_right_lower_front", file: "253-15 gusset right lower front.stl" },
+    { row: "a_pillar_2pc_right_lower_rear", file: "253-15 gusset right lower rear.stl" },
+  ];
+  // Verified against each file's own geometry (top/bottom Y at Z=99.89/Z=0,
+  // cross-checked against "Foot main rollbar left/right.stl": low Y = left,
+  // high Y = right in this model): diagonal 1 runs top-right to
+  // bottom-left, diagonal 2 runs top-left to bottom-right.
+  const MAIN_DIAG_TOP_RIGHT_FILE = "Main diagonal  1-  253-7.stl";
+  const MAIN_DIAG_TOP_LEFT_FILE = "Main diagonal  2-  253-7.stl";
+  const MAIN_DIAG_FILES = [MAIN_DIAG_TOP_RIGHT_FILE, MAIN_DIAG_TOP_LEFT_FILE];
+  const BACKSTAY_DIAG_FILES = ["Rear diagonal 1.stl", "Rear diagonal 2.stl"];
+  const DOOR_BAR_FILES = [
+    "Left door bar 1-  253-9.stl", "Left door bar 2-  253-9.stl",
+    "Right door bar 1-  253-9.stl", "Right door bar 2-  253-9.stl",
+  ];
+  const DOOR_253_10_FILES = [
+    "Door bar 253-10 upper left.stl", "Door bar 253-10 upper right.stl",
+    "Door bar 253-10 front left.stl", "Door bar 253-10 front right.stl",
+    "Door bar 253-10 rear left.stl", "Door bar 253-10 rear right.stl",
+  ];
+  const NASCAR_VERTICAL_FILES = ["Nascar left 1.stl", "Nascar left 2.stl", "Nascar right 1.stl", "Nascar right 2.stl"];
+  const APILLAR_FILES = ["253-15 Left.stl", "253-15 Right.stl"];
+  // The 2-bar build of 253-15 (where it's split to meet the door bar) --
+  // real tube geometry extracted from the same 3mf, swapped in for
+  // APILLAR_FILES instead of overlaid alongside it.
+  const APILLAR_2PIECE_FILES = ["253-15 left lower.stl", "253-15 left upper.stl", "253-15 right lower.stl", "253-15 right upper.stl"];
+  const SILL_FILES = ["Sill bar Left.stl", "Sill bar Right.stl"];
+  const BACKSTAY_FILES = ["Left backstay.stl", "Right backstay.stl"];
+  const ROOF_BAR_FILES = ["Roof bar 1.stl", "Roof bar 2.stl"];
+
+  // "main_structure_layout" (253-1/253-2/253-3): per your note, all three
+  // base structures are literally the same physical bars in this one
+  // modeled car -- they're told apart only by which role each bar is
+  // labeled/colored as, not by different geometry. 253-3 is the real,
+  // verified mapping (this car IS a 253-3 layout); 253-1 and 253-2 reuse it
+  // as a placeholder until we tune their coloring together.
+  const BASE_STRUCTURE_MAPS = {
+    "253-3": {
+      "Main rollbar.stl": CAGE_COLOR.main,
+      "Front left lateral.stl": CAGE_COLOR.side,
+      "Front right lateral.stl": CAGE_COLOR.side,
+      "Transverse member.stl": CAGE_COLOR.member,
+      "Left backstay.stl": CAGE_COLOR.backstay,
+      "Right backstay.stl": CAGE_COLOR.backstay,
+    },
+    "253-1": {
+      // Front left/right lateral + transverse member together form the
+      // "front rollbar" hoop (two pillars + top crossbar, same relationship
+      // as the main rollbar's own legs+top) -- all gold, including the
+      // transverse member, which is no longer a separate blue "member" here.
+      // Each front lateral's OWN mesh already reaches all the way back to
+      // the main rollbar at roof height (confirmed by its geometry: past
+      // roughly x=145 its z stays pinned at ~104-110, a near-level run,
+      // versus the pillar below that where z spans the full 0-100 height) --
+      // that reach-back run is what stands in for 253-1's required "2
+      // longitudinal members" (blue), not the separate Roof bar 1/2 parts
+      // (253-12 reinforcement), which stay hidden here like every other
+      // config.
+      "Main rollbar.stl": CAGE_COLOR.main,
+      "Front left lateral.stl": { axis: "x", min: 145, max: 999, inside: CAGE_COLOR.member, outside: CAGE_COLOR.side },
+      "Front right lateral.stl": { axis: "x", min: 145, max: 999, inside: CAGE_COLOR.member, outside: CAGE_COLOR.side },
+      "Transverse member.stl": CAGE_COLOR.side,
+      "Left backstay.stl": CAGE_COLOR.backstay,
+      "Right backstay.stl": CAGE_COLOR.backstay,
+    },
+    "253-2": {
+      // No main rollbar in this layout -- two full lateral rollbars instead.
+      // The physical "main rollbar" bar becomes (a) the rear leg of each
+      // full lateral (still the lateral gold, below the bend) and (b) the
+      // roof crossing between them, which reads the same as a transverse
+      // member (blue, above the bend) -- so it's colored in two zones
+      // rather than as a single "main rollbar" bar.
+      "Main rollbar.stl": { axis: "y", min: 108, max: 204, inside: CAGE_COLOR.member, outside: CAGE_COLOR.side },
+      "Front left lateral.stl": CAGE_COLOR.side,
+      "Front right lateral.stl": CAGE_COLOR.side,
+      "Transverse member.stl": CAGE_COLOR.member,
+      "Left backstay.stl": CAGE_COLOR.backstay,
+      "Right backstay.stl": CAGE_COLOR.backstay,
+    },
+  };
+  function baseStructureColors(value) {
+    if (!value || !BASE_STRUCTURE_MAPS[value]) return null;
+    // Feet are NOT colored here anymore -- they stay ghosted until each
+    // foot's own design is actually answered (see FOOT_LOCATIONS /
+    // mountingFeetColors() below), rather than lighting up purple the
+    // moment a base structure is picked, before anything about the feet
+    // themselves has been captured.
+    return Object.assign({}, BASE_STRUCTURE_MAPS[value]);
+  }
+
+  // itemId -> function(answerValue) => { files, color } | null
+  //
+  // Roof bars, door bars, sill bar, and backstay (rear) diagonals are
+  // disabled below while 253-1/253-2/253-3 base-structure coloring is still
+  // being tuned -- Roof bar 1/2 in particular get reused as 253-1's
+  // "longitudinal members", which would conflict with the roof-bars item
+  // separately trying to color them as 253-12 reinforcement. Re-enable once
+  // the base-structure mappings are finalized.
+  const ITEM_PART_RULES = {
+    main_rollbar_present: (v) => (v === "yes" ? { files: ["Main rollbar.stl"], color: CAGE_COLOR.main } : null),
+    backstays: (v) => (v === "yes" ? { files: BACKSTAY_FILES, color: CAGE_COLOR.backstay } : null),
+    backstays_gf: (v) => (v === "yes" ? { files: BACKSTAY_FILES, color: CAGE_COLOR.backstay } : null),
+
+    mounting_feet_count: (v) => (v === "yes" ? { files: FEET_FILES, color: CAGE_COLOR.foot } : null),
+    mounting_feet_gf: (v) => (v === "yes" ? { files: FEET_FILES, color: CAGE_COLOR.foot } : null),
+
+    // 253-12 uses the original generic roof-bar parts; 253-14 and 253-13
+    // (captured for identification even though it's a known-deficient
+    // design) each have their own dedicated geometry (extracted from
+    // "all options rollcage.3mf").
+    roof_bars: (v) => {
+      if (v === "253-12") return { files: ROOF_BAR_FILES, color: CAGE_COLOR.roofBar };
+      if (v === "253-14") return { files: ["Roof bar 253-14 left.stl", "Roof bar 253-14 right.stl"], color: CAGE_COLOR.roofBar };
+      if (v === "253-13") return { files: ["Roof bar 253-13 left.stl", "Roof bar 253-13 right.stl"], color: CAGE_COLOR.roofBar };
+      if (v === "single-center") return { files: ["Roof bar single center.stl"], color: CAGE_COLOR.roofBar };
+      // Reuse the individual 253-12 diagonal legs (verified via geometry:
+      // "Roof bar 1" runs front-left to rear-right, "Roof bar 2" runs
+      // front-right to rear-left) rather than modeling a new bar.
+      if (v === "single-front-left") return { files: ["Roof bar 1.stl"], color: CAGE_COLOR.roofBar };
+      if (v === "single-front-right") return { files: ["Roof bar 2.stl"], color: CAGE_COLOR.roofBar };
+      return null;
+    },
+    roof_bars_gf: () => null,
+    roof_bar_or_windshield_gusset: () => null,
+
+    // "Rear diagonal 1/2.stl" are each a full corner-to-corner diagonal on
+    // their own (verified via geometry: 1 runs top-left to bottom-right, 2
+    // runs top-right to bottom-left) -- 253-20 uses just one of them,
+    // 253-21 (X) uses both together.
+    backstay_diagonals: (v) => {
+      if (v === "253-20") return { files: ["Rear diagonal 1.stl"], color: CAGE_COLOR.backstayDiag };
+      if (v === "253-20-right") return { files: ["Rear diagonal 2.stl"], color: CAGE_COLOR.backstayDiag };
+      if (v === "253-21") return { files: BACKSTAY_DIAG_FILES, color: CAGE_COLOR.backstayDiag };
+      if (v === "253-22") return { files: ["Rear diagonal 253-22 left.stl", "Rear diagonal 253-22 right.stl"], color: CAGE_COLOR.backstayDiag };
+      return null;
+    },
+    diagonal_members_gf: () => null,
+    diagonals_minimum: () => null,
+
+    // All six configurations now match real geometry in the modeled car --
+    // "1 horizontal bar" is physically the same bar/position as the
+    // harness bar (253-66), so it reuses that same part.
+    main_hoop_diagonals: (v) => {
+      if (v === "253-7") return { files: MAIN_DIAG_FILES, color: CAGE_COLOR.mainDiag };
+      if (v === "diag-left") return { files: [MAIN_DIAG_TOP_LEFT_FILE], color: CAGE_COLOR.mainDiag };
+      if (v === "diag-right") return { files: [MAIN_DIAG_TOP_RIGHT_FILE], color: CAGE_COLOR.mainDiag };
+      if (v === "diag-horizontal") return { files: ["Harness bar.stl"], color: CAGE_COLOR.mainDiag };
+      if (v === "diag-lower-half") return { files: ["Main rollbar lower half left.stl", "Main rollbar lower half right.stl"], color: CAGE_COLOR.mainDiag };
+      if (v === "diag-v-center") return { files: ["Main rollbar V left.stl", "Main rollbar V right.stl"], color: CAGE_COLOR.mainDiag };
+      return null;
+    },
+    main_hoop_corner_diagonals: () => null,
+
+    // Both 253-9 variants (intersection vs. bent bars) are the same X shape
+    // in the modeled car -- they only differ in fabrication, not silhouette.
+    // 253-11 reuses the sill bar plus whichever 253-9 diagonal leg lands at
+    // the bottom in the front on each side (verified via geometry: "Left
+    // door bar 2" and "Right door bar 1" are the bottom-front legs). The
+    // merged "Sill bar" sub-toggle (answer.extra.sill_bar) adds the sill
+    // bar on top of whichever design is chosen, except 253-11 which already
+    // includes it.
+    // "nascar" reuses 253-10's top rail (the only part of 253-10 with a
+    // simple flat horizontal shape) plus 2 new vertical bars per side and
+    // the sill bar, forming the ladder-style NASCAR door bar grid -- always
+    // includes the sill bar, unlike the other designs where it's optional.
+    door_bars: (v, answer) => {
+      let files = [];
+      if (v === "253-9-intersection" || v === "253-9-bent") files = DOOR_BAR_FILES.slice();
+      else if (v === "253-10") files = DOOR_253_10_FILES.slice();
+      else if (v === "253-11") files = SILL_FILES.concat(["Left door bar 2-  253-9.stl", "Right door bar 1-  253-9.stl"]);
+      else if (v === "nascar") files = ["Door bar 253-10 upper left.stl", "Door bar 253-10 upper right.stl"].concat(NASCAR_VERTICAL_FILES).concat(SILL_FILES);
+      // Single bar, captured for identification -- reuses the same 2
+      // bottom-front legs as 253-11 (one per side) but without the sill bar
+      // that design already includes.
+      else if (v === "single-bar") files = ["Left door bar 2-  253-9.stl", "Right door bar 1-  253-9.stl"];
+      const extra = (answer && answer.extra) || {};
+      if (extra.sill_bar === "yes" && v !== "253-11" && v !== "nascar") files = files.concat(SILL_FILES);
+      if (!files.length) return null;
+      return { files, color: CAGE_COLOR.doorBar };
+    },
+    door_bars_present_gf: () => null,
+    door_bars_present: () => null,
+
+    harness_bar_present: (v) => (v === "yes" ? { files: ["Harness bar.stl"], color: CAGE_COLOR.harnessBar } : null),
+    // "253-17 left/right.stl" (a single bar per side) no longer exist in the
+    // source model -- replaced by dedicated upper/lower parts matching this
+    // item's own upper/lower/both front-junction choice.
+    rear_lateral_reinforcement_present: (v) => {
+      let files = [];
+      if (v === "upper" || v === "both") files = files.concat(["253-17 left upper.stl", "253-17 right upper.stl"]);
+      if (v === "lower" || v === "both") files = files.concat(["253-17 left lower.stl", "253-17 right lower.stl"]);
+      if (!files.length) return null;
+      return { files, color: CAGE_COLOR.rearLateral };
+    },
+    rear_transversal_present: (v) => (v === "yes" ? { files: ["253-18.stl"], color: CAGE_COLOR.rearTransversal } : null),
+    dash_bar_present: (v) => (v === "yes" ? { files: ["Dash bar 253-29.stl"], color: CAGE_COLOR.dashBar } : null),
+    rear_lower_x_present: (v) => (v === "yes" ? { files: ["253-19 left.stl", "253-19 right.stl"], color: CAGE_COLOR.rearLowerX } : null),
+    anti_intrusion_present: (v) =>
+      v === "yes"
+        ? { files: ["253-25 upper left.stl", "253-25 upper right.stl", "253-25 lower left.stl", "253-25 lower right.stl"], color: CAGE_COLOR.antiIntrusion }
+        : null,
+    temple_bar_present: (v) => (v === "yes" ? { files: ["253-31 temple bar left.stl", "253-31 temple bar right.stl"], color: CAGE_COLOR.templeBar } : null),
+    windshield_reinforcement_present: (v) =>
+      v === "yes" ? { files: ["253-31 windshield left.stl", "253-31 windshield right.stl"], color: CAGE_COLOR.windshieldReinforcement } : null,
+
+    a_pillar_reinforcement: (v) => {
+      if (v === "continuous") return { files: APILLAR_FILES, color: CAGE_COLOR.aPillar };
+      if (v === "two_bars") return { files: APILLAR_2PIECE_FILES, color: CAGE_COLOR.aPillar };
+      return null;
+    },
+    a_pillar_reinforcement_grandfathered: (v) => (v === "yes" ? { files: APILLAR_FILES, color: CAGE_COLOR.aPillar } : null),
+    windscreen_support_each_side: (v) => (v === "yes" ? { files: APILLAR_FILES, color: CAGE_COLOR.aPillar } : null),
+
+    sill_bar: () => null,
+    sill_and_extra_door_bar: () => null,
+    sill_bar_note: () => null,
+  };
+
+  // Fully hidden (background-matched, not just dim ghost) while
+  // 253-1/253-2/253-3 base-structure coloring is still being tuned -- see
+  // the note on ITEM_PART_RULES above.
+  const HIDDEN_WHILE_TUNING_FILES = [].concat(APILLAR_FILES, APILLAR_2PIECE_FILES);
+
+  // Maps each STL file to the row id it represents in the "Tube
+  // classification" table (tubing_bar_classification), for the Part 2
+  // (Tubing sizes & materials) 3D view: every file present in the normal
+  // colors map gets recolored by its row's primary/secondary answer instead
+  // of its usual structural color, and every file with no row here (mounting
+  // feet -- not a tube) or with no row answer yet is hidden/neutral. Rows are
+  // split left/right wherever the underlying part naturally comes as a pair,
+  // so the inspector has to check both sides rather than one answer silently
+  // covering a bar it was never actually looked at. A file maps to exactly
+  // one row regardless of which design variant produced it, since each STL
+  // is one physical tube -- except "Harness bar.stl" (resolved dynamically
+  // in harnessBarTubeRow(), since it's reused by two different rows).
+  const FILE_TO_TUBE_ROW = {
+    "Main rollbar.stl": "main_rollbar",
+    "Front left lateral.stl": "front_laterals_left", "Front right lateral.stl": "front_laterals_right",
+    "Transverse member.stl": "transverse_member",
+    "Left backstay.stl": "backstays_left", "Right backstay.stl": "backstays_right",
+    // "Main diagonal 1" is the TOP-RIGHT-originating leg (used alone for the
+    // "diag-right" single-diagonal option), "Main diagonal 2" TOP-LEFT (used
+    // alone for "diag-left") -- see MAIN_DIAG_TOP_RIGHT/LEFT_FILE above.
+    "Main diagonal  1-  253-7.stl": "main_diagonals_right", "Main diagonal  2-  253-7.stl": "main_diagonals_left",
+    "Main rollbar lower half left.stl": "main_diagonals_left", "Main rollbar lower half right.stl": "main_diagonals_right",
+    "Main rollbar V left.stl": "main_diagonals_left", "Main rollbar V right.stl": "main_diagonals_right",
+    // "253-20" (no suffix) is the left-side single diagonal, "253-20-right"
+    // the right-side one -- see the backstay_diagonals rule above.
+    "Rear diagonal 1.stl": "backstay_diagonals_left", "Rear diagonal 2.stl": "backstay_diagonals_right",
+    "Rear diagonal 253-22 left.stl": "backstay_diagonals_left", "Rear diagonal 253-22 right.stl": "backstay_diagonals_right",
+    // "Roof bar 1/2.stl", "Roof bar 253-1x left/right.stl", and "Roof bar
+    // single center.stl" are deliberately NOT listed here -- roof_bars'
+    // rows/mapping vary by which roof design is selected (253-12 splits
+    // "Roof bar 2" into front/rear half-tubes), so they're resolved
+    // dynamically in roofBarFileTubeRow() instead.
+    // "Left/Right door bar 1/2-253-9.stl" and "Door bar 253-10 upper
+    // left/right.stl" are deliberately NOT listed here -- they're shared
+    // across 253-9-bent/253-9-intersection/253-11/nascar, each of which
+    // classifies them under different rows, so they're resolved dynamically
+    // in doorBarFileTubeRow() instead.
+    "Door bar 253-10 front left.stl": "d10_left_front", "Door bar 253-10 front right.stl": "d10_right_front",
+    "Door bar 253-10 rear left.stl": "d10_left_rear", "Door bar 253-10 rear right.stl": "d10_right_rear",
+    "Sill bar Left.stl": "sill_bar_left", "Sill bar Right.stl": "sill_bar_right",
+    "253-15 Left.stl": "a_pillar_left", "253-15 Right.stl": "a_pillar_right",
+    "253-15 left lower.stl": "a_pillar_left", "253-15 left upper.stl": "a_pillar_left",
+    "253-15 right lower.stl": "a_pillar_right", "253-15 right upper.stl": "a_pillar_right",
+    "253-17 left upper.stl": "rear_lateral_left", "253-17 right upper.stl": "rear_lateral_right",
+    "253-17 left lower.stl": "rear_lateral_left", "253-17 right lower.stl": "rear_lateral_right",
+    "253-18.stl": "rear_transversal",
+    "253-19 left.stl": "rear_lower_x_driver_top", "253-19 right.stl": "rear_lower_x_codriver_top",
+    "253-25 upper left.stl": "anti_intrusion_left_upper", "253-25 lower left.stl": "anti_intrusion_left_lower",
+    "253-25 upper right.stl": "anti_intrusion_right_upper", "253-25 lower right.stl": "anti_intrusion_right_lower",
+    "Dash bar 253-29.stl": "dash_bar",
+    "253-31 temple bar left.stl": "temple_bar_left", "253-31 temple bar right.stl": "temple_bar_right",
+    "253-31 windshield left.stl": "windshield_reinforcement_left", "253-31 windshield right.stl": "windshield_reinforcement_right",
+  };
+  function harnessBarTubeRow() {
+    if (getAnswer("main_hoop_diagonals").value === "diag-horizontal") return "main_diagonals_left";
+    if (getAnswer("harness_bar_present").value === "yes") return "harness_bar";
+    return null;
+  }
+  // "Left/Right door bar 1/2-253-9.stl" are the same 4 meshes across
+  // 253-9-bent, 253-9-intersection, and 253-11 (see door_bars' rule above),
+  // but the Tube classification table's door-bar rows are different tube
+  // pieces for each of those designs (see doorBarTubeRows() in
+  // rules-data.js) -- so which row a given mesh belongs to depends on which
+  // design is currently selected.
+  function doorBarFileTubeRow(file) {
+    const doorVal = getAnswer("door_bars").value;
+    if (doorVal === "253-9-bent") {
+      if (file === "Left door bar 1-  253-9.stl") return "d9bent_left_upper";
+      if (file === "Left door bar 2-  253-9.stl") return "d9bent_left_lower";
+      if (file === "Right door bar 1-  253-9.stl") return "d9bent_right_upper";
+      if (file === "Right door bar 2-  253-9.stl") return "d9bent_right_lower";
+    }
+    if (doorVal === "253-9-intersection") {
+      // Same 2 meshes per side as the bent-bar design -- "door bar 1" is the
+      // continuous leg. "door bar 2" (fabricated as two half-tubes welded
+      // together) is NOT mapped here -- it's handled by tubeRowSplitBand()
+      // below instead, which colors each half of that single mesh
+      // separately rather than forcing one color over the whole thing.
+      if (file === "Left door bar 1-  253-9.stl") return "d9x_left_continuous";
+      if (file === "Right door bar 1-  253-9.stl") return "d9x_right_continuous";
+    }
+    if (doorVal === "253-10") {
+      if (file === "Door bar 253-10 upper left.stl") return "d10_left_upper";
+      if (file === "Door bar 253-10 upper right.stl") return "d10_right_upper";
+    }
+    if (doorVal === "253-11") {
+      if (file === "Left door bar 2-  253-9.stl") return "d11_left";
+      if (file === "Right door bar 1-  253-9.stl") return "d11_right";
+    }
+    if (doorVal === "nascar") {
+      // Reuses 253-10's own top-rail parts (see door_bars' rule above) --
+      // same meshes, different row identity while nascar is selected.
+      if (file === "Door bar 253-10 upper left.stl") return "nascar_left_upper";
+      if (file === "Door bar 253-10 upper right.stl") return "nascar_right_upper";
+      if (file === "Nascar left 1.stl") return "nascar_left_vertical1";
+      if (file === "Nascar left 2.stl") return "nascar_left_vertical2";
+      if (file === "Nascar right 1.stl") return "nascar_right_vertical1";
+      if (file === "Nascar right 2.stl") return "nascar_right_vertical2";
+    }
+    if (doorVal === "single-bar") {
+      if (file === "Left door bar 2-  253-9.stl") return "singlebar_left";
+      if (file === "Right door bar 1-  253-9.stl") return "singlebar_right";
+    }
+    return null;
+  }
+  const ROOF_BAR_DYNAMIC_FILES = [
+    "Roof bar 1.stl", "Roof bar 2.stl",
+    "Roof bar 253-13 left.stl", "Roof bar 253-13 right.stl",
+    "Roof bar 253-14 left.stl", "Roof bar 253-14 right.stl",
+    "Roof bar single center.stl",
+  ];
+  // "Roof bar 1"/"2" together form ONE shared X spanning the whole roof
+  // (corner-to-corner each, not two independent per-side X's like doors --
+  // see the diagram note on roof_bars' rule above), so for 253-12 there are
+  // only 2 real tube pieces total, fabricated the same "1 continuous + 2
+  // half bars" way as 253-9: "Roof bar 1" is treated as the continuous leg;
+  // "Roof bar 2" is NOT mapped here -- see tubeRowSplitBand() below.
+  function roofBarFileTubeRow(file) {
+    const roofVal = getAnswer("roof_bars").value;
+    if (roofVal === "253-12" && file === "Roof bar 1.stl") return "r12_continuous";
+    if (roofVal === "253-13" || roofVal === "253-14") {
+      if (file === "Roof bar 253-13 left.stl" || file === "Roof bar 253-14 left.stl") return "roof_bars_left";
+      if (file === "Roof bar 253-13 right.stl" || file === "Roof bar 253-14 right.stl") return "roof_bars_right";
+    }
+    if (roofVal === "single-center" && file === "Roof bar single center.stl") return "roof_bars_center";
+    if (roofVal === "single-front-left" && file === "Roof bar 1.stl") return "roof_bars_left";
+    if (roofVal === "single-front-right" && file === "Roof bar 2.stl") return "roof_bars_right";
+    return null;
+  }
+  // Files that are a single mesh fabricated as one piece, but conceptually
+  // split into two independently-classified tube halves (the "1 continuous
+  // + 2 half bars" convention) -- these get a band-split color instead of
+  // one flat color, keyed by axis threshold measured directly off each
+  // mesh's own geometry (the two halves meet roughly at its midpoint).
+  function tubeRowSplitBand(file) {
+    if (getAnswer("door_bars").value === "253-9-intersection") {
+      if (file === "Left door bar 2-  253-9.stl") return { axis: "z", min: 29.655, max: 999, insideRow: "d9x_left_upper_half", outsideRow: "d9x_left_lower_half" };
+      if (file === "Right door bar 2-  253-9.stl") return { axis: "z", min: 29.085, max: 999, insideRow: "d9x_right_upper_half", outsideRow: "d9x_right_lower_half" };
+    }
+    if (getAnswer("roof_bars").value === "253-12" && file === "Roof bar 2.stl") {
+      return { axis: "x", min: 179.52, max: 999, insideRow: "r12_rear_half", outsideRow: "r12_front_half" };
+    }
+    return null;
+  }
+  const DOOR_BAR_DYNAMIC_FILES = DOOR_BAR_FILES.concat(
+    ["Door bar 253-10 upper left.stl", "Door bar 253-10 upper right.stl"],
+    NASCAR_VERTICAL_FILES
+  );
+  function fileTubeRow(file) {
+    if (file === "Harness bar.stl") return harnessBarTubeRow();
+    if (DOOR_BAR_DYNAMIC_FILES.indexOf(file) !== -1) return doorBarFileTubeRow(file);
+    if (ROOF_BAR_DYNAMIC_FILES.indexOf(file) !== -1) return roofBarFileTubeRow(file);
+    return FILE_TO_TUBE_ROW[file] || null;
+  }
+  function specColor(row) {
+    const spec = getAnswer("tubing_bar_classification__" + row + "__spec").value;
+    return spec === "primary" ? CAGE_COLOR.tubingPrimary : spec === "secondary" ? CAGE_COLOR.tubingSecondary : CAGE_COLOR.tubingUnclassified;
+  }
+  // Mounting feet aren't tubes, so they don't get a primary/secondary spec
+  // color -- instead they reflect whether that foot's own "Mounting plate
+  // size" cell (this same Part 2 tab) has been filled in yet, reusing the
+  // same "answered vs not" muted-gray convention specColor uses for
+  // unclassified tubes.
+  function footSizeColor(row) {
+    const v = getAnswer("mounting_feet_size__" + row + "__size").value;
+    return v && v.value !== "" && v.value != null ? CAGE_COLOR.foot : CAGE_COLOR.tubingUnclassified;
+  }
+  // Recolors an already-computed "presence" colors map for the Part 2 view:
+  // every present file is reclassified as primary/secondary/unclassified by
+  // row; a present mounting-foot part instead reflects its own plate-size
+  // entry (see footSizeColor); anything else not present is fully hidden
+  // instead of shown in its normal structural color.
+  function applyTubingClassificationView(colors) {
+    const view = {};
+    Object.keys(colors).forEach((file) => {
+      if (colors[file] === "hidden") { view[file] = "hidden"; return; }
+      const band = tubeRowSplitBand(file);
+      if (band) {
+        view[file] = { axis: band.axis, min: band.min, max: band.max, inside: specColor(band.insideRow), outside: specColor(band.outsideRow) };
+        return;
+      }
+      const row = fileTubeRow(file);
+      if (row) { view[file] = specColor(row); return; }
+      const footRow = footRowForFile(file);
+      if (footRow) { view[file] = footSizeColor(footRow); return; }
+      view[file] = "hidden";
+    });
+    return view;
+  }
+
+  // Which design-choice element is currently responsible for a given file's
+  // color -- rebuilt every computeCageColors() call alongside the colors
+  // themselves, and used by handleCagePartClick() to jump the checklist to
+  // the right section when a bar in the 3D model is clicked. Keyed the same
+  // as `colors`; a file with no owner here (fully hidden, or never claimed
+  // by any element) just doesn't jump anywhere when clicked.
+  let CAGE_FILE_OWNER = {};
+
+  function computeCageColors() {
+    const colors = {};
+    const owner = {};
+    HIDDEN_WHILE_TUNING_FILES.forEach((f) => { colors[f] = "hidden"; });
+    if (!state.pathId || !RULES[state.vehicle.org] || !RULES[state.vehicle.org].paths[state.pathId]) {
+      CAGE_FILE_OWNER = owner;
+      return colors;
+    }
+    const path = RULES[state.vehicle.org].paths[state.pathId];
+    path.elements.forEach((elm) => {
+      const answer = getAnswer(elm.id);
+      const value = answer && answer.value;
+      if (!value) return;
+      const claim = (map) => Object.keys(map).forEach((f) => { owner[f] = elm.id; });
+
+      if (elm.id === "main_structure_layout") {
+        const map = baseStructureColors(value);
+        if (map) { Object.assign(colors, map); claim(map); }
+        return;
+      }
+      if (elm.id === "main_structure_present" || elm.id === "base_structure_present") {
+        if (value === "yes") { const map = baseStructureColors("253-3"); Object.assign(colors, map); claim(map); }
+        return;
+      }
+      // "Other design" (main_structure_layout === "none") builds its base
+      // structure up from separate lateral/transverse answers instead of
+      // the single 253-1/253-2/253-3 choice -- reusing the exact same
+      // parts/band-split as the identified 253-1 structure once transverse
+      // members are also confirmed present.
+      if (elm.id === "lateral_rollbars_other") {
+        if (value === "253-3") {
+          // Full-length half rollbar, same as the identified 253-3 structure.
+          colors["Front left lateral.stl"] = CAGE_COLOR.side;
+          colors["Front right lateral.stl"] = CAGE_COLOR.side;
+          claim({ "Front left lateral.stl": 1, "Front right lateral.stl": 1 });
+        } else if (value === "253-1") {
+          // Stops at the windshield top by itself -- the reach-back zone
+          // above that (x>145) only becomes a real bar once transverse
+          // members are added, so it's shown muted (not the same gold as
+          // the confirmed pillar) until then, rather than looking
+          // identical to 253-3's full-length bar.
+          const transVal = getAnswer("transverse_members_253_1").value;
+          const reachBackColor = transVal === "3-bars" || transVal === "halo" ? CAGE_COLOR.member : "#555a60";
+          colors["Front left lateral.stl"] = { axis: "x", min: 145, max: 999, inside: reachBackColor, outside: CAGE_COLOR.side };
+          colors["Front right lateral.stl"] = { axis: "x", min: 145, max: 999, inside: reachBackColor, outside: CAGE_COLOR.side };
+          claim({ "Front left lateral.stl": 1, "Front right lateral.stl": 1 });
+        }
+        return;
+      }
+      if (elm.id === "transverse_member_253_3") {
+        if (value === "yes") { colors["Transverse member.stl"] = CAGE_COLOR.member; owner["Transverse member.stl"] = elm.id; }
+        return;
+      }
+      if (elm.id === "transverse_members_253_1") {
+        if (value === "3-bars" || value === "halo") { colors["Transverse member.stl"] = CAGE_COLOR.member; owner["Transverse member.stl"] = elm.id; }
+        return;
+      }
+
+      const rule = ITEM_PART_RULES[elm.id];
+      if (!rule) return;
+      const result = rule(value, answer);
+      if (!result) return;
+      result.files.forEach((f) => { colors[f] = result.color; owner[f] = elm.id; });
+    });
+    // Mounting feet aren't gated by a single per-element value the main
+    // loop above can see (their answers live per-cell under
+    // "mounting_feet_design__<row>__design"), so each foot is resolved
+    // separately here: ghosted/hidden by default (nothing answered yet).
+    // Once a design is picked: "multiplane_box" (253-54) swaps the flat
+    // plate for the placeholder cube; "double_plane" (253-53) keeps the
+    // flat plate AND adds the rotated duplicate plate; "multiplane_rocker"
+    // (253-55/56) is a second 253-53 step on top, so it shows all four
+    // (real plate + fold + rocker base + rocker fold); every other design
+    // just shows the flat plate alone -- unused parts stay hidden either way.
+    FOOT_LOCATIONS.forEach(({ row, plateFile }) => {
+      const cubeFile = footCubeFile(row);
+      const doubleFile = doublePlaneFile(row);
+      const rockerBase = rockerBaseFile(row);
+      const rockerFold = rockerFoldFile(row);
+      const design = getAnswer("mounting_feet_design__" + row + "__design").value;
+      if (!design) return;
+      if (design === "multiplane_box") {
+        colors[plateFile] = "hidden";
+        colors[doubleFile] = "hidden";
+        colors[rockerBase] = "hidden";
+        colors[rockerFold] = "hidden";
+        colors[cubeFile] = CAGE_COLOR.foot;
+        owner[cubeFile] = "mounting_feet_design";
+      } else if (design === "double_plane" || design === "multiplane_rocker") {
+        colors[cubeFile] = "hidden";
+        colors[plateFile] = CAGE_COLOR.foot;
+        colors[doubleFile] = CAGE_COLOR.foot;
+        owner[plateFile] = "mounting_feet_design";
+        owner[doubleFile] = "mounting_feet_design";
+        if (design === "multiplane_rocker") {
+          colors[rockerBase] = CAGE_COLOR.foot;
+          colors[rockerFold] = CAGE_COLOR.foot;
+          owner[rockerBase] = "mounting_feet_design";
+          owner[rockerFold] = "mounting_feet_design";
+        } else {
+          colors[rockerBase] = "hidden";
+          colors[rockerFold] = "hidden";
+        }
+      } else {
+        colors[cubeFile] = "hidden";
+        colors[doubleFile] = "hidden";
+        colors[rockerBase] = "hidden";
+        colors[rockerFold] = "hidden";
+        colors[plateFile] = CAGE_COLOR.foot;
+        owner[plateFile] = "mounting_feet_design";
+      }
+    });
+
+    // Gusset design: "Gusset design" table (rules-data.js) drives whether
+    // each gusset shows at all -- Taco and Single plate both use the same
+    // modeled shape for now (see CAGE_COLOR comment), so the only thing the
+    // design choice changes here is the color tint, not which file shows.
+    //
+    // gussetJunctionRows() is dynamic -- rows can disappear when an upstream
+    // answer changes (e.g. switching roof_bars away from 253-12, or 253-15
+    // from "2 bars" back to "1 continuous bar"). A row's allowed options can
+    // also narrow (restrictOptionIds) after an answer was already stored
+    // under a since-removed option (e.g. an A-pillar/253-15 gusset saved as
+    // "single_plate" back when that was still offered, now taco-only). In
+    // both cases the raw stored answer alone doesn't reflect reality
+    // anymore, so every lookup here is checked against the row's current
+    // definition -- a row that's gone, or a value no longer in its current
+    // restrictOptionIds, reads as ghost/unanswered rather than keeping its
+    // stale color forever.
+    const gussetDesignElm = path.elements.find((e) => e.id === "gusset_design");
+    const gussetRowsById = gussetDesignElm ? new Map(resolveRows(gussetDesignElm).map((r) => [r.id, r])) : null;
+    function gussetDesignColor(row) {
+      if (gussetRowsById && !gussetRowsById.has(row)) return null;
+      const rowDef = gussetRowsById && gussetRowsById.get(row);
+      const design = getAnswer("gusset_design__" + row + "__design").value;
+      if (rowDef && rowDef.restrictOptionIds && design && rowDef.restrictOptionIds.indexOf(design) === -1) return null;
+      if (design === "taco") return CAGE_COLOR.gussetTaco;
+      if (design === "single_plate") return CAGE_COLOR.gussetSinglePlate;
+      return null;
+    }
+    GUSSET_LOCATIONS.forEach(({ row, file }) => {
+      const color = gussetDesignColor(row);
+      if (!color) return;
+      colors[file] = color;
+      owner[file] = "gusset_design";
+    });
+
+    CAGE_FILE_OWNER = owner;
+    return state.activeTab === 2 ? applyTubingClassificationView(colors) : colors;
+  }
+
+  // Jumps the checklist to a design-choice card: switches to Part 1 (every
+  // clickable bar's owner lives there), expands it if it had been
+  // auto-collapsed, and scrolls it into view.
+  function jumpToSection(elmId) {
+    state.activeTab = 1;
+    state.expandedIds[elmId] = true;
+    render();
+    const target = document.getElementById("section-" + elmId);
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // Briefly outlines a table row so a click lands somewhere obvious even
+  // though there's no card to expand here (unlike jumpToSection's Part 1
+  // cards) -- just a flat table of many rows, where a plain scroll alone
+  // could easily go unnoticed.
+  function flashRow(rowEl) {
+    rowEl.classList.remove("row-flash");
+    void rowEl.offsetWidth; // force reflow so re-clicking the same bar restarts the animation
+    rowEl.classList.add("row-flash");
+  }
+
+  // Part 2's single shared "Tube classification" table has one row per bar
+  // (see doorBarTubeRows()/roofBarTubeRows() and FILE_TO_TUBE_ROW), so
+  // clicking a bar while already on Part 2 scrolls to and flashes that row
+  // instead of switching to Part 1's design-choice card -- a band-split
+  // file (see tubeRowSplitBand) covers 2 rows on one mesh, so both flash.
+  function jumpToTubeRow(file) {
+    const band = tubeRowSplitBand(file);
+    const row = fileTubeRow(file);
+    const rowIds = band ? [band.insideRow, band.outsideRow] : row ? [row] : [];
+    if (!rowIds.length) return;
+    let first = null;
+    rowIds.forEach((rowId) => {
+      const rowEl = document.getElementById("row-tubing_bar_classification__" + rowId);
+      if (!rowEl) return;
+      if (!first) first = rowEl;
+      flashRow(rowEl);
+    });
+    if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  // "Mounting feet design" is a table (one row per foot), same situation as
+  // Part 2's tube classification table -- so a clicked foot's plate/cube/
+  // double-plane mesh flashes its own row instead of just expanding the
+  // (already-always-expanded) table card the way jumpToSection would.
+  function footRowForFile(file) {
+    const loc = FOOT_LOCATIONS.find((l) => file === l.plateFile || file === footCubeFile(l.row) ||
+      file === doublePlaneFile(l.row) || file === rockerBaseFile(l.row) || file === rockerFoldFile(l.row));
+    return loc ? loc.row : null;
+  }
+  function jumpToFootRow(row) {
+    state.activeTab = 1;
+    render();
+    const rowEl = document.getElementById("row-mounting_feet_design__" + row);
+    if (!rowEl) return;
+    rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    flashRow(rowEl);
+  }
+  // Same idea as jumpToFootRow, but for Part 2's own "Mounting plate size"
+  // table -- stays on Part 2 (that table is already on screen) instead of
+  // switching to Part 1's design table.
+  function jumpToFootSizeRow(row) {
+    const rowEl = document.getElementById("row-mounting_feet_size__" + row);
+    if (!rowEl) return;
+    rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    flashRow(rowEl);
+  }
+  // Same idea as footRowForFile/jumpToFootRow, for the "Gusset design" table.
+  function gussetRowForFile(file) {
+    const loc = GUSSET_LOCATIONS.find((l) => file === l.file);
+    return loc ? loc.row : null;
+  }
+  function jumpToGussetRow(row) {
+    state.activeTab = 1;
+    render();
+    const rowEl = document.getElementById("row-gusset_design__" + row);
+    if (!rowEl) return;
+    rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    flashRow(rowEl);
+  }
+
+  // Wired to CageView.onPartClick() -- lets clicking a bar in the live 3D
+  // model act as the index into the checklist, instead of a separate table
+  // of contents. While on Part 2, this stays on Part 2 and jumps within its
+  // own tube classification table (or, for a mounting foot, its plate-size
+  // row) rather than switching to Part 1.
+  function handleCagePartClick(file) {
+    if (state.activeTab === 2) {
+      const footRow = footRowForFile(file);
+      if (footRow) { jumpToFootSizeRow(footRow); return; }
+      jumpToTubeRow(file);
+      return;
+    }
+    const footRow = footRowForFile(file);
+    if (footRow) {
+      jumpToFootRow(footRow);
+      return;
+    }
+    const gussetRow = gussetRowForFile(file);
+    if (gussetRow) {
+      jumpToGussetRow(gussetRow);
+      return;
+    }
+    const elmId = CAGE_FILE_OWNER[file];
+    if (elmId) jumpToSection(elmId);
+  }
+
+  function syncCageView() {
+    if (window.CageView) {
+      const colors = computeCageColors();
+      window.CageView.applyState(colors, state.showGhostBars);
+      window.CageView.onPartClick(handleCagePartClick);
+    }
+  }
+
+  function render() {
+    const root = document.getElementById("app");
+    root.innerHTML = "";
+
+    renderSessionBar(root);
+
+    if (!state.pathId) {
+      root.appendChild(
+        el("div", { class: "panel" }, ["Select logbook status / date below (or choose a path directly) to load the checklist."])
+      );
+      renderVehicleForm(root);
+      syncCageView();
+      return;
+    }
+
+    const path = RULES[state.vehicle.org].paths[state.pathId];
+    const { showTabs, isPart4Active } = renderChecklist(root, path);
+    // When Part 1-3 tabs are in play, Result / Vehicle description / Logbook
+    // move behind their own "Part 4" tab instead of always trailing every
+    // phase's content -- single-phase (e.g. grandfathered) paths have no
+    // tabs at all, so they keep showing these inline like before.
+    if (!showTabs || isPart4Active) {
+      renderResults(root, path);
+      // Vehicle description / Logbook come last -- filling in the paperwork
+      // identity fields is the final step once the technical inspection
+      // itself is done.
+      renderVehicleForm(root);
+    }
+    syncCageView();
+  }
+
+  // ---- Boot -------------------------------------------------------
+
+  function boot() {
+    const all = loadAll();
+    const ids = Object.keys(all);
+    if (ids.length) {
+      const latest = Object.values(all).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0];
+      loadSession(latest.sessionId);
+    } else {
+      startNew();
+    }
+    const ghostBtn = document.getElementById("cageViewerGhostToggle");
+    if (ghostBtn) {
+      ghostBtn.addEventListener("click", () => {
+        state.showGhostBars = !state.showGhostBars;
+        ghostBtn.textContent = state.showGhostBars ? "Hide ghost bars" : "Show ghost bars";
+        syncCageView();
+      });
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
+})();

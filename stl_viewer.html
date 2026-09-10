@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Rollcage STL labeler</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: sans-serif; background: #222; }
+  #toolbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+    background: rgba(20,20,20,0.85); color: #eee; padding: 8px 12px;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  button { cursor: pointer; padding: 6px 10px; border-radius: 6px; border: 1px solid #555; background: #333; color: #eee; }
+  button:hover { background: #444; }
+  #info { color: #aaa; font-size: 12px; }
+  label { color: #ccc; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+  #activeLabel { color: #fff; font-size: 12px; font-weight: bold; padding: 4px 8px; border-radius: 6px; background: rgba(255,255,255,0.08); }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <span id="activeLabel">No label selected</span>
+  <label>Angle tolerance <input type="range" id="angleTol" min="2" max="60" value="20"><span id="angleTolVal">20</span>&deg;</label>
+  <label>Direction tolerance <input type="range" id="dirTol" min="5" max="80" value="35"><span id="dirTolVal">35</span>&deg;</label>
+  <label>Max faces <input type="number" id="maxFaces" min="10" max="10000" value="800" style="width:70px"></label>
+  <label>Roll <input type="range" id="rollSlider" min="-180" max="180" value="0"><span id="rollVal">0</span>&deg;</label>
+  <button id="undoBtn">Undo last</button>
+  <button id="resetView">Reset view</button>
+  <button id="exportBtn">Download labels.json</button>
+  <button id="clearAllBtn">Clear paint for active label</button>
+  <button id="legendToggle">Hide labels</button>
+  <span id="info">Loading model...</span>
+</div>
+<div id="legend" style="position:absolute;bottom:0;right:0;z-index:9;background:rgba(20,20,20,0.85);color:#eee;padding:10px;max-height:80%;overflow-y:auto;font-size:12px;width:300px;border-top-left-radius:8px;"></div>
+<div id="canvasWrap" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  const wrap = document.getElementById("canvasWrap");
+  const info = document.getElementById("info");
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x222222);
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100000);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  wrap.appendChild(renderer.domElement);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight.position.set(1, 1, 1);
+  scene.add(dirLight);
+  const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+  dirLight2.position.set(-1, -1, -1);
+  scene.add(dirLight2);
+
+  // ---- Simple trackball-ish mouse controls (no OrbitControls dependency) ----
+  // theta/phi orbit the camera around `target` (2 rotational axes -- azimuth
+  // and elevation). That's only 2 of the 3 possible rotation axes: there's
+  // no way to roll/tilt the horizon with just those two, since camera.up
+  // stays fixed at world-up throughout. `roll` is the third axis: it rotates
+  // camera.up itself around the view direction before lookAt() uses it.
+  let target = new THREE.Vector3(0, 0, 0);
+  let radius = 500;
+  let theta = Math.PI / 4, phi = Math.PI / 3;
+  let roll = 0; // radians
+  function updateCamera() {
+    camera.position.set(
+      target.x + radius * Math.sin(phi) * Math.cos(theta),
+      target.y + radius * Math.cos(phi),
+      target.z + radius * Math.sin(phi) * Math.sin(theta)
+    );
+    const viewDir = target.clone().sub(camera.position).normalize();
+    const rolledUp = new THREE.Vector3(0, 1, 0).applyAxisAngle(viewDir, roll);
+    camera.up.copy(rolledUp);
+    camera.lookAt(target);
+    camera.updateMatrixWorld(true);
+  }
+  let dragging = false, lastX = 0, lastY = 0, dragButton = 0;
+  renderer.domElement.addEventListener("mousedown", (e) => {
+    dragging = true; lastX = e.clientX; lastY = e.clientY; dragButton = e.button;
+  });
+  window.addEventListener("mouseup", () => { dragging = false; });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    if (dragButton === 2 || e.shiftKey) {
+      // pan
+      const panSpeed = radius * 0.0015;
+      const camRight = new THREE.Vector3(); camera.getWorldDirection(camRight);
+      const up = camera.up.clone();
+      const rightVec = new THREE.Vector3().crossVectors(camRight, up).normalize();
+      target.addScaledVector(rightVec, -dx * panSpeed);
+      target.addScaledVector(up, dy * panSpeed);
+    } else {
+      theta -= dx * 0.005;
+      phi -= dy * 0.005;
+      phi = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
+    }
+    updateCamera();
+  });
+  renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
+  renderer.domElement.addEventListener("wheel", (e) => {
+    radius *= e.deltaY > 0 ? 1.1 : 0.9;
+    radius = Math.max(10, Math.min(5000, radius));
+    updateCamera();
+    e.preventDefault();
+  }, { passive: false });
+
+  // ---- Binary STL parser ----
+  function parseBinarySTL(buf) {
+    const dv = new DataView(buf);
+    const triCount = dv.getUint32(80, true);
+    const positions = new Float32Array(triCount * 9);
+    let offset = 84;
+    for (let i = 0; i < triCount; i++) {
+      offset += 12; // normal (recomputed ourselves)
+      for (let j = 0; j < 9; j++) {
+        positions[i * 9 + j] = dv.getFloat32(offset, true);
+        offset += 4;
+      }
+      offset += 2;
+    }
+    return { positions, triCount };
+  }
+
+  let geometry, mesh, faceColors, activeColor = null, triCount = 0, positions;
+  let adjacency; // per-face array of neighbor face indices (via shared edges)
+
+  // Quantizes a vertex position into a bucket key so triangles sharing a
+  // vertex (within float32 noise) can be found for adjacency. This was
+  // previously *50 (0.02 unit buckets) which is far coarser than needed at
+  // this mesh's scale (coordinates up to a few hundred units) -- it was
+  // merging vertices that are legitimately close together but distinct
+  // (e.g. on a small-radius tube), producing spurious "adjacency" between
+  // unrelated faces. Some faces showed 4900+ false neighbors as a result.
+  // *20000 (0.00005 unit buckets) is comfortably above float32 noise at
+  // this scale (~4e-5 for a coordinate of a few hundred) while nowhere
+  // near merging genuinely distinct nearby vertices.
+  function keyOf(x, y, z) {
+    return Math.round(x * 20000) + "_" + Math.round(y * 20000) + "_" + Math.round(z * 20000);
+  }
+
+  function buildAdjacency(positions, triCount) {
+    const edgeMap = new Map();
+    const adj = Array.from({ length: triCount }, () => []);
+    for (let i = 0; i < triCount; i++) {
+      const v = [];
+      for (let k = 0; k < 3; k++) {
+        v.push(keyOf(positions[i*9+k*3], positions[i*9+k*3+1], positions[i*9+k*3+2]));
+      }
+      const edges = [[v[0], v[1]], [v[1], v[2]], [v[2], v[0]]];
+      for (const [a, b] of edges) {
+        const ek = a < b ? a + "|" + b : b + "|" + a;
+        if (!edgeMap.has(ek)) edgeMap.set(ek, []);
+        edgeMap.get(ek).push(i);
+      }
+    }
+    for (const faces of edgeMap.values()) {
+      if (faces.length === 2) {
+        adj[faces[0]].push(faces[1]);
+        adj[faces[1]].push(faces[0]);
+      } else if (faces.length > 2) {
+        for (let a = 0; a < faces.length; a++)
+          for (let b = 0; b < faces.length; b++)
+            if (a !== b) adj[faces[a]].push(faces[b]);
+      }
+    }
+    return adj;
+  }
+
+  function faceNormal(i) {
+    const ax = positions[i*9], ay = positions[i*9+1], az = positions[i*9+2];
+    const bx = positions[i*9+3], by = positions[i*9+4], bz = positions[i*9+5];
+    const cx = positions[i*9+6], cy = positions[i*9+7], cz = positions[i*9+8];
+    const ux = bx-ax, uy = by-ay, uz = bz-az;
+    const vx = cx-ax, vy = cy-ay, vz = cz-az;
+    const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
+    const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+    return [nx/len, ny/len, nz/len];
+  }
+  function faceCentroid(i) {
+    return [
+      (positions[i*9] + positions[i*9+3] + positions[i*9+6]) / 3,
+      (positions[i*9+1] + positions[i*9+4] + positions[i*9+7]) / 3,
+      (positions[i*9+2] + positions[i*9+5] + positions[i*9+8]) / 3,
+    ];
+  }
+
+  const normalCache = new Map();
+  function cachedNormal(i) {
+    let n = normalCache.get(i);
+    if (!n) { n = faceNormal(i); normalCache.set(i, n); }
+    return n;
+  }
+  const centroidCache = new Map();
+  function cachedCentroid(i) {
+    let c = centroidCache.get(i);
+    if (!c) { c = faceCentroid(i); centroidCache.set(i, c); }
+    return c;
+  }
+  function sub(a, b) { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+  function dot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+  function norm(a) { const l = Math.sqrt(dot(a,a)) || 1; return [a[0]/l, a[1]/l, a[2]/l]; }
+
+  // A rollcage tube is a (possibly bent) cylinder. Two properties tell it
+  // apart from a DIFFERENT tube welded on through a smooth fillet, even
+  // though a pure face-normal-angle test can be fooled by that fillet:
+  //   1. Circumferential steps (going around the tube at ~the same station)
+  //      barely move along the tube's length -- always fine to follow.
+  //   2. Longitudinal steps (moving along the tube's length) should keep
+  //      pointing in roughly the SAME direction as the tube's own recent
+  //      heading. A branch onto a different, differently-angled tube shows
+  //      up as a sharp heading change even when the surface normals happen
+  //      to blend smoothly through the fillet.
+  // `refFaceFor` (parent chain, lagged like before) supplies "the recent
+  // heading", now computed from CENTROID movement instead of normals.
+  function floodFillTube(startFace, colorHex) {
+    const normTolDeg = parseFloat(document.getElementById("angleTol").value);
+    const cosNormTol = Math.cos(normTolDeg * Math.PI / 180);
+    const dirTolDeg = parseFloat(document.getElementById("dirTol").value);
+    const cosDirTol = Math.cos(dirTolDeg * Math.PI / 180);
+    const maxFaces = parseInt(document.getElementById("maxFaces").value, 10);
+    const LAG = 6;
+
+    const visited = new Uint8Array(triCount);
+    const parent = new Int32Array(triCount).fill(-1);
+    const stack = [startFace];
+    visited[startFace] = 1;
+    let count = 0;
+    let hitCap = false;
+
+    function refFaceFor(f) {
+      let cur = f, steps = 0;
+      while (steps < LAG && parent[cur] !== -1) { cur = parent[cur]; steps++; }
+      return cur;
+    }
+    // headingAt() intentionally only used as a REJECTION for a narrow case:
+    // a step that reverses hard against the established travel direction
+    // (a strong sign of having wrapped onto a different, backward-folded
+    // surface). It is deliberately NOT used to gate "sideways" steps --
+    // those are exactly how a flood fill wraps around a tube's own
+    // circumference, and rejecting them is what caused under-growth in an
+    // earlier version of this function. The normal-angle test (below) is
+    // still the primary, proven gate.
+    function headingAt(f) {
+      const ref = refFaceFor(f);
+      if (ref === f) return null;
+      return norm(sub(cachedCentroid(f), cachedCentroid(ref)));
+    }
+    // dirTolDeg is read as "how many degrees of margin before a full 180°
+    // reversal still counts as rejected" -- e.g. dirTol=35 rejects only
+    // steps that turn more than 145° from the established heading. That's
+    // a wide-open safety net, not a segmentation mechanism on its own.
+    const reverseThresholdDeg = 180 - dirTolDeg;
+    const cosReverseThreshold = Math.cos(reverseThresholdDeg * Math.PI / 180);
+    // A thinner tube can be tessellated with far fewer facets around its
+    // circumference than a thicker one -- adjacent facets there can differ
+    // in normal by well more than `angleTol` even though they're plainly
+    // the same cylinder, just coarsely faceted. The strict, user-set
+    // `angleTol` should only gate LENGTHWISE growth (where a real joint
+    // shows up); a step that's mostly CIRCUMFERENTIAL (perpendicular to the
+    // established heading) gets a much looser normal check instead, since
+    // rejecting it is exactly what produced "only a thin seam painted".
+    const CIRCUMFERENTIAL_CUTOFF = 0.5; // |along| below this = circumferential
+    const cosLooseNormTol = Math.cos(75 * Math.PI / 180);
+
+    while (stack.length) {
+      if (count >= maxFaces) { hitCap = true; break; }
+      const f = stack.pop();
+      count++;
+      const refN = cachedNormal(refFaceFor(f));
+      const heading = headingAt(f);
+      const cf = cachedCentroid(f);
+      for (const nb of adjacency[f]) {
+        if (visited[nb]) continue;
+        const nn = cachedNormal(nb);
+        const nDot = dot(refN, nn);
+        let stepDir = null, along = 0;
+        if (heading) {
+          stepDir = norm(sub(cachedCentroid(nb), cf));
+          along = dot(stepDir, heading);
+        }
+        const circumferential = heading && Math.abs(along) < CIRCUMFERENTIAL_CUTOFF;
+        const normTolForStep = circumferential ? cosLooseNormTol : cosNormTol;
+        if (nDot < normTolForStep) continue;
+        if (heading && along < cosReverseThreshold) continue; // hard reversal only
+        visited[nb] = 1;
+        parent[nb] = f;
+        stack.push(nb);
+      }
+    }
+
+    const c = new THREE.Color(colorHex);
+    const colorAttr = geometry.getAttribute("color");
+    const undoEntry = [];
+    for (let i = 0; i < triCount; i++) {
+      if (!visited[i]) continue;
+      undoEntry.push([i, faceColors[i]]);
+      faceColors[i] = colorHex;
+      for (let v = 0; v < 3; v++) colorAttr.setXYZ(i*3+v, c.r, c.g, c.b);
+    }
+    history.push(undoEntry);
+    colorAttr.needsUpdate = true;
+    info.textContent = "Painted " + count + " faces " + colorHex +
+      " (normal tol " + normTolDeg + "°, direction tol " + dirTolDeg + "°)" +
+      (hitCap ? " -- HIT MAX-FACES CAP, likely bled across a joint" : "");
+    applyDisplayColors(); renderLegend();
+  }
+
+  const history = [];
+  function undoLast() {
+    const entry = history.pop();
+    if (!entry) { info.textContent = "Nothing to undo."; return; }
+    for (const [i, prevHex] of entry) faceColors[i] = prevHex;
+    info.textContent = "Undid last paint (" + entry.length + " faces restored).";
+    applyDisplayColors(); renderLegend();
+  }
+
+  fetch("Rollcage.stl").then(r => r.arrayBuffer()).then(buf => {
+    const parsed = parseBinarySTL(buf);
+    positions = parsed.positions;
+    triCount = parsed.triCount;
+    info.textContent = "Building adjacency for " + triCount + " faces...";
+
+    geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.computeVertexNormals();
+
+    faceColors = new Array(triCount).fill("#888888");
+    const colorArr = new Float32Array(triCount * 9);
+    for (let i = 0; i < colorArr.length; i += 3) { colorArr[i] = 0.53; colorArr[i+1] = 0.53; colorArr[i+2] = 0.53; }
+    geometry.setAttribute("color", new THREE.BufferAttribute(colorArr, 3));
+
+    // MeshBasicMaterial deliberately -- it ignores lighting entirely, so a
+    // painted face shows its exact true color everywhere, regardless of
+    // which way it faces the light. A lit material (Standard/Phong) can
+    // shade the far side of a cylinder dark enough that a correctly-painted
+    // full-circumference fill still LOOKS like only a thin lit seam.
+    const material = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
+
+    geometry.computeBoundingSphere();
+    const bs = geometry.boundingSphere;
+    target.copy(bs.center);
+    radius = bs.radius * 2.2;
+    updateCamera();
+
+    setTimeout(() => {
+      adjacency = buildAdjacency(positions, triCount);
+      info.textContent = triCount + " faces, adjacency ready. Add a label, then click a bar to paint it.";
+      renderLegend();
+      window.__debug = {
+        adjacencyStats: () => {
+          const degCounts = {};
+          for (let i = 0; i < triCount; i++) {
+            const d = adjacency[i].length;
+            degCounts[d] = (degCounts[d] || 0) + 1;
+          }
+          return degCounts;
+        },
+        faceInfo: (i) => ({
+          normal: cachedNormal(i),
+          centroid: cachedCentroid(i),
+          neighbors: adjacency[i],
+          neighborNormals: adjacency[i].map(cachedNormal),
+        }),
+        raycastAt: (sx, sy) => {
+          const scaleX = window.innerWidth / 800, scaleY = window.innerHeight / 859;
+          const px = sx * scaleX, py = sy * scaleY;
+          mouse.x = (px / window.innerWidth) * 2 - 1;
+          mouse.y = -(py / window.innerHeight) * 2 + 1;
+          raycaster.setFromCamera(mouse, camera);
+          const hits = raycaster.intersectObject(mesh);
+          return hits.length ? hits[0].faceIndex : null;
+        },
+      };
+    }, 10);
+  }).catch(e => { info.textContent = "Failed to load STL: " + e; });
+
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+  let mouseDownPos = null;
+  renderer.domElement.addEventListener("mousedown", (e) => { mouseDownPos = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener("mouseup", (e) => {
+    if (!mouseDownPos) return;
+    const moved = Math.hypot(e.clientX - mouseDownPos[0], e.clientY - mouseDownPos[1]);
+    mouseDownPos = null;
+    if (moved > 4 || !mesh || !adjacency) return;
+    if (!activeColor) { info.textContent = "Add a label first (or click one in the list to make it active), then click a bar."; return; }
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObject(mesh);
+    if (hits.length) floodFillTube(hits[0].faceIndex, activeColor);
+  });
+
+  document.getElementById("angleTol").addEventListener("input", (e) => {
+    document.getElementById("angleTolVal").textContent = e.target.value;
+  });
+  document.getElementById("dirTol").addEventListener("input", (e) => {
+    document.getElementById("dirTolVal").textContent = e.target.value;
+  });
+  document.getElementById("rollSlider").addEventListener("input", (e) => {
+    roll = (parseFloat(e.target.value) * Math.PI) / 180;
+    document.getElementById("rollVal").textContent = e.target.value;
+    updateCamera();
+  });
+  document.getElementById("undoBtn").addEventListener("click", undoLast);
+  document.getElementById("resetView").addEventListener("click", () => {
+    theta = Math.PI / 4; phi = Math.PI / 3; roll = 0;
+    document.getElementById("rollSlider").value = 0;
+    document.getElementById("rollVal").textContent = "0";
+    if (geometry) { radius = geometry.boundingSphere.radius * 2.2; target.copy(geometry.boundingSphere.center); }
+    updateCamera();
+  });
+  document.getElementById("exportBtn").addEventListener("click", () => {
+    const data = JSON.stringify({ triCount, faceColors, labels });
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "labels.json";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  });
+  // Native confirm() dialogs are unreliable inside some embedded/preview
+  // browser contexts, so this uses an in-page arm/confirm click sequence
+  // instead: first click arms it (button turns red, "Click again"); a
+  // second click within 6s actually clears. Anything else disarms it.
+  // Scoped to the currently-ACTIVE label only -- it clears that label's
+  // painted faces back to unpainted grey, but keeps the label itself (still
+  // in the list, at 0f, still selectable) and leaves every other label's
+  // paint untouched. To remove a label entirely, use its own × button.
+  let clearArmed = false, clearArmTimer = null;
+  const clearAllBtn = document.getElementById("clearAllBtn");
+  clearAllBtn.addEventListener("click", () => {
+    if (!faceColors) return;
+    if (!activeColor) { info.textContent = "Select a label first (click its swatch), then Clear paint will reset just that label's faces."; return; }
+    if (!clearArmed) {
+      clearArmed = true;
+      clearAllBtn.textContent = "Click again to confirm";
+      clearAllBtn.style.background = "#7a2020";
+      clearArmTimer = setTimeout(() => {
+        clearArmed = false;
+        clearAllBtn.textContent = "Clear paint for active label";
+        clearAllBtn.style.background = "";
+      }, 6000);
+      return;
+    }
+    clearTimeout(clearArmTimer);
+    clearArmed = false;
+    clearAllBtn.textContent = "Clear paint for active label";
+    clearAllBtn.style.background = "";
+    const target = activeColor;
+    const undoEntry = [];
+    for (let i = 0; i < triCount; i++) {
+      if (faceColors[i] !== target) continue;
+      undoEntry.push([i, faceColors[i]]);
+      faceColors[i] = "#888888";
+    }
+    history.push(undoEntry);
+    applyDisplayColors(); renderLegend();
+    const lbl = labels.find((l) => l.color === target);
+    info.textContent = "Cleared paint for \"" + (lbl ? lbl.name : target) + "\" (" + undoEntry.length + " faces). The label itself is still here.";
+  });
+
+  // ---- Labels: user-created (name + auto-assigned color), not pre-guessed ----
+  const PALETTE = [
+    "#e0483e", "#d4a017", "#3b6fd6", "#2f9e57", "#9b3fd1", "#ff8c00", "#00bcd4", "#e91e8c",
+    "#795548", "#8bc34a", "#3f51b5", "#ffeb3b", "#607d8b", "#00e676", "#f44336", "#673ab7",
+    "#cddc39", "#ff5722", "#03a9f4", "#4caf50", "#9c27b0", "#ffc107", "#009688", "#e040fb",
+    "#5d4037", "#7cb342", "#1976d2", "#fbc02d", "#c2185b", "#00acc1", "#8d6e63", "#43a047",
+  ];
+  const labels = []; // {name, color}
+  function nextColor() {
+    const used = new Set(labels.map((l) => l.color));
+    return PALETTE.find((c) => !used.has(c)) || "#" + Math.floor(Math.random()*0xffffff).toString(16).padStart(6,"0");
+  }
+  function setActive(color) {
+    activeColor = color;
+    const lbl = labels.find((l) => l.color === color);
+    const el = document.getElementById("activeLabel");
+    el.textContent = lbl ? "Painting: " + (lbl.name || "(unnamed)") : "No label selected";
+    el.style.background = color ? color : "rgba(255,255,255,0.08)";
+    el.style.color = color ? "#000" : "#fff";
+    renderLegend();
+  }
+
+  const legendEl = document.getElementById("legend");
+  const highlightSet = new Set();
+  const DIM_COLOR = "#2a2a2a";
+  function applyDisplayColors() {
+    if (!geometry) return;
+    const colorAttr = geometry.getAttribute("color");
+    const cache = new Map();
+    const isolating = highlightSet.size > 0;
+    for (let i = 0; i < triCount; i++) {
+      const trueHex = faceColors[i];
+      const hex = (isolating && !highlightSet.has(trueHex)) ? DIM_COLOR : trueHex;
+      let c = cache.get(hex);
+      if (!c) { c = new THREE.Color(hex); cache.set(hex, c); }
+      for (let v = 0; v < 3; v++) colorAttr.setXYZ(i * 3 + v, c.r, c.g, c.b);
+    }
+    colorAttr.needsUpdate = true;
+  }
+
+  function renderLegend() {
+    legendEl.innerHTML = "";
+    const title = document.createElement("div");
+    title.style.fontWeight = "bold"; title.style.marginBottom = "6px";
+    title.textContent = "Labels (" + labels.length + ")";
+    legendEl.appendChild(title);
+
+    const addRow = document.createElement("div");
+    addRow.style.display = "flex"; addRow.style.gap = "4px"; addRow.style.marginBottom = "8px";
+    const addInput = document.createElement("input");
+    addInput.type = "text"; addInput.placeholder = "New label name...";
+    addInput.style.flex = "1"; addInput.style.background = "#333"; addInput.style.color = "#eee"; addInput.style.border = "1px solid #555"; addInput.style.borderRadius = "4px"; addInput.style.padding = "3px 6px"; addInput.style.fontSize = "11px";
+    const addBtn = document.createElement("button");
+    addBtn.textContent = "+ Add"; addBtn.style.fontSize = "11px"; addBtn.style.padding = "3px 8px";
+    function addLabel() {
+      const name = addInput.value.trim();
+      if (!name) return;
+      const color = nextColor();
+      labels.push({ name, color });
+      addInput.value = "";
+      setActive(color);
+    }
+    addBtn.addEventListener("click", addLabel);
+    addInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addLabel(); });
+    addRow.appendChild(addInput); addRow.appendChild(addBtn);
+    legendEl.appendChild(addRow);
+
+    if (!faceColors) { const l = document.createElement("div"); l.textContent = "Loading..."; legendEl.appendChild(l); return; }
+    const counts = {};
+    faceColors.forEach((c) => { if (c !== "#888888") counts[c] = (counts[c] || 0) + 1; });
+
+    if (labels.length) {
+      const controls = document.createElement("div");
+      controls.style.display = "flex"; controls.style.gap = "4px"; controls.style.marginBottom = "8px"; controls.style.flexWrap = "wrap";
+      const mkBtn = (label) => { const b = document.createElement("button"); b.textContent = label; b.style.fontSize = "10px"; b.style.padding = "3px 6px"; return b; };
+      const selectAllBtn = mkBtn("Highlight all");
+      const deselectAllBtn = mkBtn("Clear highlight");
+      const prevBtn = mkBtn("◀ Prev");
+      const nextBtn = mkBtn("Next ▶");
+      controls.appendChild(selectAllBtn); controls.appendChild(deselectAllBtn);
+      controls.appendChild(prevBtn); controls.appendChild(nextBtn);
+      legendEl.appendChild(controls);
+
+      let stepIndex = -1;
+      selectAllBtn.addEventListener("click", () => { labels.forEach((l) => highlightSet.add(l.color)); stepIndex = -1; applyDisplayColors(); renderLegend(); });
+      deselectAllBtn.addEventListener("click", () => { highlightSet.clear(); stepIndex = -1; applyDisplayColors(); renderLegend(); });
+      prevBtn.addEventListener("click", () => {
+        if (!labels.length) return;
+        stepIndex = stepIndex <= 0 ? labels.length - 1 : stepIndex - 1;
+        highlightSet.clear(); highlightSet.add(labels[stepIndex].color);
+        applyDisplayColors(); renderLegend();
+      });
+      nextBtn.addEventListener("click", () => {
+        if (!labels.length) return;
+        stepIndex = stepIndex >= labels.length - 1 ? 0 : stepIndex + 1;
+        highlightSet.clear(); highlightSet.add(labels[stepIndex].color);
+        applyDisplayColors(); renderLegend();
+      });
+    }
+
+    labels.forEach((lbl) => {
+      const row = document.createElement("div");
+      row.style.display = "flex"; row.style.alignItems = "center"; row.style.gap = "6px"; row.style.marginBottom = "4px";
+      row.style.padding = "3px"; row.style.borderRadius = "4px";
+      if (lbl.color === activeColor) { row.style.outline = "2px solid #fff"; }
+      if (highlightSet.has(lbl.color)) { row.style.background = "rgba(255,255,255,0.12)"; }
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = highlightSet.has(lbl.color); cb.style.flexShrink = "0";
+      cb.title = "Highlight (dim everything else)";
+      cb.addEventListener("change", () => {
+        if (cb.checked) highlightSet.add(lbl.color); else highlightSet.delete(lbl.color);
+        applyDisplayColors(); renderLegend();
+      });
+
+      const sw = document.createElement("div");
+      sw.style.width = "16px"; sw.style.height = "16px"; sw.style.borderRadius = "4px"; sw.style.background = lbl.color; sw.style.flexShrink = "0"; sw.style.cursor = "pointer";
+      sw.title = "Click to make this the active paint label and isolate it";
+      sw.addEventListener("click", () => {
+        setActive(lbl.color);
+        highlightSet.clear(); highlightSet.add(lbl.color);
+        applyDisplayColors(); renderLegend();
+      });
+
+      const count = document.createElement("span");
+      count.style.color = "#888"; count.style.fontSize = "10px"; count.style.width = "32px"; count.style.flexShrink = "0";
+      count.textContent = (counts[lbl.color] || 0) + "f";
+
+      const input = document.createElement("input");
+      input.type = "text"; input.value = lbl.name;
+      input.style.flex = "1"; input.style.background = "#333"; input.style.color = "#eee"; input.style.border = "1px solid #555"; input.style.borderRadius = "4px"; input.style.padding = "2px 4px"; input.style.fontSize = "11px";
+      input.addEventListener("change", (e) => { lbl.name = e.target.value; if (lbl.color === activeColor) setActive(activeColor); });
+      input.addEventListener("click", () => setActive(lbl.color));
+
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "×"; delBtn.style.fontSize = "12px"; delBtn.style.padding = "1px 6px"; delBtn.style.flexShrink = "0";
+      delBtn.title = "Delete this label (painted faces revert to unpainted grey)";
+      delBtn.addEventListener("click", () => {
+        for (let i = 0; i < triCount; i++) if (faceColors[i] === lbl.color) faceColors[i] = "#888888";
+        const idx = labels.indexOf(lbl);
+        if (idx >= 0) labels.splice(idx, 1);
+        highlightSet.delete(lbl.color);
+        if (activeColor === lbl.color) setActive(null);
+        applyDisplayColors(); renderLegend();
+      });
+
+      row.appendChild(cb); row.appendChild(sw); row.appendChild(count); row.appendChild(input); row.appendChild(delBtn);
+      legendEl.appendChild(row);
+    });
+  }
+  document.getElementById("legendToggle").addEventListener("click", (e) => {
+    const hidden = legendEl.style.display === "none";
+    legendEl.style.display = hidden ? "block" : "none";
+    e.target.textContent = hidden ? "Hide labels" : "Show labels";
+  });
+  renderLegend();
+
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
