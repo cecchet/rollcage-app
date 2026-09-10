@@ -461,7 +461,7 @@
         { id: "253-20", label: "253-20: Single diagonal, top left", diagram: "253-20", outcome: "pass" },
         { id: "253-20-right", label: "253-20: Single diagonal, top right", diagram: "253-20-right", outcome: "pass" },
         { id: "253-21", label: "253-21: X-configuration", diagram: "253-21", outcome: "pass" },
-        { id: "253-22", label: "253-22: V (paired with roof bar 253-14)", diagram: "253-22", outcome: "pass" },
+        { id: "253-22", label: "253-22: V (mandatory with roof bar 253-14)", diagram: "253-22", outcome: "pass" },
         { id: "none", label: "None present", outcome: "fail" },
       ],
       tubing: null,

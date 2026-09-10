@@ -1052,6 +1052,12 @@
               // doesn't itself know the question is no longer relevant).
               setAnswer("lateral_rollbars_other", { value: "" });
             }
+            // 253-22 (V backstay diagonal) is mandatory with a 253-14 roof
+            // bar -- pre-select it (still shown/editable) if the user
+            // hasn't already chosen a roof bar design themselves.
+            if (elm.id === "backstay_diagonals" && opt.id === "253-22" && !getAnswer("roof_bars").value) {
+              setAnswer("roof_bars", { value: "253-14" });
+            }
             setAnswer(elm.id, { value: opt.id });
           },
         });
