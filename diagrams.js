@@ -103,6 +103,16 @@
   // A single bar, captured for identification -- top-left to bottom-right.
   D["single-bar"] = wrap(doorOpening + `<path d="M30,20 L110,80" ${HI}/>`);
 
+  // ---- Rear lateral reinforcement (253-17) -- side view, same door
+  // opening context as the door bar diagrams above. The rear end attaches
+  // low, near the backstay; the front end (what actually varies between
+  // options) reaches either the upper door bar point, the lower one, or
+  // both.
+  D["253-17-upper"] = wrap(doorOpening + `<path d="M110,78 L30,20" ${HI}/>`);
+  D["253-17-lower"] = wrap(doorOpening + `<path d="M110,78 L30,72" ${HI}/>`);
+  D["253-17-both"] = wrap(doorOpening + `<path d="M110,78 L30,20 M110,78 L30,72" ${HI}/>`);
+  D["253-17-none"] = wrap(doorOpening);
+
   // A user-supplied reference photo, sized the same way as the hand-drawn
   // SVGs above (see the ".element-diagram img"/".choice-diagram img" rules
   // in style.css).
