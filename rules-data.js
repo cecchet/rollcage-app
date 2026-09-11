@@ -690,10 +690,10 @@
     // which pair applies.
     if (getAnswer("main_hoop_diagonals").value) {
       rows.push(
-        { id: "main_hoop_diag_left", label: "Main rollbar diagonal - left" },
-        { id: "main_hoop_diag_right", label: "Main rollbar diagonal - right" },
-        { id: "main_hoop_diag_upper", label: "Main rollbar diagonal - upper" },
-        { id: "main_hoop_diag_lower", label: "Main rollbar diagonal - lower" }
+        { id: "main_hoop_diag_left", label: "253-7: Main rollbar diagonal - left" },
+        { id: "main_hoop_diag_right", label: "253-7: Main rollbar diagonal - right" },
+        { id: "main_hoop_diag_upper", label: "253-7: Main rollbar diagonal - upper" },
+        { id: "main_hoop_diag_lower", label: "253-7: Main rollbar diagonal - lower" }
       );
     }
     // Only the 253-21 X-configuration backstay diagonal needs its own
@@ -702,10 +702,10 @@
     // 253-22 (V) designs don't. Same 4-position pattern as 253-7.
     if (getAnswer("backstay_diagonals").value === "253-21") {
       rows.push(
-        { id: "backstay_diag_left", label: "Backstay diagonal (253-21) - left" },
-        { id: "backstay_diag_right", label: "Backstay diagonal (253-21) - right" },
-        { id: "backstay_diag_upper", label: "Backstay diagonal (253-21) - upper" },
-        { id: "backstay_diag_lower", label: "Backstay diagonal (253-21) - lower" }
+        { id: "backstay_diag_left", label: "253-21: Backstay diagonal - left" },
+        { id: "backstay_diag_right", label: "253-21: Backstay diagonal - right" },
+        { id: "backstay_diag_upper", label: "253-21: Backstay diagonal - upper" },
+        { id: "backstay_diag_lower", label: "253-21: Backstay diagonal - lower" }
       );
     }
     // Same 4-position pattern as 253-7, just left/right/front/rear instead
@@ -713,10 +713,10 @@
     // gusset -- 253-14, 253-13, and the single-bar variants don't.
     if (getAnswer("roof_bars").value === "253-12") {
       rows.push(
-        { id: "roof_left", label: "Roof bar junction - left" },
-        { id: "roof_right", label: "Roof bar junction - right" },
-        { id: "roof_front", label: "Roof bar junction - front" },
-        { id: "roof_rear", label: "Roof bar junction - rear" }
+        { id: "roof_left", label: "253-12: Roof bar junction - left" },
+        { id: "roof_right", label: "253-12: Roof bar junction - right" },
+        { id: "roof_front", label: "253-12: Roof bar junction - front" },
+        { id: "roof_rear", label: "253-12: Roof bar junction - rear" }
       );
     }
     // Only the 253-9 (X-bar) designs need this gusset -- 253-10, 253-11,
@@ -729,10 +729,10 @@
       // as 4 separate rows for now regardless, since that design-specific
       // exception needs its own rule to be worked out later.
       rows.push(
-        { id: "door_front_left", label: "Door bar junction - front left" },
-        { id: "door_rear_left", label: "Door bar junction - rear left" },
-        { id: "door_front_right", label: "Door bar junction - front right" },
-        { id: "door_rear_right", label: "Door bar junction - rear right" }
+        { id: "door_front_left", label: "253-9: Door bar junction - front left" },
+        { id: "door_rear_left", label: "253-9: Door bar junction - rear left" },
+        { id: "door_front_right", label: "253-9: Door bar junction - front right" },
+        { id: "door_rear_right", label: "253-9: Door bar junction - rear right" }
       );
     }
     // Lateral-to-A-pillar gusset -- where the front lateral joins the top of
@@ -750,29 +750,29 @@
     // its own 4-gusset-per-side set instead (below). Always a taco.
     if (aPillarValue === "continuous") {
       rows.push(
-        { id: "a_pillar_side_left", label: "Windshield pillar reinforcement (253-15) side gusset - left", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_side_right", label: "Windshield pillar reinforcement (253-15) side gusset - right", restrictOptionIds: ["taco"] }
+        { id: "a_pillar_side_left", label: "253-15: Windshield pillar reinforcement side gusset - left", restrictOptionIds: ["taco"] },
+        { id: "a_pillar_side_right", label: "253-15: Windshield pillar reinforcement side gusset - right", restrictOptionIds: ["taco"] }
       );
     }
     // 2-bar build of 253-15 -- 4 gussets per side (upper/lower x front/rear)
     // at the junctions where the split bar meets the door bar. Always a taco.
     if (aPillarValue === "two_bars") {
       rows.push(
-        { id: "a_pillar_2pc_left_upper_front", label: "Windshield pillar reinforcement (253-15) 2-piece gusset - left upper front", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_left_upper_rear", label: "Windshield pillar reinforcement (253-15) 2-piece gusset - left upper rear", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_left_lower_front", label: "Windshield pillar reinforcement (253-15) 2-piece gusset - left lower front", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_left_lower_rear", label: "Windshield pillar reinforcement (253-15) 2-piece gusset - left lower rear", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_right_upper_front", label: "Windshield pillar reinforcement (253-15) 2-piece gusset - right upper front", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_right_upper_rear", label: "Windshield pillar reinforcement (253-15) 2-piece gusset - right upper rear", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_right_lower_front", label: "Windshield pillar reinforcement (253-15) 2-piece gusset - right lower front", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_right_lower_rear", label: "Windshield pillar reinforcement (253-15) 2-piece gusset - right lower rear", restrictOptionIds: ["taco"] }
+        { id: "a_pillar_2pc_left_upper_front", label: "253-15: Windshield pillar reinforcement 2-piece gusset - left upper front", restrictOptionIds: ["taco"] },
+        { id: "a_pillar_2pc_left_upper_rear", label: "253-15: Windshield pillar reinforcement 2-piece gusset - left upper rear", restrictOptionIds: ["taco"] },
+        { id: "a_pillar_2pc_left_lower_front", label: "253-15: Windshield pillar reinforcement 2-piece gusset - left lower front", restrictOptionIds: ["taco"] },
+        { id: "a_pillar_2pc_left_lower_rear", label: "253-15: Windshield pillar reinforcement 2-piece gusset - left lower rear", restrictOptionIds: ["taco"] },
+        { id: "a_pillar_2pc_right_upper_front", label: "253-15: Windshield pillar reinforcement 2-piece gusset - right upper front", restrictOptionIds: ["taco"] },
+        { id: "a_pillar_2pc_right_upper_rear", label: "253-15: Windshield pillar reinforcement 2-piece gusset - right upper rear", restrictOptionIds: ["taco"] },
+        { id: "a_pillar_2pc_right_lower_front", label: "253-15: Windshield pillar reinforcement 2-piece gusset - right lower front", restrictOptionIds: ["taco"] },
+        { id: "a_pillar_2pc_right_lower_rear", label: "253-15: Windshield pillar reinforcement 2-piece gusset - right lower rear", restrictOptionIds: ["taco"] }
       );
     }
     if (getAnswer("windshield_reinforcement_present").value === "yes") {
       rows.push({ id: "windshield_left", label: "Windshield bar junction - left" }, { id: "windshield_right", label: "Windshield bar junction - right" });
     }
     if (getAnswer("rear_lower_x_present").value === "yes") {
-      rows.push({ id: "rear_lower_x_left", label: "Rear lower X junction - left" }, { id: "rear_lower_x_right", label: "Rear lower X junction - right" });
+      rows.push({ id: "rear_lower_x_left", label: "253-19: Rear lower X junction - left" }, { id: "rear_lower_x_right", label: "253-19: Rear lower X junction - right" });
     }
     return rows;
   }
