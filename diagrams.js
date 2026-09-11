@@ -92,6 +92,10 @@
   // two top corners dipping down to the meeting point, the other arcing
   // between the two bottom corners rising up to that same point.
   D["253-9-intersection"] = wrap(doorOpening + `<path d="M30,20 L110,80" ${HI}/><path d="M30,80 L62,54 M78,46 L110,20" ${HI}/>`);
+  // Same X, continuous/half-bar roles swapped -- which physical tube is
+  // fabricated as the continuous one isn't fixed by the rule, so both are
+  // offered as separate design picks (see DOOR_BAR_DESIGN_OPTIONS).
+  D["253-9-intersection-2"] = wrap(doorOpening + `<path d="M30,80 L110,20" ${HI}/><path d="M30,20 L62,46 M78,54 L110,80" ${HI}/>`);
   D["253-9"] = wrap(doorOpening + `<path d="M30,25 Q70,75 110,25" ${HI}/><path d="M30,75 Q70,25 110,75" ${HI}/>`);
   D["253-10"] = wrap(doorOpening + `<path d="M30,35 L70,55 L110,35 Z" ${HI}/>`);
   // 253-11 (double bars) is the single diagonal bar plus the sill bar

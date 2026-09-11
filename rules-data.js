@@ -553,59 +553,43 @@
   // tubes welded to it at the intersection). ids are prefixed per design so
   // switching designs never lets a stale answer from a different design's
   // tube silently carry over onto a same-named row.
-  function doorBarTubeRows(doorVal) {
+  function doorBarTubeRowsForSide(doorVal, side) {
+    const cap = side === "left" ? "Left" : "Right";
     if (doorVal === "253-9-bent") {
       return [
-        { id: "d9bent_left_upper", label: "253-9: Door bar -- Left upper (bend bar)" },
-        { id: "d9bent_left_lower", label: "253-9: Door bar -- Left lower (bend bar)" },
-        { id: "d9bent_right_upper", label: "253-9: Door bar -- Right upper (bend bar)" },
-        { id: "d9bent_right_lower", label: "253-9: Door bar -- Right lower (bend bar)" },
+        { id: "d9bent_" + side + "_upper", label: "253-9: Door bar -- " + cap + " upper (bend bar)" },
+        { id: "d9bent_" + side + "_lower", label: "253-9: Door bar -- " + cap + " lower (bend bar)" },
       ];
     }
-    if (doorVal === "253-9-intersection") {
+    if (isDoor9Intersection(doorVal)) {
       return [
-        { id: "d9x_left_continuous", label: "253-9: Door bar -- Left continuous bar" },
-        { id: "d9x_left_upper_half", label: "253-9: Door bar -- Left upper half bar" },
-        { id: "d9x_left_lower_half", label: "253-9: Door bar -- Left lower half bar" },
-        { id: "d9x_right_continuous", label: "253-9: Door bar -- Right continuous bar" },
-        { id: "d9x_right_upper_half", label: "253-9: Door bar -- Right upper half bar" },
-        { id: "d9x_right_lower_half", label: "253-9: Door bar -- Right lower half bar" },
+        { id: "d9x_" + side + "_continuous", label: "253-9: Door bar -- " + cap + " continuous bar" },
+        { id: "d9x_" + side + "_upper_half", label: "253-9: Door bar -- " + cap + " upper half bar" },
+        { id: "d9x_" + side + "_lower_half", label: "253-9: Door bar -- " + cap + " lower half bar" },
       ];
     }
     if (doorVal === "253-10") {
       return [
-        { id: "d10_left_upper", label: "253-10: Door bar -- Left upper (top rail)" },
-        { id: "d10_left_front", label: "253-10: Door bar -- Left front (V leg)" },
-        { id: "d10_left_rear", label: "253-10: Door bar -- Left rear (V leg)" },
-        { id: "d10_right_upper", label: "253-10: Door bar -- Right upper (top rail)" },
-        { id: "d10_right_front", label: "253-10: Door bar -- Right front (V leg)" },
-        { id: "d10_right_rear", label: "253-10: Door bar -- Right rear (V leg)" },
+        { id: "d10_" + side + "_upper", label: "253-10: Door bar -- " + cap + " upper (top rail)" },
+        { id: "d10_" + side + "_front", label: "253-10: Door bar -- " + cap + " front (V leg)" },
+        { id: "d10_" + side + "_rear", label: "253-10: Door bar -- " + cap + " rear (V leg)" },
       ];
     }
     if (doorVal === "253-11") {
-      return [
-        { id: "d11_left", label: "253-11: Door bar -- Left" },
-        { id: "d11_right", label: "253-11: Door bar -- Right" },
-      ];
+      return [{ id: "d11_" + side, label: "253-11: Door bar -- " + cap }];
     }
     if (doorVal === "nascar") {
       // Reuses 253-10's top rail (1 tube per side) plus 2 new vertical bars
       // per side -- sill bar is tracked separately (its own row below), as
       // it is for every other design.
       return [
-        { id: "nascar_left_upper", label: "Door bar -- Left upper (top rail)" },
-        { id: "nascar_left_vertical1", label: "Door bar -- Left vertical 1" },
-        { id: "nascar_left_vertical2", label: "Door bar -- Left vertical 2" },
-        { id: "nascar_right_upper", label: "Door bar -- Right upper (top rail)" },
-        { id: "nascar_right_vertical1", label: "Door bar -- Right vertical 1" },
-        { id: "nascar_right_vertical2", label: "Door bar -- Right vertical 2" },
+        { id: "nascar_" + side + "_upper", label: "Door bar -- " + cap + " upper (top rail)" },
+        { id: "nascar_" + side + "_vertical1", label: "Door bar -- " + cap + " vertical 1" },
+        { id: "nascar_" + side + "_vertical2", label: "Door bar -- " + cap + " vertical 2" },
       ];
     }
     if (doorVal === "single-bar") {
-      return [
-        { id: "singlebar_left", label: "Door bar -- Left" },
-        { id: "singlebar_right", label: "Door bar -- Right" },
-      ];
+      return [{ id: "singlebar_" + side, label: "Door bar -- " + cap }];
     }
     return []; // "none" or unanswered -- nothing to classify yet
   }
@@ -720,17 +704,22 @@
       );
     }
     // Only the 253-9 (X-bar) designs need this gusset -- 253-10, 253-11,
-    // NASCAR, and the single-bar variant don't.
-    const doorBarsValue = getAnswer("door_bars").value;
-    if (doorBarsValue === "253-9-intersection" || doorBarsValue === "253-9-bent") {
-      // Front and rear door-bar junctions are gusseted separately on each
-      // side (4 total) -- even for a 253-9 "2 bend bars" design, which
-      // might really only need one combined gusset in practice; captured
-      // as 4 separate rows for now regardless, since that design-specific
-      // exception needs its own rule to be worked out later.
+    // NASCAR, and the single-bar variant don't. Left and right are gated
+    // independently since the design can now differ side to side.
+    function isDoor9(v) { return v === "253-9-intersection-1" || v === "253-9-intersection-2" || v === "253-9-bent"; }
+    // Front and rear door-bar junctions are gusseted separately (2 per
+    // side) -- even for a 253-9 "2 bend bars" design, which might really
+    // only need one combined gusset in practice; captured as 2 separate
+    // rows for now regardless, since that design-specific exception needs
+    // its own rule to be worked out later.
+    if (isDoor9(getAnswer("door_bars_left").value)) {
       rows.push(
         { id: "door_front_left", label: "253-9: Door bar junction - front left" },
-        { id: "door_rear_left", label: "253-9: Door bar junction - rear left" },
+        { id: "door_rear_left", label: "253-9: Door bar junction - rear left" }
+      );
+    }
+    if (isDoor9(getAnswer("door_bars_right").value)) {
+      rows.push(
         { id: "door_front_right", label: "253-9: Door bar junction - front right" },
         { id: "door_rear_right", label: "253-9: Door bar junction - rear right" }
       );
@@ -807,18 +796,6 @@
       hideVisualFlag: true,
     },
     {
-      id: "door_9x_continuous_tube_picker",
-      name: "253-9 (crossing bar): which tube is continuous?",
-      category: "Tubing",
-      requirement: "informational",
-      reference: "",
-      description: "The X-crossing has one continuous bar and one bar cut into 2 half-tubes per side -- which physical tube is fabricated which way isn't fixed by the rule and can differ left vs right. Click the continuous bar directly in the 3D model above for each side.",
-      showIf: { id: "door_bars", equals: "253-9-intersection" },
-      evaluationType: "doorTubePicker",
-      visuallyVerifiable: false,
-      hardFail: false,
-    },
-    {
       id: "tubing_bar_classification",
       name: "Tube specifications",
       category: "Tubing",
@@ -842,7 +819,8 @@
         { id: "main_diagonals_left", label: "253-7: Main rollbar diagonal -- Left" },
         { id: "main_diagonals_right", label: "253-7: Main rollbar diagonal -- Right" },
         ...roofBarTubeRows(getAnswer("roof_bars").value),
-        ...doorBarTubeRows(getAnswer("door_bars").value),
+        ...doorBarTubeRowsForSide(getAnswer("door_bars_left").value, "left"),
+        ...doorBarTubeRowsForSide(getAnswer("door_bars_right").value, "right"),
         { id: "sill_bar_left", label: "Sill bar -- Left" },
         { id: "sill_bar_right", label: "Sill bar -- Right" },
         { id: "a_pillar_left", label: "253-15: A-pillar reinforcement -- Left" },
@@ -1082,71 +1060,94 @@
   // =====================================================================
   // Section 5. Door bars
   // =====================================================================
-  const DOOR_BAR_DESIGN_CHOICE = {
-    id: "door_bars",
-    name: "Door bar design",
-    category: "Other structural elements",
-    requirement: "required",
-    reference: "2020 FIA 253 Ch.8.3.2.1.2",
-    description: "One of 3 designs. Design must be identical on both sides when running with a co-driver. Upper attachment point must not be higher than half the door-opening height.",
-    // Doesn't apply to a half rollcage with no lateral rollbars to attach
-    // door bars to. Only actually excludes anything once "Lateral
-    // rollbars" is explicitly answered "none" -- unanswered (an identified
-    // 253-1/2/3 structure never asks that question) leaves this visible.
-    showIf: { id: "lateral_rollbars_other", notEquals: "none" },
-    evaluationType: "choice",
-    options: [
-      { id: "253-9-intersection", label: "253-9: 1 continuous bar + 2 half bars", diagram: "253-9-intersection", outcome: "pass" },
-      { id: "253-9-bent", label: "253-9: 2 bend bars", diagram: "253-9", outcome: "pass" },
-      { id: "253-10", label: "253-10: Triangle design", diagram: "253-10", outcome: "pass" },
-      { id: "253-11", label: "253-11: Double bars", diagram: "253-11", outcome: "pass" },
-      { id: "nascar", label: "NASCAR door bars", diagram: "stock-car", note: "Requires prior scrutineer approval. Additional geometry/detail sections to follow.", outcome: "pass" },
-      { id: "single-bar", label: "Single bar", diagram: "single-bar", note: "A single door bar does not satisfy FIA 253-9/253-10/253-11 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
-      { id: "none", label: "None present", outcome: "fail" },
-    ],
-    // Merged in rather than a separate element/card -- only relevant (shown)
-    // for the 253-9 variants, 253-10, and the single-bar identification
-    // option, since 253-11 and nascar already include a sill-like bar as
-    // part of their own design.
-    extraFields: [
-      {
-        key: "sill_bar",
-        label: "Sill bar",
-        type: "boolean",
-        requirement: "recommended",
-        showIf: { in: ["253-9-intersection", "253-9-bent", "253-10", "single-bar"] },
-      },
-    ],
-    tubing: null,
-    noCapture: true,
-    visuallyVerifiable: true,
-    hardFail: true,
-    hardFailMessage: "No door bar present.",
-  };
-  function doorBarWeldRows(withCenter) {
-    const rows = [
-      { id: "front_top_left", label: "1. Front top left" }, { id: "front_bottom_left", label: "2. Front bottom left" },
-    ];
-    if (withCenter) rows.push({ id: "center_front_left", label: "3. Center front left" }, { id: "center_rear_left", label: "4. Center rear left" });
-    rows.push(
-      { id: "top_rear_left", label: (withCenter ? "5" : "3") + ". Top rear left" }, { id: "bottom_rear_left", label: (withCenter ? "6" : "4") + ". Bottom rear left" },
-      { id: "front_top_right", label: (withCenter ? "7" : "5") + ". Front top right" }, { id: "front_bottom_right", label: (withCenter ? "8" : "6") + ". Front bottom right" }
-    );
-    if (withCenter) rows.push({ id: "center_front_right", label: "9. Center front right" }, { id: "center_rear_right", label: "10. Center rear right" });
-    rows.push(
-      { id: "top_rear_right", label: (withCenter ? "11" : "7") + ". Top rear right" }, { id: "bottom_rear_right", label: (withCenter ? "12" : "8") + ". Bottom rear right" }
-    );
-    return rows;
+  // Left and right are independent choices -- a road-racing car isn't
+  // guaranteed a symmetric design the way an oval-track car usually is, and
+  // since we don't know if the car is LHD or RHD, sides are labeled
+  // "Left"/"Right" rather than "driver"/"codriver" throughout this section.
+  //
+  // 253-9's "intersection" design (1 continuous bar + 2 half bars) has 2
+  // physical tubes per side, and which one is fabricated as the continuous
+  // one isn't fixed by the rule -- so it's offered as 2 separate design
+  // options (mirror images of each other) rather than a hidden assumption.
+  function isDoor9Intersection(v) { return v === "253-9-intersection-1" || v === "253-9-intersection-2"; }
+  const DOOR_BAR_DESIGN_OPTIONS = [
+    { id: "253-9-intersection-1", label: "253-9: 1 continuous bar + 2 half bars", diagram: "253-9-intersection", outcome: "pass" },
+    { id: "253-9-intersection-2", label: "253-9: 1 continuous bar + 2 half bars (other tube continuous)", diagram: "253-9-intersection-2", outcome: "pass" },
+    { id: "253-9-bent", label: "253-9: 2 bend bars", diagram: "253-9", outcome: "pass" },
+    { id: "253-10", label: "253-10: Triangle design", diagram: "253-10", outcome: "pass" },
+    { id: "253-11", label: "253-11: Double bars", diagram: "253-11", outcome: "pass" },
+    { id: "nascar", label: "NASCAR door bars", diagram: "stock-car", note: "Requires prior scrutineer approval. Additional geometry/detail sections to follow.", outcome: "pass" },
+    { id: "single-bar", label: "Single bar", diagram: "single-bar", note: "A single door bar does not satisfy FIA 253-9/253-10/253-11 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
+    { id: "none", label: "None present", outcome: "fail" },
+  ];
+  function doorBarDesignElement(side) {
+    const cap = side === "left" ? "Left" : "Right";
+    return {
+      id: "door_bars_" + side,
+      name: cap + " door bar design",
+      category: "Other structural elements",
+      requirement: "required",
+      reference: "2020 FIA 253 Ch.8.3.2.1.2",
+      description: "One of 3 designs. Upper attachment point must not be higher than half the door-opening height. Left and right can differ (e.g. on a road-racing car) -- check your sanctioning body's own symmetry requirement if running with a co-driver.",
+      // Doesn't apply to a half rollcage with no lateral rollbars to attach
+      // door bars to. Only actually excludes anything once "Lateral
+      // rollbars" is explicitly answered "none" -- unanswered (an identified
+      // 253-1/2/3 structure never asks that question) leaves this visible.
+      showIf: { id: "lateral_rollbars_other", notEquals: "none" },
+      evaluationType: "choice",
+      options: DOOR_BAR_DESIGN_OPTIONS,
+      // Merged in rather than a separate element/card -- only relevant (shown)
+      // for the 253-9 variants, 253-10, and the single-bar identification
+      // option, since 253-11 and nascar already include a sill-like bar as
+      // part of their own design.
+      extraFields: [
+        {
+          key: "sill_bar",
+          label: "Sill bar",
+          type: "boolean",
+          requirement: "recommended",
+          showIf: { in: ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-10", "single-bar"] },
+        },
+      ],
+      tubing: null,
+      noCapture: true,
+      visuallyVerifiable: true,
+      hardFail: true,
+      hardFailMessage: "No " + side + " door bar present.",
+    };
   }
+  // sides: which of "left"/"right" currently apply to this design, so a
+  // table only shows the rows for the side(s) actually using it (a
+  // road-racing car can have this design on only one side).
+  function doorBarWeldRows(withCenter, sides) {
+    const cap = (side) => (side === "left" ? "Left" : "Right");
+    const rows = [];
+    sides.forEach((side) => {
+      rows.push({ id: "front_top_" + side, label: cap(side) + " front top" }, { id: "front_bottom_" + side, label: cap(side) + " front bottom" });
+      if (withCenter) rows.push({ id: "center_front_" + side, label: cap(side) + " center front" }, { id: "center_rear_" + side, label: cap(side) + " center rear" });
+      rows.push({ id: "top_rear_" + side, label: cap(side) + " top rear" }, { id: "bottom_rear_" + side, label: cap(side) + " bottom rear" });
+    });
+    return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". " + r.label }));
+  }
+  const DOOR_9X_SHOWIF = { any: [
+    { id: "door_bars_left", in: ["253-9-intersection-1", "253-9-intersection-2"] },
+    { id: "door_bars_right", in: ["253-9-intersection-1", "253-9-intersection-2"] },
+  ] };
+  function door9xSides(getAnswer) { return ["left", "right"].filter((s) => isDoor9Intersection(getAnswer("door_bars_" + s).value)); }
+  const DOOR_9BENT_SHOWIF = { any: [{ id: "door_bars_left", equals: "253-9-bent" }, { id: "door_bars_right", equals: "253-9-bent" }] };
+  function door9bentSides(getAnswer) { return ["left", "right"].filter((s) => getAnswer("door_bars_" + s).value === "253-9-bent"); }
   const SECTION_5_1 = [
-    Object.assign({}, DOOR_BAR_DESIGN_CHOICE),
+    doorBarDesignElement("left"),
+    doorBarDesignElement("right"),
     {
       id: "door_9_intersection_welds",
       name: "Welds -- intersection configuration",
       category: "5.1. Door bars -- 253-9 (X bar design)",
       requirement: "required", reference: "", description: "",
-      showIf: { id: "door_bars", equals: "253-9-intersection" },
-      evaluationType: "table", rows: doorBarWeldRows(true), columns: WELD_COLUMNS,
+      showIf: DOOR_9X_SHOWIF,
+      evaluationType: "table",
+      rows: (getAnswer) => doorBarWeldRows(true, door9xSides(getAnswer)),
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: true,
     },
     {
@@ -1154,9 +1155,16 @@
       name: "Gussets (mandatory) -- intersection configuration",
       category: "5.1. Door bars -- 253-9 (X bar design)",
       requirement: "required", reference: "", description: "",
-      showIf: { id: "door_bars", equals: "253-9-intersection" },
+      showIf: DOOR_9X_SHOWIF,
       evaluationType: "table",
-      rows: [{ id: "driver_top_left", label: "Driver: Top or Left" }, { id: "driver_bottom_right", label: "Driver: Bottom or Right" }, { id: "codriver_top_left", label: "Codriver: Top or Left" }, { id: "codriver_bottom_right", label: "Codriver: Bottom or Right" }],
+      rows: (getAnswer) => {
+        const rows = [];
+        door9xSides(getAnswer).forEach((side) => {
+          const cap = side === "left" ? "Left" : "Right";
+          rows.push({ id: side + "_gusset_1", label: cap + ": Top or Left" }, { id: side + "_gusset_2", label: cap + ": Bottom or Right" });
+        });
+        return rows;
+      },
       columns: gussetColumns(NASA_PRIMARY_REQ),
       visuallyVerifiable: true, hardFail: true,
     },
@@ -1165,9 +1173,20 @@
       name: "Dimensions -- 2-bar configurations",
       category: "5.1. Door bars -- 253-9 (X bar design)",
       requirement: "required", reference: "", description: "",
-      showIf: { id: "door_bars", equals: "253-9-bent" },
+      showIf: DOOR_9BENT_SHOWIF,
       evaluationType: "table",
-      rows: [{ id: "front_dim", label: "Front dimension before gusset (min 300mm)" }, { id: "rear_dim", label: "Rear dimension before gusset (min 200mm)" }, { id: "space", label: "Space between bars (< diameter of larger bar)" }],
+      rows: (getAnswer) => {
+        const rows = [];
+        door9bentSides(getAnswer).forEach((side) => {
+          const cap = side === "left" ? "Left" : "Right";
+          rows.push(
+            { id: side + "_front_dim", label: cap + " front dimension before gusset (min 300mm)" },
+            { id: side + "_rear_dim", label: cap + " rear dimension before gusset (min 200mm)" },
+            { id: side + "_space", label: cap + " space between bars (< diameter of larger bar)" }
+          );
+        });
+        return rows;
+      },
       columns: [{ key: "value", label: "Value (mm)", type: "number" }],
       visuallyVerifiable: false, hardFail: true,
     },
@@ -1176,25 +1195,34 @@
       name: "Welds -- 2-bar configurations",
       category: "5.1. Door bars -- 253-9 (X bar design)",
       requirement: "required", reference: "", description: "",
-      showIf: { id: "door_bars", equals: "253-9-bent" },
-      evaluationType: "table", rows: doorBarWeldRows(false), columns: WELD_COLUMNS,
+      showIf: DOOR_9BENT_SHOWIF,
+      evaluationType: "table",
+      rows: (getAnswer) => doorBarWeldRows(false, door9bentSides(getAnswer)),
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: true,
     },
   ];
+  const DOOR_10_SHOWIF = { any: [{ id: "door_bars_left", equals: "253-10" }, { id: "door_bars_right", equals: "253-10" }] };
+  function door10Sides(getAnswer) { return ["left", "right"].filter((s) => getAnswer("door_bars_" + s).value === "253-10"); }
   const SECTION_5_2 = [
     {
       id: "door_10_welds",
       name: "253-10: Welds",
       category: "5.2. Door bars -- 253-10 (triangle design)",
       requirement: "required", reference: "", description: "",
-      showIf: { id: "door_bars", equals: "253-10" },
+      showIf: DOOR_10_SHOWIF,
       evaluationType: "table",
-      rows: [
-        { id: "front_top_left", label: "1. Front top left" }, { id: "front_lower_left", label: "2. Front lower left" }, { id: "center_left", label: "3. Center left" },
-        { id: "rear_top_left", label: "4. Rear top left" }, { id: "rear_lower_left", label: "5. Rear lower left" },
-        { id: "front_top_right", label: "6. Front top right" }, { id: "front_lower_right", label: "7. Front lower right" }, { id: "center_right", label: "8. Center right" },
-        { id: "rear_top_right", label: "9. Rear top right" }, { id: "rear_lower_right", label: "10. Rear lower right" },
-      ],
+      rows: (getAnswer) => {
+        const rows = [];
+        door10Sides(getAnswer).forEach((side) => {
+          const cap = side === "left" ? "Left" : "Right";
+          rows.push(
+            { id: "front_top_" + side, label: cap + " front top" }, { id: "front_lower_" + side, label: cap + " front lower" }, { id: "center_" + side, label: cap + " center" },
+            { id: "rear_top_" + side, label: cap + " rear top" }, { id: "rear_lower_" + side, label: cap + " rear lower" }
+          );
+        });
+        return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". " + r.label }));
+      },
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: true,
     },
@@ -1203,27 +1231,33 @@
       name: "253-10: Rocker plate",
       category: "5.2. Door bars -- 253-10 (triangle design)",
       requirement: "conditional", reference: "", description: "If no sill bar is used with this configuration, the bottom of the V must be secured to the chassis with a plate similar to a rear backstay mounting foot.",
-      showIf: { id: "door_bars", equals: "253-10" },
+      showIf: DOOR_10_SHOWIF,
       evaluationType: "table",
-      rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
+      rows: (getAnswer) => door10Sides(getAnswer).map((side) => ({ id: side, label: side === "left" ? "Left" : "Right" })),
       columns: [{ key: "plate_design", label: "Plate design (253-53 to 253-57)", type: "text" }, { key: "size", label: "Size (cm², >=60)", type: "number", compare: { op: "gte", value: 60 } }, { key: "welds", label: "Welds complete", type: "boolean" }],
       visuallyVerifiable: true, hardFail: false,
     },
   ];
+  const DOOR_11_SHOWIF = { any: [{ id: "door_bars_left", equals: "253-11" }, { id: "door_bars_right", equals: "253-11" }] };
   const SECTION_5_3 = [
     {
       id: "door_11_welds",
       name: "253-11: Welds",
       category: "5.3. Door bars -- 253-11 (double bars)",
       requirement: "required", reference: "", description: "",
-      showIf: { id: "door_bars", equals: "253-11" },
+      showIf: DOOR_11_SHOWIF,
       evaluationType: "table",
-      rows: [
-        { id: "front_top_left", label: "1. Front top left" }, { id: "front_lower_left", label: "2. Front lower left" },
-        { id: "rear_top_left", label: "3. Rear top left" }, { id: "rear_lower_left", label: "4. Rear lower left" },
-        { id: "front_top_right", label: "5. Front top right" }, { id: "front_lower_right", label: "6. Front lower right" },
-        { id: "rear_top_right", label: "7. Rear top right" }, { id: "rear_lower_right", label: "8. Rear lower right" },
-      ],
+      rows: (getAnswer) => {
+        const rows = [];
+        ["left", "right"].filter((s) => getAnswer("door_bars_" + s).value === "253-11").forEach((side) => {
+          const cap = side === "left" ? "Left" : "Right";
+          rows.push(
+            { id: "front_top_" + side, label: cap + " front top" }, { id: "front_lower_" + side, label: cap + " front lower" },
+            { id: "rear_top_" + side, label: cap + " rear top" }, { id: "rear_lower_" + side, label: cap + " rear lower" }
+          );
+        });
+        return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". " + r.label }));
+      },
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: true,
     },

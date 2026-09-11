@@ -828,7 +828,8 @@
     "backstays",
     "backstay_diagonals",
     "roof_bars",
-    "door_bars",
+    "door_bars_left",
+    "door_bars_right",
     "a_pillar_reinforcement",
     "harness_bar_present",
     "rear_lateral_reinforcement_present",
@@ -852,7 +853,6 @@
     if (elm.evaluationType === "plateSolo") return true;
     if (elm.evaluationType === "gussetSolo") return true;
     if (elm.id === "tubing_bar_classification") return true;
-    if (elm.id === "door_9x_continuous_tube_picker") return true;
     if (elm.id === "mounting_feet_size") return true;
     if (elm.evaluationType !== "table" || !elm.columns) return false;
     const hasTubing3 = elm.columns.some((c) => c.type === "tubing3");
@@ -914,15 +914,7 @@
         // "Cage Design" is skipped here -- it would just repeat the "Rollcage
         // design" panel heading right above it.
         if (cat !== "Cage Design") panel.appendChild(el("div", { class: "category-heading" }, [cat]));
-        byCategory[cat].forEach((elm) =>
-          panel.appendChild(
-            elm.evaluationType === "table"
-              ? renderTableElement(elm)
-              : elm.evaluationType === "doorTubePicker"
-              ? renderDoorTubePicker(elm)
-              : renderElementCard(elm)
-          )
-        );
+        byCategory[cat].forEach((elm) => panel.appendChild(elm.evaluationType === "table" ? renderTableElement(elm) : renderElementCard(elm)));
       });
     });
 
@@ -1518,39 +1510,6 @@
     return el("input", { type: "text", class: "cell-text", value: cellAnswer.value || "", onchange: (e) => setAnswer(cellId, { value: e.target.value }) });
   }
 
-  // 253-9-intersection: which physical tube per side is fabricated as the
-  // continuous leg isn't fixed by the FIA rule (and per the source model,
-  // isn't even the same tube left vs right) -- so instead of assuming, the
-  // user identifies each side's continuous tube by clicking it directly in
-  // the live 3D model. See continuousDoorTubeFile()/otherDoorTubeFile() and
-  // handleCagePartClick()'s pickingDoorTubeSide handling.
-  function renderDoorTubePicker(elm) {
-    const card = el("div", { class: "element-card", id: "section-" + elm.id });
-    card.appendChild(el("div", { class: "element-head" }, [el("strong", {}, [elm.name])]));
-    card.appendChild(el("div", { class: "element-desc" }, [elm.description]));
-    ["left", "right"].forEach((side) => {
-      const key = "door_9x_continuous_tube_" + side;
-      const picked = !!getAnswer(key).value;
-      const picking = pickingDoorTubeSide === side;
-      const pickBtn = el(
-        "button",
-        {
-          class: "answer-btn small" + (picking ? " active info" : ""),
-          onclick: () => { pickingDoorTubeSide = picking ? null : side; render(); },
-        },
-        [picking ? "Click the continuous bar in the model above..." : picked ? "Re-pick from model" : "Pick from model"]
-      );
-      const row = [el("span", {}, [(side === "left" ? "Left" : "Right") + ": " + (picked ? "Picked" : "Not picked yet") + " "]), pickBtn];
-      if (picked) {
-        row.push(
-          el("button", { class: "answer-btn small", onclick: () => setAnswer(key, { value: "" }) }, ["Clear"])
-        );
-      }
-      card.appendChild(el("div", { style: "display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;" }, row));
-    });
-    return card;
-  }
-
   function renderTableElement(elm) {
     const status = tableElementStatus(elm);
     const card = el("div", { class: "element-card state-" + status, id: "section-" + elm.id });
@@ -1780,11 +1739,6 @@
     "Left door bar 1-  253-9.stl", "Left door bar 2-  253-9.stl",
     "Right door bar 1-  253-9.stl", "Right door bar 2-  253-9.stl",
   ];
-  const DOOR_253_10_FILES = [
-    "Door bar 253-10 upper left.stl", "Door bar 253-10 upper right.stl",
-    "Door bar 253-10 front left.stl", "Door bar 253-10 front right.stl",
-    "Door bar 253-10 rear left.stl", "Door bar 253-10 rear right.stl",
-  ];
   const NASCAR_VERTICAL_FILES = ["Nascar left 1.stl", "Nascar left 2.stl", "Nascar right 1.stl", "Nascar right 2.stl"];
   const APILLAR_FILES = ["253-15 Left.stl", "253-15 Right.stl"];
   // The 2-bar build of 253-15 (where it's split to meet the door bar) --
@@ -1798,9 +1752,46 @@
     "253-15 gusset right lower front.stl", "253-15 gusset right lower rear.stl",
   ];
   const APILLAR_SIDE_GUSSET_FILES = ["253-15 side gusset left.stl", "253-15 side gusset right.stl"];
-  const SILL_FILES = ["Sill bar Left.stl", "Sill bar Right.stl"];
   const BACKSTAY_FILES = ["Left backstay.stl", "Right backstay.stl"];
   const ROOF_BAR_FILES = ["Roof bar 1.stl", "Roof bar 2.stl"];
+
+  // Both 253-9 variants (intersection vs. bent bars) are the same X shape
+  // in the modeled car -- they only differ in fabrication, not silhouette;
+  // the 2 "intersection" variants (which physical tube is continuous) are
+  // the same shape too. 253-11 reuses the sill bar plus whichever 253-9
+  // diagonal leg lands at the bottom in the front on each side (verified
+  // via geometry: "Left door bar 2" and "Right door bar 1" are the
+  // bottom-front legs). The merged "Sill bar" sub-toggle
+  // (answer.extra.sill_bar) adds the sill bar on top of whichever design is
+  // chosen, except 253-11 which already includes it. "nascar" reuses
+  // 253-10's top rail (the only part of 253-10 with a simple flat
+  // horizontal shape) plus 2 new vertical bars and the sill bar, forming
+  // the ladder-style NASCAR door bar grid -- always includes the sill bar,
+  // unlike the other designs where it's optional. Left and right are
+  // resolved independently since the design can now differ side to side.
+  function doorBarSideRule(v, answer, side) {
+    const cap = side === "left" ? "Left" : "Right";
+    const sillFile = cap === "Left" ? "Sill bar Left.stl" : "Sill bar Right.stl";
+    const bottomFrontLegFile = side === "left" ? "Left door bar 2-  253-9.stl" : "Right door bar 1-  253-9.stl";
+    let files = [];
+    if (v === "253-9-intersection-1" || v === "253-9-intersection-2" || v === "253-9-bent") {
+      files = [cap + " door bar 1-  253-9.stl", cap + " door bar 2-  253-9.stl"];
+    } else if (v === "253-10") {
+      files = ["Door bar 253-10 upper " + side + ".stl", "Door bar 253-10 front " + side + ".stl", "Door bar 253-10 rear " + side + ".stl"];
+    } else if (v === "253-11") {
+      files = [sillFile, bottomFrontLegFile];
+    } else if (v === "nascar") {
+      files = ["Door bar 253-10 upper " + side + ".stl", "Nascar " + side + " 1.stl", "Nascar " + side + " 2.stl", sillFile];
+    } else if (v === "single-bar") {
+      // Captured for identification -- reuses the same bottom-front leg as
+      // 253-11 but without the sill bar that design already includes.
+      files = [bottomFrontLegFile];
+    }
+    const extra = (answer && answer.extra) || {};
+    if (extra.sill_bar === "yes" && v !== "253-11" && v !== "nascar") files = files.concat([sillFile]);
+    if (!files.length) return null;
+    return { files, color: CAGE_COLOR.doorBar };
+  }
 
   // "main_structure_layout" (253-1/253-2/253-3): per your note, all three
   // base structures are literally the same physical bars in this one
@@ -1925,33 +1916,8 @@
     },
     main_hoop_corner_diagonals: () => null,
 
-    // Both 253-9 variants (intersection vs. bent bars) are the same X shape
-    // in the modeled car -- they only differ in fabrication, not silhouette.
-    // 253-11 reuses the sill bar plus whichever 253-9 diagonal leg lands at
-    // the bottom in the front on each side (verified via geometry: "Left
-    // door bar 2" and "Right door bar 1" are the bottom-front legs). The
-    // merged "Sill bar" sub-toggle (answer.extra.sill_bar) adds the sill
-    // bar on top of whichever design is chosen, except 253-11 which already
-    // includes it.
-    // "nascar" reuses 253-10's top rail (the only part of 253-10 with a
-    // simple flat horizontal shape) plus 2 new vertical bars per side and
-    // the sill bar, forming the ladder-style NASCAR door bar grid -- always
-    // includes the sill bar, unlike the other designs where it's optional.
-    door_bars: (v, answer) => {
-      let files = [];
-      if (v === "253-9-intersection" || v === "253-9-bent") files = DOOR_BAR_FILES.slice();
-      else if (v === "253-10") files = DOOR_253_10_FILES.slice();
-      else if (v === "253-11") files = SILL_FILES.concat(["Left door bar 2-  253-9.stl", "Right door bar 1-  253-9.stl"]);
-      else if (v === "nascar") files = ["Door bar 253-10 upper left.stl", "Door bar 253-10 upper right.stl"].concat(NASCAR_VERTICAL_FILES).concat(SILL_FILES);
-      // Single bar, captured for identification -- reuses the same 2
-      // bottom-front legs as 253-11 (one per side) but without the sill bar
-      // that design already includes.
-      else if (v === "single-bar") files = ["Left door bar 2-  253-9.stl", "Right door bar 1-  253-9.stl"];
-      const extra = (answer && answer.extra) || {};
-      if (extra.sill_bar === "yes" && v !== "253-11" && v !== "nascar") files = files.concat(SILL_FILES);
-      if (!files.length) return null;
-      return { files, color: CAGE_COLOR.doorBar };
-    },
+    door_bars_left: (v, answer) => doorBarSideRule(v, answer, "left"),
+    door_bars_right: (v, answer) => doorBarSideRule(v, answer, "right"),
     door_bars_present_gf: () => null,
     door_bars_present: () => null,
 
@@ -2056,20 +2022,23 @@
     return null;
   }
   // "Left/Right door bar 1/2-253-9.stl" are the same 4 meshes across
-  // 253-9-bent, 253-9-intersection, and 253-11 (see door_bars' rule above),
-  // but the Tube classification table's door-bar rows are different tube
-  // pieces for each of those designs (see doorBarTubeRows() in
-  // rules-data.js) -- so which row a given mesh belongs to depends on which
+  // 253-9-bent, 253-9-intersection, and 253-11 (see doorBarSideRule()
+  // above), but the Tube classification table's door-bar rows are
+  // different tube pieces for each of those designs (see
+  // doorBarTubeRowsForSide() in rules-data.js) -- so which row a given mesh
+  // belongs to depends on which
   // design is currently selected.
+  function isDoor9Intersection(v) { return v === "253-9-intersection-1" || v === "253-9-intersection-2"; }
   // Which of the 2 physical tubes per side is actually fabricated as the
   // continuous leg (vs. cut into 2 half-tubes) isn't fixed by the FIA rule
   // and can differ car to car -- and, per the source model, isn't even
-  // consistent left-to-right. Defaults to "door bar 1" (the original
-  // assumption) until the user overrides it via renderDoorTubePicker()'s
-  // "click it in the model" flow.
+  // consistent left-to-right. This is now its own design pick in Part 1
+  // (see DOOR_BAR_DESIGN_OPTIONS in rules-data.js: "-1" keeps tube 1 as the
+  // continuous leg, "-2" swaps it to tube 2) rather than inferred.
   function continuousDoorTubeFile(side) {
     const cap = side === "left" ? "Left" : "Right";
-    return getAnswer("door_9x_continuous_tube_" + side).value || cap + " door bar 1-  253-9.stl";
+    const doorVal = getAnswer("door_bars_" + side).value;
+    return doorVal === "253-9-intersection-2" ? cap + " door bar 2-  253-9.stl" : cap + " door bar 1-  253-9.stl";
   }
   function otherDoorTubeFile(side) {
     const cap = side === "left" ? "Left" : "Right";
@@ -2077,42 +2046,36 @@
     return continuous === cap + " door bar 1-  253-9.stl" ? cap + " door bar 2-  253-9.stl" : cap + " door bar 1-  253-9.stl";
   }
   function doorBarFileTubeRow(file) {
-    const doorVal = getAnswer("door_bars").value;
+    const side = file.indexOf("Left") === 0 || file.indexOf("Nascar left") === 0 || file.indexOf("Door bar 253-10 upper left") === 0
+      ? "left"
+      : "right";
+    const doorVal = getAnswer("door_bars_" + side).value;
     if (doorVal === "253-9-bent") {
-      if (file === "Left door bar 1-  253-9.stl") return "d9bent_left_upper";
-      if (file === "Left door bar 2-  253-9.stl") return "d9bent_left_lower";
-      if (file === "Right door bar 1-  253-9.stl") return "d9bent_right_upper";
-      if (file === "Right door bar 2-  253-9.stl") return "d9bent_right_lower";
+      if (file === (side === "left" ? "Left" : "Right") + " door bar 1-  253-9.stl") return "d9bent_" + side + "_upper";
+      if (file === (side === "left" ? "Left" : "Right") + " door bar 2-  253-9.stl") return "d9bent_" + side + "_lower";
     }
-    if (doorVal === "253-9-intersection") {
+    if (doorVal === "253-9-intersection-1" || doorVal === "253-9-intersection-2") {
       // The continuous leg is NOT mapped here -- it's handled by
       // tubeRowSplitBand() below instead, which colors each half of that
       // single mesh separately rather than forcing one color over the
       // whole thing.
-      if (file === continuousDoorTubeFile("left")) return "d9x_left_continuous";
-      if (file === continuousDoorTubeFile("right")) return "d9x_right_continuous";
+      if (file === continuousDoorTubeFile(side)) return "d9x_" + side + "_continuous";
     }
     if (doorVal === "253-10") {
-      if (file === "Door bar 253-10 upper left.stl") return "d10_left_upper";
-      if (file === "Door bar 253-10 upper right.stl") return "d10_right_upper";
+      if (file === "Door bar 253-10 upper " + side + ".stl") return "d10_" + side + "_upper";
     }
     if (doorVal === "253-11") {
-      if (file === "Left door bar 2-  253-9.stl") return "d11_left";
-      if (file === "Right door bar 1-  253-9.stl") return "d11_right";
+      if (file === (side === "left" ? "Left door bar 2-  253-9.stl" : "Right door bar 1-  253-9.stl")) return "d11_" + side;
     }
     if (doorVal === "nascar") {
-      // Reuses 253-10's own top-rail parts (see door_bars' rule above) --
+      // Reuses 253-10's own top-rail parts (see doorBarSideRule() above) --
       // same meshes, different row identity while nascar is selected.
-      if (file === "Door bar 253-10 upper left.stl") return "nascar_left_upper";
-      if (file === "Door bar 253-10 upper right.stl") return "nascar_right_upper";
-      if (file === "Nascar left 1.stl") return "nascar_left_vertical1";
-      if (file === "Nascar left 2.stl") return "nascar_left_vertical2";
-      if (file === "Nascar right 1.stl") return "nascar_right_vertical1";
-      if (file === "Nascar right 2.stl") return "nascar_right_vertical2";
+      if (file === "Door bar 253-10 upper " + side + ".stl") return "nascar_" + side + "_upper";
+      if (file === "Nascar " + side + " 1.stl") return "nascar_" + side + "_vertical1";
+      if (file === "Nascar " + side + " 2.stl") return "nascar_" + side + "_vertical2";
     }
     if (doorVal === "single-bar") {
-      if (file === "Left door bar 2-  253-9.stl") return "singlebar_left";
-      if (file === "Right door bar 1-  253-9.stl") return "singlebar_right";
+      if (file === (side === "left" ? "Left door bar 2-  253-9.stl" : "Right door bar 1-  253-9.stl")) return "singlebar_" + side;
     }
     return null;
   }
@@ -2146,13 +2109,15 @@
   // one flat color, keyed by axis threshold measured directly off each
   // mesh's own geometry (the two halves meet roughly at its midpoint).
   function tubeRowSplitBand(file) {
-    if (getAnswer("door_bars").value === "253-9-intersection") {
-      // Z thresholds were measured off "door bar 2"'s own geometry -- kept
-      // as-is regardless of which physical tube ends up as the "other"
-      // (half-tube) one, since both tubes in the crossing are similarly
-      // sized/shaped.
-      if (file === otherDoorTubeFile("left")) return { axis: "z", min: 29.655, max: 999, insideRow: "d9x_left_upper_half", outsideRow: "d9x_left_lower_half" };
-      if (file === otherDoorTubeFile("right")) return { axis: "z", min: 29.085, max: 999, insideRow: "d9x_right_upper_half", outsideRow: "d9x_right_lower_half" };
+    // Z thresholds were measured off "door bar 2"'s own geometry -- kept
+    // as-is regardless of which physical tube ends up as the "other"
+    // (half-tube) one, since both tubes in the crossing are similarly
+    // sized/shaped.
+    if (isDoor9Intersection(getAnswer("door_bars_left").value) && file === otherDoorTubeFile("left")) {
+      return { axis: "z", min: 29.655, max: 999, insideRow: "d9x_left_upper_half", outsideRow: "d9x_left_lower_half" };
+    }
+    if (isDoor9Intersection(getAnswer("door_bars_right").value) && file === otherDoorTubeFile("right")) {
+      return { axis: "z", min: 29.085, max: 999, insideRow: "d9x_right_upper_half", outsideRow: "d9x_right_lower_half" };
     }
     if (getAnswer("roof_bars").value === "253-12" && file === "Roof bar 2.stl") {
       return { axis: "x", min: 179.52, max: 999, insideRow: "r12_rear_half", outsideRow: "r12_front_half" };
@@ -2212,12 +2177,6 @@
   // as `colors`; a file with no owner here (fully hidden, or never claimed
   // by any element) just doesn't jump anywhere when clicked.
   let CAGE_FILE_OWNER = {};
-
-  // Transient (not persisted/saved) UI mode for the 253-9-intersection
-  // "which tube is continuous" picker: "left"/"right" while waiting for the
-  // next 3D-model click to designate that side's continuous door bar, else
-  // null. See renderDoorTubePicker() and handleCagePartClick().
-  let pickingDoorTubeSide = null;
 
   function computeCageColors() {
     const colors = {};
@@ -2419,17 +2378,7 @@
     });
 
     CAGE_FILE_OWNER = owner;
-    const view = state.activeTab === 2 ? applyTubingClassificationView(colors) : colors;
-    // While picking which physical tube is the continuous 253-9 bar (see
-    // renderDoorTubePicker()), highlight both candidates for that side in a
-    // color that doesn't appear anywhere else, overriding whatever the
-    // normal view above computed for them.
-    if (pickingDoorTubeSide) {
-      const cap = pickingDoorTubeSide === "left" ? "Left" : "Right";
-      view[cap + " door bar 1-  253-9.stl"] = "#facc15";
-      view[cap + " door bar 2-  253-9.stl"] = "#facc15";
-    }
-    return view;
+    return state.activeTab === 2 ? applyTubingClassificationView(colors) : colors;
   }
 
   // Jumps the checklist to a design-choice card: switches to Part 1 (every
@@ -2519,17 +2468,6 @@
   // own tube classification table (or, for a mounting foot, its plate-size
   // row) rather than switching to Part 1.
   function handleCagePartClick(file) {
-    if (pickingDoorTubeSide) {
-      const cap = pickingDoorTubeSide === "left" ? "Left" : "Right";
-      if (file === cap + " door bar 1-  253-9.stl" || file === cap + " door bar 2-  253-9.stl") {
-        setAnswer("door_9x_continuous_tube_" + pickingDoorTubeSide, { value: file });
-        pickingDoorTubeSide = null;
-      }
-      // Clicking anything else while picking is ignored (not a valid
-      // candidate for this side) -- stay in picking mode rather than jump
-      // somewhere unrelated.
-      return;
-    }
     if (state.activeTab === 2) {
       const footRow = footRowForFile(file);
       if (footRow) { jumpToFootSizeRow(footRow); return; }
