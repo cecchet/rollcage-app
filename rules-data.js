@@ -803,6 +803,18 @@
       hardFail: true,
     },
     {
+      id: "door_9x_continuous_tube_picker",
+      name: "253-9 (crossing bar): which tube is continuous?",
+      category: "Tubing",
+      requirement: "informational",
+      reference: "",
+      description: "The X-crossing has one continuous bar and one bar cut into 2 half-tubes per side -- which physical tube is fabricated which way isn't fixed by the rule and can differ left vs right. Click the continuous bar directly in the 3D model above for each side.",
+      showIf: { id: "door_bars", equals: "253-9-intersection" },
+      evaluationType: "doorTubePicker",
+      visuallyVerifiable: false,
+      hardFail: false,
+    },
+    {
       id: "tubing_bar_classification",
       name: "Tube specifications",
       category: "Tubing",
