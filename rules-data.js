@@ -1105,6 +1105,7 @@
           key: "sill_bar",
           label: "Sill bar",
           type: "boolean",
+          diagram: "sill-bar-toggle",
           requirement: "recommended",
           showIf: { in: ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-10", "single-bar"] },
         },

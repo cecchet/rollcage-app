@@ -106,6 +106,9 @@
   D["stock-car"] = wrap(doorOpening + `<path d="M30,30 L110,30 M30,70 L110,70" ${HI}/><path d="M57,30 L57,70 M83,30 L83,70" ${HI}/>`);
   // A single bar, captured for identification -- top-left to bottom-right.
   D["single-bar"] = wrap(doorOpening + `<path d="M30,20 L110,80" ${HI}/>`);
+  // Sill bar sub-toggle icon -- same door-opening context, just the
+  // horizontal bottom bar (253-11's own sill line, minus its diagonal).
+  D["sill-bar-toggle"] = wrap(doorOpening + `<path d="M25,70 L115,70" ${HI}/>`);
 
   // ---- Rear lateral reinforcement (253-17) -- side view, same door
   // opening context as the door bar diagrams above. The rear end attaches

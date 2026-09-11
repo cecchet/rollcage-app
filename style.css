@@ -352,7 +352,7 @@ textarea { resize: vertical; min-height: 50px; }
   border-color: var(--accent);
   background: var(--info-bg);
 }
-.choice-option input[type="radio"] { align-self: flex-start; margin: 0; }
+.choice-option input[type="radio"], .choice-option input[type="checkbox"] { align-self: flex-start; margin: 0; }
 .choice-diagram { width: 100%; max-width: 110px; color: var(--muted); }
 .choice-diagram svg, .choice-diagram img { width: 100%; height: auto; display: block; border-radius: 6px; }
 .choice-label { font-size: 0.82rem; }

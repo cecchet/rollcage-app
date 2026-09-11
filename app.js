@@ -948,7 +948,20 @@
       const v = answer.value;
       return !!(v && v.material && dimHasValue(v.thickness));
     }
-    return answer.value !== undefined && answer.value !== null && answer.value !== "";
+    const hasValue = answer.value !== undefined && answer.value !== null && answer.value !== "";
+    if (!hasValue) return false;
+    // A merged-in extra field (e.g. door bar design's "Sill bar" toggle)
+    // has to be answered too, not just the main choice -- otherwise the
+    // card auto-collapses the moment a design is picked and the user has
+    // to reopen it to reach the sill-bar question.
+    if (elm.extraFields) {
+      const extra = answer.extra || {};
+      return elm.extraFields.every((f) => {
+        if (!extraFieldApplies(f, answer.value)) return true;
+        return extra[f.key] !== undefined && extra[f.key] !== null && extra[f.key] !== "";
+      });
+    }
+    return true;
   }
 
   // Short one-line summary shown on a collapsed card in place of its full
@@ -1167,6 +1180,30 @@
             const next = Object.assign({}, getAnswer(elm.id).extra || {}, { [f.key]: val });
             setAnswer(elm.id, { extra: next });
           };
+          // A diagram-carrying boolean renders as a single checkbox tile
+          // matching the main choice options' look (icon + top-left
+          // indicator) instead of a plain Yes/No pair -- checked toggles
+          // straight between "yes"/"no" (there's no third "unanswered"
+          // state once ticked, same as any other checkbox).
+          if (f.diagram) {
+            const checked = extra[f.key] === "yes";
+            const diagramHtml = window.DIAGRAMS && window.DIAGRAMS[f.diagram];
+            const checkbox = el("input", {
+              type: "checkbox",
+              onchange: (e) => setVal(e.target.checked ? "yes" : "no"),
+            });
+            checkbox.checked = checked;
+            card.appendChild(
+              el("div", { class: "choice-radio-group" }, [
+                el("label", { class: "choice-option" + (checked ? " selected" : "") }, [
+                  checkbox,
+                  diagramHtml ? el("div", { class: "choice-diagram", html: diagramHtml }) : null,
+                  el("div", { class: "choice-label" }, [f.label]),
+                ]),
+              ])
+            );
+            return;
+          }
           card.appendChild(
             el("div", { class: "extra-field-row" }, [
               el("span", { class: "numeric-field-label" }, [f.label]),
