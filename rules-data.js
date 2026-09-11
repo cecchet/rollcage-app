@@ -726,12 +726,13 @@
     }
     // Lateral-to-A-pillar gusset -- where the front lateral joins the top of
     // the A-pillar (253-15) bar, one per side. This is a lateral/A-pillar
-    // junction gusset, not a property of 253-15 itself. Always a taco.
+    // junction gusset, not a property of 253-15 itself. Always a single
+    // plate.
     const aPillarValue = getAnswer("a_pillar_reinforcement").value;
     if (aPillarValue) {
       rows.push(
-        { id: "a_pillar_left", label: "Lateral to A-pillar gusset - left", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_right", label: "Lateral to A-pillar gusset - right", restrictOptionIds: ["taco"] }
+        { id: "a_pillar_left", label: "Lateral to A-pillar gusset - left", restrictOptionIds: ["single_plate"] },
+        { id: "a_pillar_right", label: "Lateral to A-pillar gusset - right", restrictOptionIds: ["single_plate"] }
       );
     }
     // The 2 side gussets only apply to the single-continuous-bar build of
