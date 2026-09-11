@@ -789,6 +789,7 @@
       requirements: NASA_PRIMARY_REQ,
       visuallyVerifiable: false,
       hardFail: true,
+      hideNotes: true,
     },
     {
       id: "secondary_tubing",
@@ -801,6 +802,7 @@
       requirements: NASA_SECONDARY_REQ,
       visuallyVerifiable: false,
       hardFail: true,
+      hideNotes: true,
     },
     {
       id: "door_9x_continuous_tube_picker",
