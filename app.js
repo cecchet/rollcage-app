@@ -2334,6 +2334,23 @@
       owner[file] = "gusset_design";
     });
 
+    // The lateral-to-A-pillar gusset is a taco wrapped around a hole
+    // pattern that's already modeled into the front lateral tube's own
+    // mesh (near its top, where it meets the A-pillar) -- when that
+    // gusset isn't confirmed (None/unanswered), the tube's own solid
+    // base-structure color shows right through the gusset overlay's ghost,
+    // making it look like a gusset is already there regardless of the
+    // answer. Force that same upper region of the tube to ghost too in
+    // that case (only when the tube itself has a plain solid color to
+    // split -- an existing band split there, e.g. from the "Other design"
+    // 253-1 reach-back zone, is left alone rather than nested).
+    ["left", "right"].forEach((side) => {
+      const file = "Front " + side + " lateral.stl";
+      if (typeof colors[file] !== "string") return;
+      if (gussetDesignColor("a_pillar_" + side)) return;
+      colors[file] = { axis: "z", min: 70, max: 999, inside: "#555a60", outside: colors[file] };
+    });
+
     CAGE_FILE_OWNER = owner;
     return state.activeTab === 2 ? applyTubingClassificationView(colors) : colors;
   }

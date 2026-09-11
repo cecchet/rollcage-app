@@ -556,36 +556,36 @@
   function doorBarTubeRows(doorVal) {
     if (doorVal === "253-9-bent") {
       return [
-        { id: "d9bent_left_upper", label: "Door bar -- Left upper (bend bar)" },
-        { id: "d9bent_left_lower", label: "Door bar -- Left lower (bend bar)" },
-        { id: "d9bent_right_upper", label: "Door bar -- Right upper (bend bar)" },
-        { id: "d9bent_right_lower", label: "Door bar -- Right lower (bend bar)" },
+        { id: "d9bent_left_upper", label: "253-9: Door bar -- Left upper (bend bar)" },
+        { id: "d9bent_left_lower", label: "253-9: Door bar -- Left lower (bend bar)" },
+        { id: "d9bent_right_upper", label: "253-9: Door bar -- Right upper (bend bar)" },
+        { id: "d9bent_right_lower", label: "253-9: Door bar -- Right lower (bend bar)" },
       ];
     }
     if (doorVal === "253-9-intersection") {
       return [
-        { id: "d9x_left_continuous", label: "Door bar -- Left continuous bar" },
-        { id: "d9x_left_upper_half", label: "Door bar -- Left upper half bar" },
-        { id: "d9x_left_lower_half", label: "Door bar -- Left lower half bar" },
-        { id: "d9x_right_continuous", label: "Door bar -- Right continuous bar" },
-        { id: "d9x_right_upper_half", label: "Door bar -- Right upper half bar" },
-        { id: "d9x_right_lower_half", label: "Door bar -- Right lower half bar" },
+        { id: "d9x_left_continuous", label: "253-9: Door bar -- Left continuous bar" },
+        { id: "d9x_left_upper_half", label: "253-9: Door bar -- Left upper half bar" },
+        { id: "d9x_left_lower_half", label: "253-9: Door bar -- Left lower half bar" },
+        { id: "d9x_right_continuous", label: "253-9: Door bar -- Right continuous bar" },
+        { id: "d9x_right_upper_half", label: "253-9: Door bar -- Right upper half bar" },
+        { id: "d9x_right_lower_half", label: "253-9: Door bar -- Right lower half bar" },
       ];
     }
     if (doorVal === "253-10") {
       return [
-        { id: "d10_left_upper", label: "Door bar -- Left upper (top rail)" },
-        { id: "d10_left_front", label: "Door bar -- Left front (V leg)" },
-        { id: "d10_left_rear", label: "Door bar -- Left rear (V leg)" },
-        { id: "d10_right_upper", label: "Door bar -- Right upper (top rail)" },
-        { id: "d10_right_front", label: "Door bar -- Right front (V leg)" },
-        { id: "d10_right_rear", label: "Door bar -- Right rear (V leg)" },
+        { id: "d10_left_upper", label: "253-10: Door bar -- Left upper (top rail)" },
+        { id: "d10_left_front", label: "253-10: Door bar -- Left front (V leg)" },
+        { id: "d10_left_rear", label: "253-10: Door bar -- Left rear (V leg)" },
+        { id: "d10_right_upper", label: "253-10: Door bar -- Right upper (top rail)" },
+        { id: "d10_right_front", label: "253-10: Door bar -- Right front (V leg)" },
+        { id: "d10_right_rear", label: "253-10: Door bar -- Right rear (V leg)" },
       ];
     }
     if (doorVal === "253-11") {
       return [
-        { id: "d11_left", label: "Door bar -- Left" },
-        { id: "d11_right", label: "Door bar -- Right" },
+        { id: "d11_left", label: "253-11: Door bar -- Left" },
+        { id: "d11_right", label: "253-11: Door bar -- Right" },
       ];
     }
     if (doorVal === "nascar") {
@@ -621,15 +621,15 @@
   function roofBarTubeRows(roofVal) {
     if (roofVal === "253-12") {
       return [
-        { id: "r12_continuous", label: "Roof bar -- Continuous bar" },
-        { id: "r12_front_half", label: "Roof bar -- Front half bar" },
-        { id: "r12_rear_half", label: "Roof bar -- Rear half bar" },
+        { id: "r12_continuous", label: "253-12: Roof bar -- Continuous bar" },
+        { id: "r12_front_half", label: "253-12: Roof bar -- Front half bar" },
+        { id: "r12_rear_half", label: "253-12: Roof bar -- Rear half bar" },
       ];
     }
     if (roofVal === "253-13" || roofVal === "253-14") {
       return [
-        { id: "roof_bars_left", label: "Roof bar -- Left" },
-        { id: "roof_bars_right", label: "Roof bar -- Right" },
+        { id: "roof_bars_left", label: roofVal + ": Roof bar -- Left" },
+        { id: "roof_bars_right", label: roofVal + ": Roof bar -- Right" },
       ];
     }
     if (roofVal === "single-center") {
@@ -823,29 +823,29 @@
         { id: "backstays_right", label: "Backstay -- Right" },
         { id: "backstay_diagonals_left", label: "Backstay diagonal -- Left" },
         { id: "backstay_diagonals_right", label: "Backstay diagonal -- Right" },
-        { id: "main_diagonals_left", label: "Main rollbar diagonal (253-7) -- Left" },
-        { id: "main_diagonals_right", label: "Main rollbar diagonal (253-7) -- Right" },
+        { id: "main_diagonals_left", label: "253-7: Main rollbar diagonal -- Left" },
+        { id: "main_diagonals_right", label: "253-7: Main rollbar diagonal -- Right" },
         ...roofBarTubeRows(getAnswer("roof_bars").value),
         ...doorBarTubeRows(getAnswer("door_bars").value),
         { id: "sill_bar_left", label: "Sill bar -- Left" },
         { id: "sill_bar_right", label: "Sill bar -- Right" },
-        { id: "a_pillar_left", label: "A-pillar reinforcement (253-15) -- Left" },
-        { id: "a_pillar_right", label: "A-pillar reinforcement (253-15) -- Right" },
+        { id: "a_pillar_left", label: "253-15: A-pillar reinforcement -- Left" },
+        { id: "a_pillar_right", label: "253-15: A-pillar reinforcement -- Right" },
         { id: "harness_bar", label: "Harness bar" },
-        { id: "rear_lateral_left", label: "Rear lateral reinforcement (253-17) -- Left" },
-        { id: "rear_lateral_right", label: "Rear lateral reinforcement (253-17) -- Right" },
-        { id: "rear_transversal", label: "Rear transversal reinforcement (253-18)" },
-        { id: "rear_lower_x_driver_top", label: "Rear lower X (253-19) -- Driver top to codriver bottom" },
-        { id: "rear_lower_x_codriver_top", label: "Rear lower X (253-19) -- Codriver top to driver bottom" },
-        { id: "anti_intrusion_left_upper", label: "Anti-intrusion (253-25) -- Left upper" },
-        { id: "anti_intrusion_left_lower", label: "Anti-intrusion (253-25) -- Left lower" },
-        { id: "anti_intrusion_right_upper", label: "Anti-intrusion (253-25) -- Right upper" },
-        { id: "anti_intrusion_right_lower", label: "Anti-intrusion (253-25) -- Right lower" },
-        { id: "dash_bar", label: "Dash bar (253-29)" },
-        { id: "temple_bar_left", label: "Temple bar (253-31) -- Left" },
-        { id: "temple_bar_right", label: "Temple bar (253-31) -- Right" },
-        { id: "windshield_reinforcement_left", label: "Windshield reinforcement (253-31) -- Left" },
-        { id: "windshield_reinforcement_right", label: "Windshield reinforcement (253-31) -- Right" },
+        { id: "rear_lateral_left", label: "253-17: Rear lateral reinforcement -- Left" },
+        { id: "rear_lateral_right", label: "253-17: Rear lateral reinforcement -- Right" },
+        { id: "rear_transversal", label: "253-18: Rear transversal reinforcement" },
+        { id: "rear_lower_x_driver_top", label: "253-19: Rear lower X -- Driver top to codriver bottom" },
+        { id: "rear_lower_x_codriver_top", label: "253-19: Rear lower X -- Codriver top to driver bottom" },
+        { id: "anti_intrusion_left_upper", label: "253-25: Anti-intrusion -- Left upper" },
+        { id: "anti_intrusion_left_lower", label: "253-25: Anti-intrusion -- Left lower" },
+        { id: "anti_intrusion_right_upper", label: "253-25: Anti-intrusion -- Right upper" },
+        { id: "anti_intrusion_right_lower", label: "253-25: Anti-intrusion -- Right lower" },
+        { id: "dash_bar", label: "253-29: Dash bar" },
+        { id: "temple_bar_left", label: "253-31: Temple bar -- Left" },
+        { id: "temple_bar_right", label: "253-31: Temple bar -- Right" },
+        { id: "windshield_reinforcement_left", label: "253-31: Windshield reinforcement -- Left" },
+        { id: "windshield_reinforcement_right", label: "253-31: Windshield reinforcement -- Right" },
       ],
       columns: [
         { key: "spec", label: "Tubing spec", type: "radio", options: [{ id: "primary", label: "Primary" }, { id: "secondary", label: "Secondary" }] },
