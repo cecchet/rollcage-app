@@ -790,6 +790,7 @@
       visuallyVerifiable: false,
       hardFail: true,
       hideNotes: true,
+      hideVisualFlag: true,
     },
     {
       id: "secondary_tubing",
@@ -803,6 +804,7 @@
       visuallyVerifiable: false,
       hardFail: true,
       hideNotes: true,
+      hideVisualFlag: true,
     },
     {
       id: "door_9x_continuous_tube_picker",

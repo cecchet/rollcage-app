@@ -1213,6 +1213,7 @@
       elm.evaluationType !== "text" &&
       elm.evaluationType !== "longtext" &&
       !elm.noCapture &&
+      !elm.hideVisualFlag &&
       !PHASE_1_DESIGN_CHOICE_IDS.has(elm.id)
     ) {
       card.appendChild(
