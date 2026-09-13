@@ -305,6 +305,76 @@
       }
       updateCamera();
     });
+    // Touch equivalents of the mouse handlers above, for phones/tablets --
+    // none of the mouse listeners fire for touch input at all, so without
+    // this the canvas was completely inert on a touchscreen. Follows the
+    // common mobile 3D-viewer convention rather than adding mode-switch
+    // buttons: one finger drags to rotate (like a plain left-drag), two
+    // fingers pinch to zoom and drag to pan together (combining wheel-zoom
+    // and shift-drag-pan into a single gesture, since a phone has no
+    // separate shift/right-click input), and a one-finger tap that didn't
+    // drag selects a part (like a plain left-click).
+    let touchMode = null; // "rotate" | "pan-zoom" | null
+    let tLastX = 0, tLastY = 0, tDownX = 0, tDownY = 0, tMoved = false, tPinchDist = 0;
+    function touchDist(t0, t1) { return Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY); }
+    function touchMid(t0, t1) { return { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 }; }
+    renderer.domElement.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 1) {
+        touchMode = "rotate";
+        tLastX = tDownX = e.touches[0].clientX;
+        tLastY = tDownY = e.touches[0].clientY;
+        tMoved = false;
+      } else if (e.touches.length >= 2) {
+        touchMode = "pan-zoom";
+        tPinchDist = touchDist(e.touches[0], e.touches[1]);
+        const mid = touchMid(e.touches[0], e.touches[1]);
+        tLastX = mid.x; tLastY = mid.y;
+        tMoved = true; // a 2-finger gesture never counts as a tap-to-select
+      }
+      e.preventDefault();
+    }, { passive: false });
+    window.addEventListener("touchmove", (e) => {
+      if (!touchMode) return;
+      if (touchMode === "rotate" && e.touches.length === 1) {
+        const t = e.touches[0];
+        const dx = t.clientX - tLastX, dy = t.clientY - tLastY;
+        if (Math.abs(t.clientX - tDownX) > 4 || Math.abs(t.clientY - tDownY) > 4) tMoved = true;
+        tLastX = t.clientX; tLastY = t.clientY;
+        theta -= dx * 0.005;
+        phi -= dy * 0.005;
+        updateCamera();
+      } else if (touchMode === "pan-zoom" && e.touches.length >= 2) {
+        const dist = touchDist(e.touches[0], e.touches[1]);
+        const mid = touchMid(e.touches[0], e.touches[1]);
+        if (tPinchDist > 0) radius = Math.max(10, Math.min(5000, radius * (tPinchDist / dist)));
+        const dx = mid.x - tLastX, dy = mid.y - tLastY;
+        const panSpeed = radius * 0.0015;
+        const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
+        const up = camera.up.clone();
+        const rightVec = new THREE.Vector3().crossVectors(camDir, up).normalize();
+        target.addScaledVector(rightVec, -dx * panSpeed);
+        target.addScaledVector(up, dy * panSpeed);
+        tPinchDist = dist; tLastX = mid.x; tLastY = mid.y;
+        updateCamera();
+      }
+      e.preventDefault();
+    }, { passive: false });
+    window.addEventListener("touchend", (e) => {
+      if (touchMode === "rotate" && !tMoved && e.changedTouches.length === 1) pickPart(e.changedTouches[0]);
+      if (e.touches.length === 0) {
+        touchMode = null;
+      } else if (e.touches.length === 1) {
+        // Lifting one finger of a 2-finger pan/zoom -- restart as a plain
+        // 1-finger rotate from here, but don't let this final finger's
+        // eventual lift-off count as a fresh tap (the gesture as a whole
+        // already moved the camera).
+        touchMode = "rotate";
+        tLastX = tDownX = e.touches[0].clientX;
+        tLastY = tDownY = e.touches[0].clientY;
+        tMoved = true;
+      }
+    });
+
     const raycaster = new THREE.Raycaster();
     function pickPart(e) {
       if (!partClickCb) return;
