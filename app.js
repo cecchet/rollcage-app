@@ -1993,6 +1993,31 @@
     sill_bar_note: () => null,
   };
 
+  // Ghost (unconfirmed) bars don't get a real owner from the pass in
+  // computeCageColors() below -- nothing claims files for a value that
+  // hasn't been picked yet, or for an option that isn't the one currently
+  // picked. But a ghost bar should still be clickable to jump to whichever
+  // section would eventually confirm it, so this probes an ITEM_PART_RULES
+  // entry with every value it could ever take (every option for a
+  // "choice" element, "yes" for a boolean one) and unions the files that
+  // come back, regardless of what's actually answered right now.
+  function possibleFilesForElement(elm, rule) {
+    const files = new Set();
+    const tryValue = (v, extra) => {
+      const result = rule(v, { value: v, extra: extra || {} });
+      if (result && result.files) result.files.forEach((f) => files.add(f));
+    };
+    if (elm.evaluationType === "choice" && elm.options) {
+      elm.options.forEach((opt) => {
+        tryValue(opt.id, {});
+        tryValue(opt.id, { sill_bar: "yes" });
+      });
+    } else {
+      tryValue("yes", {});
+    }
+    return [...files];
+  }
+
   // a_pillar_reinforcement's alternate-geometry files (continuous tube vs
   // 2-bar tube+gussets vs side gusset) used to default here to fully hidden
   // -- now handled by the dedicated block below computeCageColors()'s main
@@ -2397,6 +2422,23 @@
       owner[file] = "gusset_design";
     });
 
+    // Fallback ownership so ghost (unconfirmed) bars are clickable too --
+    // see possibleFilesForElement()'s comment. Only fills in files nothing
+    // above already claimed, so it never overrides a real, confirmed owner.
+    function claimUnowned(files, elmId) { files.forEach((f) => { if (!owner[f]) owner[f] = elmId; }); }
+    claimUnowned(["Front left lateral.stl", "Front right lateral.stl", "Main rollbar.stl"], "main_structure_layout");
+    claimUnowned(["Transverse member.stl"], getAnswer("main_structure_layout").value === "253-1" ? "transverse_members_253_1" : "transverse_member_253_3");
+    claimUnowned(APILLAR_FILES.concat(APILLAR_2PIECE_FILES), "a_pillar_reinforcement");
+    FOOT_LOCATIONS.forEach(({ plateFile }) => claimUnowned([plateFile], "mounting_feet_design"));
+    GUSSET_LOCATIONS.forEach(({ row, file }) => {
+      if (gussetRowsById && !gussetRowsById.has(row)) return; // not a currently real/visible row
+      claimUnowned([file], "gusset_design");
+    });
+    path.elements.forEach((elm) => {
+      const rule = ITEM_PART_RULES[elm.id];
+      if (!rule) return;
+      claimUnowned(possibleFilesForElement(elm, rule), elm.id);
+    });
 
     CAGE_FILE_OWNER = owner;
     return state.activeTab === 2 ? applyTubingClassificationView(colors) : colors;
