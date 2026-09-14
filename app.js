@@ -23,6 +23,7 @@
     activeTab: 1, // UI-only: which phase (Part 1/2/3) tab is currently shown
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
     showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
+    aiAnalysis: { status: "idle", suggestions: [], error: null, accepted: {} }, // UI-only, never persisted -- see renderPhotoAnalysis()
   };
 
   function uid() {
@@ -452,6 +453,37 @@
     });
   }
 
+  // Downscales an image file to at most maxDim on its longest side and
+  // re-encodes as JPEG, returning {mimeType, data (base64, no data: URI
+  // prefix)} -- used for the AI photo-analysis upload (renderPhotoAnalysis)
+  // rather than fileToDataUrl above, since a phone photo straight off a
+  // camera can be several MB (several photos of the same cage easily blow
+  // past a serverless function's request-body size limit, and cost more
+  // in vision-API tokens for no real accuracy benefit at full resolution).
+  function resizeImageToBase64(file, maxDim) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        resolve({ mimeType: "image/jpeg", data: dataUrl.split(",")[1] });
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load " + file.name)); };
+      img.src = url;
+    });
+  }
+
   let saveFlashTimeout = null;
   function saveWithFlash() {
     saveCurrent();
@@ -858,6 +890,131 @@
     return 3;
   }
 
+  // ---- AI photo analysis (Part 1 pre-fill) -------------------------------
+  // Experimental: upload photos of an installed cage (or a blueprint) and
+  // have a vision model suggest which Part 1 design choices match, via a
+  // small Vercel serverless function (api/analyze-cage.js) that proxies to
+  // Gemini -- the API key never reaches the browser. Suggestions are never
+  // applied automatically; the user reviews and accepts each one.
+  //
+  // Only "choice"/"boolean" Part 1 elements are offered -- gusset/mounting-
+  // foot design (roof_corner_gussets, mounting_feet_design, gusset_design)
+  // are per-location tables, much harder to identify reliably from photos,
+  // and out of scope for now ("select the bars", not the gussets).
+  const AI_SKIP_TABLE_IDS = new Set(["roof_corner_gussets", "mounting_feet_design", "gusset_design"]);
+  function buildAiElementCatalog(path) {
+    return path.elements
+      .filter((elm) => PHASE_1_DESIGN_CHOICE_IDS.has(elm.id) && !AI_SKIP_TABLE_IDS.has(elm.id) && elementVisible(elm))
+      .map((elm) => {
+        const entry = { id: elm.id, name: elm.name, description: elm.description || "" };
+        if (elm.evaluationType === "boolean") entry.boolean = true;
+        else if (elm.evaluationType === "choice" && elm.options) entry.options = elm.options.map((o) => ({ id: o.id, label: o.label }));
+        return entry;
+      })
+      .filter((entry) => entry.boolean || (entry.options && entry.options.length));
+  }
+
+  async function analyzeCagePhotos(files, path) {
+    state.aiAnalysis = { status: "loading", suggestions: [], error: null, accepted: {} };
+    render();
+    try {
+      const images = await Promise.all([...files].map((f) => resizeImageToBase64(f, 1280)));
+      const elements = buildAiElementCatalog(path);
+      const resp = await fetch("api/analyze-cage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ images, elements }),
+      });
+      let json = null;
+      try { json = await resp.json(); } catch (e) { /* handled below via !resp.ok / missing json */ }
+      if (!resp.ok) {
+        state.aiAnalysis = { status: "error", suggestions: [], error: (json && json.error) || ("HTTP " + resp.status), accepted: {} };
+      } else {
+        const suggestions = (json && Array.isArray(json.suggestions)) ? json.suggestions : [];
+        state.aiAnalysis = { status: "done", suggestions, error: null, accepted: {} };
+      }
+    } catch (e) {
+      state.aiAnalysis = { status: "error", suggestions: [], error: e.message, accepted: {} };
+    }
+    render();
+  }
+
+  function renderPhotoAnalysis(root, path) {
+    const panel = el("div", { class: "panel ai-analysis-panel" });
+    panel.appendChild(el("h2", {}, ["Analyze photos (AI, experimental)"]));
+    panel.appendChild(
+      el("div", { class: "element-desc" }, [
+        "Upload one or more photos of the installed cage (or a blueprint/diagram) -- multiple angles of the same cage help capture more of the design. A vision model will suggest which options below match; nothing is applied until you review and accept each suggestion.",
+      ])
+    );
+
+    const ai = state.aiAnalysis;
+    const fileInput = el("input", {
+      type: "file",
+      accept: "image/*",
+      multiple: true,
+      disabled: ai.status === "loading",
+      onchange: (e) => {
+        if (e.target.files && e.target.files.length) analyzeCagePhotos(e.target.files, path);
+      },
+    });
+    panel.appendChild(el("div", { class: "field" }, [fileInput]));
+
+    if (ai.status === "loading") {
+      panel.appendChild(el("div", { class: "ai-status" }, ["Analyzing photos... this can take a little while."]));
+    } else if (ai.status === "error") {
+      panel.appendChild(el("div", { class: "ai-status ai-error" }, ["Analysis failed: " + ai.error]));
+    } else if (ai.status === "done") {
+      if (!ai.suggestions.length) {
+        panel.appendChild(el("div", { class: "ai-status" }, ["No confident suggestions from these photos -- try clearer or additional angles."]));
+      } else {
+        const elementsById = {};
+        path.elements.forEach((elm) => { elementsById[elm.id] = elm; });
+        const list = el("div", { class: "ai-suggestion-list" });
+        ai.suggestions.forEach((s) => {
+          const elm = elementsById[s.elementId];
+          if (!elm) return;
+          const optLabel = elm.evaluationType === "boolean"
+            ? (s.value === "yes" ? "Yes / Present" : "No / Absent")
+            : (((elm.options || []).find((o) => o.id === s.value) || {}).label || s.value);
+          const checkbox = el("input", {
+            type: "checkbox",
+            checked: !!ai.accepted[s.elementId],
+            onchange: (e) => { state.aiAnalysis.accepted[s.elementId] = e.target.checked; },
+          });
+          list.appendChild(
+            el("label", { class: "ai-suggestion-row" }, [
+              checkbox,
+              el("div", { class: "ai-suggestion-text" }, [
+                el("div", {}, [el("strong", {}, [elm.name]), ": " + optLabel + " (" + s.confidence + " confidence)"]),
+                el("div", { class: "visual-flag" }, [s.rationale]),
+              ]),
+            ])
+          );
+        });
+        panel.appendChild(list);
+        panel.appendChild(
+          el(
+            "button",
+            {
+              class: "btn",
+              onclick: () => {
+                ai.suggestions.forEach((s) => {
+                  if (state.aiAnalysis.accepted[s.elementId]) setAnswer(s.elementId, { value: s.value });
+                });
+                state.aiAnalysis = { status: "idle", suggestions: [], error: null, accepted: {} };
+                render();
+              },
+            },
+            ["Apply accepted suggestions"]
+          )
+        );
+      }
+    }
+
+    root.appendChild(panel);
+  }
+
   // Safety score / Logbook / Vehicle description always trail the checklist
   // now (no more "Part 4" tab to move them behind) -- see render().
   function renderChecklist(root, path) {
@@ -871,6 +1028,8 @@
     const showTabs = usedPhases.length > 1;
     if (showTabs && !usedPhases.includes(state.activeTab)) state.activeTab = usedPhases[0];
     const shownPhases = showTabs ? [state.activeTab] : usedPhases;
+
+    if (shownPhases.includes(1)) renderPhotoAnalysis(root, path);
 
     if (showTabs) {
       panel.appendChild(
