@@ -847,7 +847,6 @@
     1: "Part 1 — Structure & design choices",
     2: "Part 2 — Tubing sizes & materials",
     3: "Part 3 — Measurements, angles & welds",
-    4: "Part 4 — Rule compliance & Logbook",
   };
   function isTubingSizingTable(elm) {
     if (elm.evaluationType === "tubing3solo") return true;
@@ -866,12 +865,8 @@
     return 3;
   }
 
-  // Part 4 is a virtual phase -- it never holds checklist elements (nothing
-  // is ever classified into it by elementPhase), it just gives the Result /
-  // Vehicle description / Logbook panels their own tab alongside Part 1-3
-  // instead of always trailing every phase's content. render() checks
-  // isPart4Active on the return value to decide whether to show those
-  // panels below this one.
+  // Safety score / Logbook / Vehicle description always trail the checklist
+  // now (no more "Part 4" tab to move them behind) -- see render().
   function renderChecklist(root, path) {
     const panel = el("div", { class: "panel" });
     panel.appendChild(el("h2", {}, ["Rollcage design"]));
@@ -881,17 +876,15 @@
     visible.forEach((elm) => phases[elementPhase(elm)].push(elm));
     const usedPhases = [1, 2, 3].filter((p) => phases[p].length);
     const showTabs = usedPhases.length > 1;
-    const tabPhases = showTabs ? usedPhases.concat([4]) : [];
-    if (showTabs && !tabPhases.includes(state.activeTab)) state.activeTab = usedPhases[0];
-    const isPart4Active = showTabs && state.activeTab === 4;
-    const shownPhases = showTabs ? (isPart4Active ? [] : [state.activeTab]) : usedPhases;
+    if (showTabs && !usedPhases.includes(state.activeTab)) state.activeTab = usedPhases[0];
+    const shownPhases = showTabs ? [state.activeTab] : usedPhases;
 
     if (showTabs) {
       panel.appendChild(
         el(
           "div",
           { class: "phase-tabs" },
-          tabPhases.map((p) =>
+          usedPhases.map((p) =>
             el(
               "button",
               {
@@ -920,7 +913,6 @@
     });
 
     root.appendChild(panel);
-    return { showTabs, isPart4Active };
   }
 
   // Whether elm has a definitive answer already -- used to auto-collapse a
@@ -1585,11 +1577,28 @@
     return card;
   }
 
+  // Placeholder -- the actual 0-100 scoring model isn't designed yet. Shown
+  // between the checklist and the Logbook (pass/fail-for-a-ruleset) section
+  // since it's a distinct concept: an overall safety rating of the design
+  // itself, independent of whether any particular sanctioning body's rules
+  // are satisfied.
+  function renderSafetyScore(root) {
+    const panel = el("div", { class: "panel" });
+    panel.appendChild(el("h2", {}, ["Safety score"]));
+    panel.appendChild(
+      el("div", { class: "safety-score-placeholder" }, [
+        "Coming soon -- will rate the overall safety of this rollcage design (0-100) based on the elements captured above, independent of any specific sanctioning body's requirements.",
+      ])
+    );
+    root.appendChild(panel);
+  }
+
   function renderResults(root, path) {
     const results = computeResults(path);
 
     if (!state.resultsExpanded) {
       const collapsed = el("div", { class: "panel results-panel results-panel-collapsed" }, [
+        el("h2", {}, ["Logbook"]),
         el("div", { class: "verdict compact " + results.verdict.level }, [results.verdict.label]),
         el("div", { class: "results-summary" }, [
           results.requiredSatisfied + " / " + results.requiredTotal + " required items (" + results.scorePct + "%)",
@@ -1608,7 +1617,7 @@
 
     panel.appendChild(
       el("div", { class: "results-header" }, [
-        el("h2", {}, ["Result"]),
+        el("h2", {}, ["Logbook"]),
         el(
           "button",
           { class: "btn secondary", onclick: () => { state.resultsExpanded = false; render(); } },
@@ -2631,18 +2640,13 @@
     }
 
     const path = RULES[state.vehicle.org].paths[state.pathId];
-    const { showTabs, isPart4Active } = renderChecklist(root, path);
-    // When Part 1-3 tabs are in play, Result / Vehicle description / Logbook
-    // move behind their own "Part 4" tab instead of always trailing every
-    // phase's content -- single-phase (e.g. grandfathered) paths have no
-    // tabs at all, so they keep showing these inline like before.
-    if (!showTabs || isPart4Active) {
-      renderResults(root, path);
-      // Vehicle description / Logbook come last -- filling in the paperwork
-      // identity fields is the final step once the technical inspection
-      // itself is done.
-      renderVehicleForm(root);
-    }
+    renderChecklist(root, path);
+    // Safety score, then Logbook (pass/fail for the selected sanctioning
+    // body), then the paperwork fields -- always trailing the checklist now,
+    // no tab to move them behind.
+    renderSafetyScore(root);
+    renderResults(root, path);
+    renderVehicleForm(root);
     syncCageView();
   }
 

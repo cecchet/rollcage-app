@@ -439,12 +439,14 @@ textarea { resize: vertical; min-height: 50px; }
 .visual-flag { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
 
 .results-panel {
-  position: sticky;
-  bottom: 12px;
-  z-index: 5;
+  /* Used to be sticky-to-bottom, back when this only ever appeared alone on
+     its own dedicated "Part 4" tab (a persistent status bar over that tab's
+     own scrollable content). Now Safety score / Logbook / Vehicle
+     description all render in-flow together below the checklist on every
+     tab, so a fixed-to-viewport-bottom panel here would overlap whatever
+     else is currently in view instead -- just a normal panel now. */
   max-height: min(60vh, 520px);
   overflow-y: auto;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25);
 }
 
 .results-panel-collapsed {
@@ -457,6 +459,7 @@ textarea { resize: vertical; min-height: 50px; }
   padding: 10px 14px;
 }
 .results-panel-collapsed .results-summary { color: var(--muted); font-size: 0.85rem; flex: 1; }
+.safety-score-placeholder { color: var(--muted); font-size: 0.9rem; }
 .verdict.compact { padding: 6px 12px; margin: 0; font-size: 0.9rem; }
 
 .results-header {
@@ -528,6 +531,5 @@ textarea { resize: vertical; min-height: 50px; }
 
 @media print {
   .app-footer, .toolbar, .session-bar, .answer-row, .photo-row, .btn { display: none !important; }
-  .results-panel { position: static; }
   body { background: #fff; color: #000; }
 }
