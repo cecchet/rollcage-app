@@ -1900,6 +1900,17 @@
     return Object.assign({}, BASE_STRUCTURE_MAPS[value]);
   }
 
+  // Shared by any left/right/both/none-style element (253-31 temple bar and
+  // windshield reinforcement below) whose 2 files are simply "the left
+  // part" and "the right part".
+  function sideFilesRule(v, leftFile, rightFile, color) {
+    const files = [];
+    if (v === "left" || v === "both") files.push(leftFile);
+    if (v === "right" || v === "both") files.push(rightFile);
+    if (!files.length) return null;
+    return { files, color };
+  }
+
   // itemId -> function(answerValue) => { files, color } | null
   //
   // Roof bars, door bars, sill bar, and backstay (rear) diagonals are
@@ -1986,9 +1997,10 @@
       v === "yes"
         ? { files: ["253-25 upper left.stl", "253-25 upper right.stl", "253-25 lower left.stl", "253-25 lower right.stl"], color: CAGE_COLOR.antiIntrusion }
         : null,
-    temple_bar_present: (v) => (v === "yes" ? { files: ["253-31 temple bar left.stl", "253-31 temple bar right.stl"], color: CAGE_COLOR.templeBar } : null),
+    // Left/right/both/none (not a plain yes/no) -- see rules-data.js.
+    temple_bar_present: (v) => sideFilesRule(v, "253-31 temple bar left.stl", "253-31 temple bar right.stl", CAGE_COLOR.templeBar),
     windshield_reinforcement_present: (v) =>
-      v === "yes" ? { files: ["253-31 windshield left.stl", "253-31 windshield right.stl"], color: CAGE_COLOR.windshieldReinforcement } : null,
+      sideFilesRule(v, "253-31 windshield left.stl", "253-31 windshield right.stl", CAGE_COLOR.windshieldReinforcement),
 
     // a_pillar_reinforcement itself is handled separately, below the main
     // per-element loop -- continuous vs 2-bar are mutually exclusive

@@ -1379,6 +1379,16 @@
     },
   ];
 
+  // Shared by the 253-31 temple bar / windshield reinforcement detail
+  // tables below: only lists the side(s) actually selected in the
+  // corresponding "present" choice (left/right/both), so an unconfirmed
+  // side never gets a weld row to fill in.
+  function sideRows(v) {
+    if (v === "left") return [{ id: "left", label: "Left" }];
+    if (v === "right") return [{ id: "right", label: "Right" }];
+    return [{ id: "left", label: "Left" }, { id: "right", label: "Right" }];
+  }
+
   // =====================================================================
   // Section 7-13. Common tail -- identical across all sanctioning bodies
   // per the source document (not org-patched).
@@ -1537,7 +1547,11 @@
     // reinforcement (near the A-pillar/windshield junction) -- tracked as
     // separate elements now that each has its own identity, replacing the
     // single generic 253-31/32/33 tube-or-gusset choice that stood in for
-    // all of them before any of this had geometry.
+    // all of them before any of this had geometry. Left/right/both/none
+    // rather than a plain yes/no -- a car isn't guaranteed to have
+    // identical reinforcement on both sides (same reasoning as the door
+    // bars and 253-17 rear lateral above); see sideRows() near the top of
+    // this file for the shared detail-table row logic.
     {
       id: "temple_bar_present",
       name: "Temple bar (253-31) present",
@@ -1545,16 +1559,23 @@
       requirement: "recommended",
       reference: "",
       description: "Reinforcement tube or bent-sheet-metal U-shape per Article 253-8.2.14, thickness >=1.0mm, near the main hoop/roof junction. Ends must not extend past halfway along the members it's attached to.",
-      evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
+      evaluationType: "choice",
+      options: [
+        { id: "left", label: "Left only", outcome: "pass" },
+        { id: "right", label: "Right only", outcome: "pass" },
+        { id: "both", label: "Both sides", outcome: "pass" },
+        { id: "none", label: "None present", outcome: "fail" },
+      ],
+      visuallyVerifiable: true, hardFail: false,
     },
     {
       id: "temple_bar_detail",
       name: "Temple bar (253-31) welds",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "",
-      showIf: { id: "temple_bar_present", equals: "yes" },
+      showIf: { id: "temple_bar_present", notEquals: "none" },
       evaluationType: "table",
-      rows: [{ id: "left", label: "Left" }, { id: "right", label: "Right" }],
+      rows: (getAnswer) => sideRows(getAnswer("temple_bar_present").value),
       columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
       visuallyVerifiable: true, hardFail: false,
     },
@@ -1565,16 +1586,23 @@
       requirement: "recommended",
       reference: "",
       description: "Reinforcement tube or bent-sheet-metal U-shape per Article 253-8.2.14, thickness >=1.0mm, near the A-pillar/windshield junction. Ends must not extend past halfway along the members it's attached to.",
-      evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
+      evaluationType: "choice",
+      options: [
+        { id: "left", label: "Left only", outcome: "pass" },
+        { id: "right", label: "Right only", outcome: "pass" },
+        { id: "both", label: "Both sides", outcome: "pass" },
+        { id: "none", label: "None present", outcome: "fail" },
+      ],
+      visuallyVerifiable: true, hardFail: false,
     },
     {
       id: "windshield_reinforcement_detail",
       name: "Windshield reinforcement (253-31) welds",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "",
-      showIf: { id: "windshield_reinforcement_present", equals: "yes" },
+      showIf: { id: "windshield_reinforcement_present", notEquals: "none" },
       evaluationType: "table",
-      rows: [{ id: "left", label: "Left" }, { id: "right", label: "Right" }],
+      rows: (getAnswer) => sideRows(getAnswer("windshield_reinforcement_present").value),
       columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
       visuallyVerifiable: true, hardFail: false,
     },
