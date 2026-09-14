@@ -227,12 +227,6 @@ textarea { resize: vertical; min-height: 50px; }
   gap: 4px;
   border-bottom: 2px solid var(--border);
   margin-bottom: 16px;
-  /* Sits above the floating live-cage-model widget (z-index 20) -- that
-     widget is fixed at top-right of the viewport and can otherwise overlap
-     this row (and silently eat clicks) on any window narrower than roughly
-     #app's max-width plus the widget's own width. */
-  position: relative;
-  z-index: 21;
 }
 .phase-tab {
   background: none;

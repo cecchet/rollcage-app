@@ -19,7 +19,6 @@
     answers: {}, // elementId -> { value, note, photos: [{name, dataUrl}] }
     resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
-    logbookExpanded: false, // UI-only: Logbook panel starts collapsed
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
     activeTab: 1, // UI-only: which phase (Part 1/2/3) tab is currently shown
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
@@ -592,7 +591,7 @@
     ]);
   }
 
-  function renderVehicleForm(root) {
+  function renderVehicleDescription(root) {
     const vehiclePanel = el("div", { class: "panel" });
     vehiclePanel.appendChild(
       collapsiblePanelHeader("Vehicle description", state.vehicleExpanded, () => {
@@ -630,19 +629,14 @@
       );
     }
     root.appendChild(vehiclePanel);
+  }
 
-    const logbookPanel = el("div", { class: "panel" });
-    logbookPanel.appendChild(
-      collapsiblePanelHeader("Logbook", state.logbookExpanded, () => {
-        state.logbookExpanded = !state.logbookExpanded;
-        render();
-      })
-    );
-    if (!state.logbookExpanded) {
-      root.appendChild(logbookPanel);
-      return;
-    }
-
+  // Logbook paperwork fields (status/date, certificate #, sanctioning body,
+  // logbook number, compliance path, homologation route, notes) -- appended
+  // into an existing panel element. Shared by the bootstrap screen (no
+  // pathId chosen yet, so no verdict to show) and the merged Logbook section
+  // (renderResults) once a path is active.
+  function appendLogbookFields(logbookPanel) {
     const statusField = el("div", { class: "field" }, [
       el("label", {}, ["Logbook status"]),
       el("div", { class: "radio-group" }, [
@@ -790,8 +784,6 @@
     });
     notesInput.value = notesAnswer.value || "";
     logbookPanel.appendChild(el("div", { class: "field" }, [el("label", {}, ["Notes"]), notesInput]));
-
-    root.appendChild(logbookPanel);
   }
 
   function radioOption(name, value, label, checked, onChange) {
@@ -805,7 +797,7 @@
     return el("label", {}, [input, label]);
   }
 
-  // Rendered inline in the Logbook panel instead (renderVehicleForm) --
+  // Rendered inline in the Logbook panel instead (appendLogbookFields) --
   // not part of the per-category checklist body below.
   const RENDERED_IN_LOGBOOK_PANEL = ["homologation_route", "vehicle_description_notes"];
 
@@ -1690,6 +1682,9 @@
         ),
       ])
     );
+
+    panel.appendChild(el("div", { class: "category-heading" }, ["Logbook details"]));
+    appendLogbookFields(panel);
 
     root.appendChild(panel);
   }
@@ -2641,23 +2636,27 @@
 
     renderSessionBar(root);
 
+    renderVehicleDescription(root);
+
     if (!state.pathId) {
-      root.appendChild(
-        el("div", { class: "panel" }, ["Select logbook status / date below (or choose a path directly) to load the checklist."])
+      const logbookPanel = el("div", { class: "panel" });
+      logbookPanel.appendChild(el("h2", {}, ["Logbook"]));
+      logbookPanel.appendChild(
+        el("div", {}, ["Select logbook status / date below (or choose a path directly) to load the checklist."])
       );
-      renderVehicleForm(root);
+      appendLogbookFields(logbookPanel);
+      root.appendChild(logbookPanel);
       syncCageView();
       return;
     }
 
     const path = RULES[state.vehicle.org].paths[state.pathId];
     renderChecklist(root, path);
-    // Safety score, then Logbook (pass/fail for the selected sanctioning
-    // body), then the paperwork fields -- always trailing the checklist now,
-    // no tab to move them behind.
+    // Safety score, then Logbook (verdict for the selected sanctioning body,
+    // merged with its paperwork fields) -- always trailing the checklist
+    // now, no tab to move them behind.
     renderSafetyScore(root);
     renderResults(root, path);
-    renderVehicleForm(root);
     syncCageView();
   }
 
