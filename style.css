@@ -96,7 +96,11 @@ body {
 .cage-viewer-panel {
   padding: 10px 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  max-width: 900px;
+  /* #app below is also max-width:900px, but that includes its own 20px
+     side padding (border-box) -- its .panel children actually render at
+     860px. Match that here so this panel's edges line up with the rest of
+     the page instead of sitting 40px wider. */
+  max-width: 860px;
   margin: 0 auto;
 }
 .cage-viewer-header {

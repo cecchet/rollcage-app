@@ -14,6 +14,14 @@
 (function () {
   "use strict";
 
+  // Unlike the .js/.css files (cache-busted via ?v=N in index.html), these
+  // STL parts are fetched by a fixed filename with no query string of their
+  // own -- so overwriting a part's bytes on disk (a re-extraction, a resize)
+  // is invisible to any browser or CDN that already cached the old ones
+  // under that same URL. Bump this whenever any file in cage_parts/ changes,
+  // even if PARTS itself doesn't.
+  const CAGE_PARTS_VERSION = 1;
+
   const PARTS = [
     "Main rollbar.stl", "Front left lateral.stl", "Front right lateral.stl", "Transverse member.stl",
     "Left backstay.stl", "Right backstay.stl",
@@ -417,7 +425,7 @@
     });
 
     PARTS.forEach((file) => {
-      fetch("cage_parts/" + encodeURIComponent(file)).then((r) => {
+      fetch("cage_parts/" + encodeURIComponent(file) + "?v=" + CAGE_PARTS_VERSION).then((r) => {
         if (!r.ok) throw new Error(r.status + " for " + file);
         return r.arrayBuffer();
       }).then((buf) => {
