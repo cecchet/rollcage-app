@@ -838,6 +838,7 @@
     "rear_lower_x_present",
     "anti_intrusion_present",
     "dash_bar_present",
+    "lower_main_hoop_bar_present",
     "temple_bar_present",
     "windshield_reinforcement_present",
     "mounting_feet_design",
@@ -1705,6 +1706,7 @@
     aPillar: "#ffdd00", sill: "#8c564b", harnessBar: "#c9a227",
     rearLateral: "#4dd0e1", rearTransversal: "#ff5252", dashBar: "#7986cb",
     rearLowerX: "#b565d8", antiIntrusion: "#ff9e4a", templeBar: "#5ec9a3", windshieldReinforcement: "#ef6ba0",
+    lowerMainHoopBar: "#8ecae6",
     // Taco and single-plate gussets reuse the same modeled geometry (per the
     // source model), distinguished only by color until a distinct
     // single-plate mesh exists -- deliberately a warm/cool complementary
@@ -1970,13 +1972,13 @@
     diagonals_minimum: () => null,
 
     // All six configurations now match real geometry in the modeled car --
-    // "1 horizontal bar" is physically the same bar/position as the
-    // harness bar (253-66), so it reuses that same part.
+    // "1 horizontal bar" is physically the same bar/position as the 253-26/27
+    // harness bar, so it reuses that same part.
     main_hoop_diagonals: (v) => {
       if (v === "253-7") return { files: MAIN_DIAG_FILES, color: CAGE_COLOR.mainDiag };
       if (v === "diag-left") return { files: [MAIN_DIAG_TOP_LEFT_FILE], color: CAGE_COLOR.mainDiag };
       if (v === "diag-right") return { files: [MAIN_DIAG_TOP_RIGHT_FILE], color: CAGE_COLOR.mainDiag };
-      if (v === "diag-horizontal") return { files: ["Harness bar.stl"], color: CAGE_COLOR.mainDiag };
+      if (v === "diag-horizontal") return { files: ["253-26,27 harness bar.stl"], color: CAGE_COLOR.mainDiag };
       if (v === "diag-lower-half") return { files: ["Main rollbar lower half left.stl", "Main rollbar lower half right.stl"], color: CAGE_COLOR.mainDiag };
       if (v === "diag-v-center") return { files: ["Main rollbar V left.stl", "Main rollbar V right.stl"], color: CAGE_COLOR.mainDiag };
       return null;
@@ -1988,7 +1990,13 @@
     door_bars_present_gf: () => null,
     door_bars_present: () => null,
 
-    harness_bar_present: (v) => (v === "yes" ? { files: ["Harness bar.stl"], color: CAGE_COLOR.harnessBar } : null),
+    // 2 mutually exclusive designs -- see rules-data.js.
+    harness_bar_present: (v) => {
+      if (v === "253-26-27") return { files: ["253-26,27 harness bar.stl"], color: CAGE_COLOR.harnessBar };
+      if (v === "253-28-66") return { files: ["253-28,66 rear harness bar.stl"], color: CAGE_COLOR.harnessBar };
+      return null;
+    },
+    lower_main_hoop_bar_present: (v) => (v === "yes" ? { files: ["253-30 lower main hoop bar.stl"], color: CAGE_COLOR.lowerMainHoopBar } : null),
     // "253-17 left/right.stl" (a single bar per side) no longer exist in the
     // source model -- replaced by dedicated upper/lower parts matching this
     // item's own upper/lower/both front-junction choice.
@@ -2066,8 +2074,9 @@
   // so the inspector has to check both sides rather than one answer silently
   // covering a bar it was never actually looked at. A file maps to exactly
   // one row regardless of which design variant produced it, since each STL
-  // is one physical tube -- except "Harness bar.stl" (resolved dynamically
-  // in harnessBarTubeRow(), since it's reused by two different rows).
+  // is one physical tube -- except the 2 harness bar files (resolved
+  // dynamically in harnessBarTubeRow(), since "253-26,27 harness bar.stl"
+  // is also reused by main_hoop_diagonals' "1 horizontal bar" option).
   const FILE_TO_TUBE_ROW = {
     "Main rollbar.stl": "main_rollbar",
     "Front left lateral.stl": "front_laterals_left", "Front right lateral.stl": "front_laterals_right",
@@ -2106,12 +2115,14 @@
     "253-25 upper left.stl": "anti_intrusion_left_upper", "253-25 lower left.stl": "anti_intrusion_left_lower",
     "253-25 upper right.stl": "anti_intrusion_right_upper", "253-25 lower right.stl": "anti_intrusion_right_lower",
     "Dash bar 253-29.stl": "dash_bar",
+    "253-30 lower main hoop bar.stl": "lower_main_hoop_bar",
     "253-31 temple bar left.stl": "temple_bar_left", "253-31 temple bar right.stl": "temple_bar_right",
     "253-31 windshield left.stl": "windshield_reinforcement_left", "253-31 windshield right.stl": "windshield_reinforcement_right",
   };
   function harnessBarTubeRow() {
     if (getAnswer("main_hoop_diagonals").value === "diag-horizontal") return "main_diagonals_left";
-    if (getAnswer("harness_bar_present").value === "yes") return "harness_bar";
+    const v = getAnswer("harness_bar_present").value;
+    if (v && v !== "none") return "harness_bar";
     return null;
   }
   // "Left/Right door bar 1/2-253-9.stl" are the same 4 meshes across
@@ -2222,7 +2233,7 @@
     NASCAR_VERTICAL_FILES
   );
   function fileTubeRow(file) {
-    if (file === "Harness bar.stl") return harnessBarTubeRow();
+    if (file === "253-26,27 harness bar.stl" || file === "253-28,66 rear harness bar.stl") return harnessBarTubeRow();
     if (DOOR_BAR_DYNAMIC_FILES.indexOf(file) !== -1) return doorBarFileTubeRow(file);
     if (ROOF_BAR_DYNAMIC_FILES.indexOf(file) !== -1) return roofBarFileTubeRow(file);
     return FILE_TO_TUBE_ROW[file] || null;

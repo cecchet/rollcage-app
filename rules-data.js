@@ -826,7 +826,7 @@
         { id: "sill_bar_right", label: "Sill bar -- Right" },
         { id: "a_pillar_left", label: "253-15: A-pillar reinforcement -- Left" },
         { id: "a_pillar_right", label: "253-15: A-pillar reinforcement -- Right" },
-        { id: "harness_bar", label: "Harness bar" },
+        { id: "harness_bar", label: "253-26/27, 253-28/66: Harness bar" },
         { id: "rear_lateral_left", label: "253-17: Rear lateral reinforcement -- Left" },
         { id: "rear_lateral_right", label: "253-17: Rear lateral reinforcement -- Right" },
         { id: "rear_transversal", label: "253-18: Rear transversal reinforcement" },
@@ -837,6 +837,7 @@
         { id: "anti_intrusion_right_upper", label: "253-25: Anti-intrusion -- Right upper" },
         { id: "anti_intrusion_right_lower", label: "253-25: Anti-intrusion -- Right lower" },
         { id: "dash_bar", label: "253-29: Dash bar" },
+        { id: "lower_main_hoop_bar", label: "253-30: Lower main hoop bar" },
         { id: "temple_bar_left", label: "253-31: Temple bar -- Left" },
         { id: "temple_bar_right", label: "253-31: Temple bar -- Right" },
         { id: "windshield_reinforcement_left", label: "253-31: Windshield reinforcement -- Left" },
@@ -1395,31 +1396,61 @@
   // =====================================================================
   const FIA_253_COMMON_TAIL = [
     // -- 7. Optional bars --
+    // 2 alternative harness bar designs -- mutually exclusive, pick whichever
+    // one the car has (if any). "253-26/27" is the same bar the legacy FFSA
+    // diagram "200" numbering also refers to (driver/codriver welds below);
+    // "253-28/66" is the more rearward-mounted alternative. 253-18 (rear
+    // transversal reinforcement, its own separate element above) can also
+    // serve as a harness bar in some cases, but isn't tracked here since
+    // it's already captured on its own.
     {
       id: "harness_bar_present",
       name: "Harness bar present",
       category: "Optional bars",
-      requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253", description: "Optional bar to anchor shoulder harnesses.",
-      evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
-    },
-    {
-      id: "harness_bar_253_66",
-      name: "Harness bar (253-66) welds",
-      category: "Optional bars",
-      requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253", description: "",
-      showIf: { id: "harness_bar_present", equals: "yes" },
-      evaluationType: "table", rows: [{ id: "bar", label: "253-66" }], columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253",
+      description: "Optional bar to anchor shoulder harnesses. 253-26/27 and 253-28/66 are alternative designs -- pick whichever one the car has, if either. 253-18 (rear transversal reinforcement) can also serve as a harness bar in some cases.",
+      evaluationType: "choice",
+      options: [
+        { id: "253-26-27", label: "253-26/27: Harness bar", outcome: "pass" },
+        { id: "253-28-66", label: "253-28/66: Rear harness bar", outcome: "pass" },
+        { id: "none", label: "None present", outcome: "fail" },
+      ],
       visuallyVerifiable: true, hardFail: false,
     },
     {
-      id: "harness_bar_legacy_200",
-      name: "Legacy harness bar (diagram 200, e.g. FFSA) welds",
+      id: "harness_bar_26_27_welds",
+      name: "Harness bar (253-26/27, legacy diagram 200 / FFSA) welds",
       category: "Optional bars",
       requirement: "recommended", reference: "03-ART 253 Equipement de Securite Gr. N-A-R-GT-F2000 2020", description: "Traditional harness bar secured to the main hoop. May be at a different height for driver/codriver. Minimum diameter x thickness is 38 x 2.5mm.",
-      showIf: { id: "harness_bar_present", equals: "yes" },
+      showIf: { id: "harness_bar_present", equals: "253-26-27" },
       evaluationType: "table",
-      rows: [{ id: "driver", label: "200 - Driver" }, { id: "codriver", label: "200 - Codriver" }],
+      rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
       columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      visuallyVerifiable: true, hardFail: false,
+    },
+    {
+      id: "harness_bar_28_66_welds",
+      name: "Rear harness bar (253-28/66) welds",
+      category: "Optional bars",
+      requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253", description: "",
+      showIf: { id: "harness_bar_present", equals: "253-28-66" },
+      evaluationType: "table", rows: [{ id: "bar", label: "253-28/66" }], columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      visuallyVerifiable: true, hardFail: false,
+    },
+    {
+      id: "lower_main_hoop_bar_present",
+      name: "Lower main hoop bar (253-30) present",
+      category: "Optional bars",
+      requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253", description: "Optional bar across the bottom of the main hoop.",
+      evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
+    },
+    {
+      id: "lower_main_hoop_bar_detail",
+      name: "253-30 welds",
+      category: "Optional bars",
+      requirement: "recommended", reference: "", description: "",
+      showIf: { id: "lower_main_hoop_bar_present", equals: "yes" },
+      evaluationType: "table", rows: [{ id: "bar", label: "253-30" }], columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
       visuallyVerifiable: true, hardFail: false,
     },
     {

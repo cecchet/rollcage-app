@@ -20,7 +20,7 @@
   // is invisible to any browser or CDN that already cached the old ones
   // under that same URL. Bump this whenever any file in cage_parts/ changes,
   // even if PARTS itself doesn't.
-  const CAGE_PARTS_VERSION = 1;
+  const CAGE_PARTS_VERSION = 2;
 
   const PARTS = [
     "Main rollbar.stl", "Front left lateral.stl", "Front right lateral.stl", "Transverse member.stl",
@@ -47,7 +47,6 @@
     // extraction note below), so none of these need a Z_FIXUPS entry.
     "Main rollbar lower half left.stl", "Main rollbar lower half right.stl",
     "Main rollbar V left.stl", "Main rollbar V right.stl",
-    "Harness bar.stl",
     "Roof bar 253-14 left.stl", "Roof bar 253-14 right.stl",
     "Roof bar 253-13 left.stl", "Roof bar 253-13 right.stl",
     "Rear diagonal 253-22 left.stl", "Rear diagonal 253-22 right.stl",
@@ -114,6 +113,15 @@
     // the source labels.
     "Roof corner gusset front left.stl", "Roof corner gusset front right.stl",
     "Roof corner gusset rear left.stl", "Roof corner gusset rear right.stl",
+    // Re-extracted from an updated "all options rollcage.3mf" (2026-09-14,
+    // second update) -- same MASTER_OFFSET pipeline, no Z_FIXUPS entry. The
+    // old single "Harness bar.stl" was moved (a few mm) and renamed
+    // "253-26,27 harness bar.stl"; "253-28,66 rear harness bar.stl" is a
+    // new, more rearward-mounted alternative design (mutually exclusive with
+    // 253-26/27 -- see harness_bar_present in rules-data.js). "253-30 lower
+    // main hoop bar.stl" is a new independent optional bar.
+    "253-26,27 harness bar.stl", "253-28,66 rear harness bar.stl",
+    "253-30 lower main hoop bar.stl",
   ];
 
   // Same verified Z-fixups as cage_assembly.html (derived from
