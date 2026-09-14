@@ -2444,25 +2444,47 @@
     return state.activeTab === 2 ? applyTubingClassificationView(colors) : colors;
   }
 
+  // The live cage model panel is position:sticky at the top of the page
+  // (see style.css) so it visually sits on top of whatever content scrolls
+  // to y=0 -- plain scrollIntoView({block:"start"|"center"}) doesn't know
+  // about that overlay and can land a target right underneath it. Scroll
+  // manually instead, offset by the panel's current on-screen height (which
+  // varies: collapsed via "Hide", or the row not existing on a path with no
+  // 3D model).
+  function scrollBelowViewer(target, opts) {
+    const center = opts && opts.center;
+    const panelEl = document.querySelector(".cage-viewer-row");
+    const stickyHeight = panelEl ? panelEl.getBoundingClientRect().height : 0;
+    const rect = target.getBoundingClientRect();
+    const margin = 12;
+    const top = center
+      ? window.pageYOffset + rect.top - stickyHeight - Math.max(margin, (window.innerHeight - stickyHeight - rect.height) / 2)
+      : window.pageYOffset + rect.top - stickyHeight - margin;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }
+
+  // Briefly outlines an element so a click lands somewhere obvious even
+  // when it's not obvious from the scroll alone that anything changed.
+  function flashEl(el, cls) {
+    el.classList.remove(cls);
+    void el.offsetWidth; // force reflow so re-clicking the same bar restarts the animation
+    el.classList.add(cls);
+  }
+  function flashRow(rowEl) { flashEl(rowEl, "row-flash"); }
+  function flashCard(cardEl) { flashEl(cardEl, "card-flash"); }
+
   // Jumps the checklist to a design-choice card: switches to Part 1 (every
   // clickable bar's owner lives there), expands it if it had been
-  // auto-collapsed, and scrolls it into view.
+  // auto-collapsed, scrolls it into view below the sticky model panel, and
+  // flashes it the same way a clicked table row flashes.
   function jumpToSection(elmId) {
     state.activeTab = 1;
     state.expandedIds[elmId] = true;
     render();
     const target = document.getElementById("section-" + elmId);
-    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  // Briefly outlines a table row so a click lands somewhere obvious even
-  // though there's no card to expand here (unlike jumpToSection's Part 1
-  // cards) -- just a flat table of many rows, where a plain scroll alone
-  // could easily go unnoticed.
-  function flashRow(rowEl) {
-    rowEl.classList.remove("row-flash");
-    void rowEl.offsetWidth; // force reflow so re-clicking the same bar restarts the animation
-    rowEl.classList.add("row-flash");
+    if (!target) return;
+    scrollBelowViewer(target);
+    flashCard(target);
   }
 
   // Part 2's single shared "Tube classification" table has one row per bar
@@ -2482,7 +2504,7 @@
       if (!first) first = rowEl;
       flashRow(rowEl);
     });
-    if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (first) scrollBelowViewer(first, { center: true });
   }
 
   // "Mounting feet design" is a table (one row per foot), same situation as
@@ -2499,7 +2521,7 @@
     render();
     const rowEl = document.getElementById("row-mounting_feet_design__" + row);
     if (!rowEl) return;
-    rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    scrollBelowViewer(rowEl, { center: true });
     flashRow(rowEl);
   }
   // Same idea as jumpToFootRow, but for Part 2's own "Mounting plate size"
@@ -2508,7 +2530,7 @@
   function jumpToFootSizeRow(row) {
     const rowEl = document.getElementById("row-mounting_feet_size__" + row);
     if (!rowEl) return;
-    rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    scrollBelowViewer(rowEl, { center: true });
     flashRow(rowEl);
   }
   // Same idea as footRowForFile/jumpToFootRow, for the "Gusset design" table.
@@ -2521,7 +2543,7 @@
     render();
     const rowEl = document.getElementById("row-gusset_design__" + row);
     if (!rowEl) return;
-    rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    scrollBelowViewer(rowEl, { center: true });
     flashRow(rowEl);
   }
 

@@ -411,6 +411,7 @@ textarea { resize: vertical; min-height: 50px; }
   100% { background: transparent; box-shadow: 0 0 0 2px transparent inset; }
 }
 .row-table tr.row-flash td { animation: row-flash-fade 1.6s ease-out; }
+.element-card.card-flash { animation: row-flash-fade 1.6s ease-out; }
 .row-table select, .row-table input[type="text"], .row-table input[type="number"] { width: 100%; min-width: 90px; font-size: 0.8rem; }
 .row-table .tubing3-fields { flex-direction: column; gap: 4px; }
 .row-table .cell-answer-row { display: flex; gap: 4px; }
