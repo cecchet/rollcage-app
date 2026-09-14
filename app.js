@@ -828,6 +828,7 @@
     "backstays",
     "backstay_diagonals",
     "roof_bars",
+    "roof_corner_gussets",
     "door_bars_left",
     "door_bars_right",
     "a_pillar_reinforcement",
@@ -1764,6 +1765,15 @@
     { row: "a_pillar_2pc_right_lower_front", file: "253-15 gusset right lower front.stl" },
     { row: "a_pillar_2pc_right_lower_rear", file: "253-15 gusset right lower rear.stl" },
   ];
+  // Roof corner gussets -- see roof_corner_gussets in rules-data.js. Kept
+  // separate from GUSSET_LOCATIONS/gusset_design since these are independent
+  // presence toggles, not rows in the shared required-gusset design table.
+  const ROOF_CORNER_GUSSET_LOCATIONS = [
+    { row: "front_left", file: "Roof corner gusset front left.stl" },
+    { row: "front_right", file: "Roof corner gusset front right.stl" },
+    { row: "rear_left", file: "Roof corner gusset rear left.stl" },
+    { row: "rear_right", file: "Roof corner gusset rear right.stl" },
+  ];
   // Verified against each file's own geometry (top/bottom Y at Z=99.89/Z=0,
   // cross-checked against "Foot main rollbar left/right.stl": low Y = left,
   // high Y = right in this model): diagonal 1 runs top-right to
@@ -2422,6 +2432,17 @@
       owner[file] = "gusset_design";
     });
 
+    // Roof corner gussets: independent presence toggles (not routed through
+    // the shared "Gusset design" table above, since these are optional
+    // supplementary plates rather than a required junction with a design
+    // choice) -- see ROOF_CORNER_GUSSET_LOCATIONS.
+    ROOF_CORNER_GUSSET_LOCATIONS.forEach(({ row, file }) => {
+      if (getAnswer("roof_corner_gussets__" + row + "__present").value === "yes") {
+        colors[file] = CAGE_COLOR.gussetSinglePlate;
+        owner[file] = "roof_corner_gussets";
+      }
+    });
+
     // Fallback ownership so ghost (unconfirmed) bars are clickable too --
     // see possibleFilesForElement()'s comment. Only fills in files nothing
     // above already claimed, so it never overrides a real, confirmed owner.
@@ -2434,6 +2455,7 @@
       if (gussetRowsById && !gussetRowsById.has(row)) return; // not a currently real/visible row
       claimUnowned([file], "gusset_design");
     });
+    ROOF_CORNER_GUSSET_LOCATIONS.forEach(({ file }) => claimUnowned([file], "roof_corner_gussets"));
     path.elements.forEach((elm) => {
       const rule = ITEM_PART_RULES[elm.id];
       if (!rule) return;

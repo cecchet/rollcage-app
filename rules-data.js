@@ -995,6 +995,35 @@
   ];
   const SECTION_4_1 = [
     Object.assign({}, ROOF_BAR_DESIGN_CHOICE),
+    // Optional corner-brace gussets, independent of which roof bar design is
+    // picked above -- historically used on cars with no roof bars or a
+    // single diagonal roof bar in place of full triangulation, gusseted in
+    // the corner(s) opposite the bar. Always offered (not gated on roof_bars)
+    // since a corner could in principle be gusseted alongside a full
+    // 253-12/253-14 design too. Some grandfathering rules require the
+    // opposite-corner gusset for a single-diagonal-bar roof to be accepted,
+    // which would make this pass/fail under that specific rule -- captured
+    // here for identification only for now, since evaluating that requires
+    // knowing which grandfathered logbook rule is actually in effect (not
+    // modeled per-org yet).
+    {
+      id: "roof_corner_gussets",
+      name: "Roof corner gussets",
+      category: "Other structural elements",
+      requirement: "recommended",
+      reference: "",
+      description: "Optional corner-brace gussets, historically used on cars with no roof bars or a single diagonal roof bar in place of full triangulation. Some grandfathering rules require the gusset in the corner opposite a single diagonal roof bar for that design to be accepted.",
+      evaluationType: "table",
+      rows: [
+        { id: "front_left", label: "Front left" },
+        { id: "front_right", label: "Front right" },
+        { id: "rear_left", label: "Rear left" },
+        { id: "rear_right", label: "Rear right" },
+      ],
+      columns: [{ key: "present", label: "Present", type: "boolean" }],
+      visuallyVerifiable: true,
+      hardFail: false,
+    },
     {
       id: "roof_4_1_measurements_welds",
       name: "253-12/253-21: Measurements and welds",

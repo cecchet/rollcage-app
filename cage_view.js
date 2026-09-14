@@ -95,6 +95,17 @@
     "253-15 gusset left lower front.stl", "253-15 gusset left lower rear.stl",
     "253-15 gusset right upper front.stl", "253-15 gusset right upper rear.stl",
     "253-15 gusset right lower front.stl", "253-15 gusset right lower rear.stl",
+    // Re-extracted from an updated "all options rollcage.3mf" (2026-09-14)
+    // with the 4 "upper" 253-15 gussets above resized, plus these 4 new
+    // corner-brace gussets -- same MASTER_OFFSET pipeline (freshly
+    // recalibrated against this revision's own unchanged reference parts),
+    // no Z_FIXUPS entry. The 3mf's own part names had 2 left/right
+    // mislabelings in this batch (a "side gusset" and one of two identically-
+    // named "upper front" duplicates); sides here were verified by Y-sign
+    // against the already-correct "253-15 Left/Right.stl", not trusted from
+    // the source labels.
+    "Roof corner gusset front left.stl", "Roof corner gusset front right.stl",
+    "Roof corner gusset rear left.stl", "Roof corner gusset rear right.stl",
   ];
 
   // Same verified Z-fixups as cage_assembly.html (derived from
