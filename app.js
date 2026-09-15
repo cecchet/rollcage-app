@@ -980,7 +980,9 @@
           const checkbox = el("input", {
             type: "checkbox",
             checked: !!ai.accepted[s.elementId],
-            onchange: (e) => { state.aiAnalysis.accepted[s.elementId] = e.target.checked; },
+            // Re-renders so the 3D preview highlight (see computeCageColors)
+            // reflects the current check state immediately.
+            onchange: (e) => { state.aiAnalysis.accepted[s.elementId] = e.target.checked; render(); },
           });
           list.appendChild(
             el("label", { class: "ai-suggestion-row" }, [
@@ -994,20 +996,33 @@
         });
         panel.appendChild(list);
         panel.appendChild(
-          el(
-            "button",
-            {
-              class: "btn",
-              onclick: () => {
-                ai.suggestions.forEach((s) => {
-                  if (state.aiAnalysis.accepted[s.elementId]) setAnswer(s.elementId, { value: s.value });
-                });
-                state.aiAnalysis = { status: "idle", suggestions: [], error: null, accepted: {} };
-                render();
+          el("div", { class: "toolbar" }, [
+            el(
+              "button",
+              {
+                class: "btn secondary",
+                onclick: () => {
+                  ai.suggestions.forEach((s) => { state.aiAnalysis.accepted[s.elementId] = true; });
+                  render();
+                },
               },
-            },
-            ["Apply accepted suggestions"]
-          )
+              ["Select all"]
+            ),
+            el(
+              "button",
+              {
+                class: "btn",
+                onclick: () => {
+                  ai.suggestions.forEach((s) => {
+                    if (state.aiAnalysis.accepted[s.elementId]) setAnswer(s.elementId, { value: s.value });
+                  });
+                  state.aiAnalysis = { status: "idle", suggestions: [], error: null, accepted: {} };
+                  render();
+                },
+              },
+              ["Apply accepted suggestions"]
+            ),
+          ])
         );
       }
     }
@@ -1861,6 +1876,10 @@
     rearLateral: "#4dd0e1", rearTransversal: "#ff5252", dashBar: "#7986cb",
     rearLowerX: "#b565d8", antiIntrusion: "#ff9e4a", templeBar: "#5ec9a3", windshieldReinforcement: "#ef6ba0",
     lowerMainHoopBar: "#8ecae6",
+    // Bright, unmistakably-different-from-anything-else highlight for a
+    // checked (not yet applied) AI suggestion -- see computeCageColors'
+    // AI-preview overlay and renderPhotoAnalysis.
+    aiPreview: "#39ff14",
     // Taco and single-plate gussets reuse the same modeled geometry (per the
     // source model), distinguished only by color until a distinct
     // single-plate mesh exists -- deliberately a warm/cool complementary
@@ -1939,6 +1958,11 @@
     { row: "rear_left", file: "Roof corner gusset rear left.stl" },
     { row: "rear_right", file: "Roof corner gusset rear right.stl" },
   ];
+  // Reverse lookups for double-click (see handleCagePartDoubleClick) -- a
+  // gusset file always belongs to exactly one row, so this is unambiguous
+  // the same way the simple bar toggles are.
+  const GUSSET_FILE_TO_ROW = new Map(GUSSET_LOCATIONS.map((l) => [l.file, l.row]));
+  const ROOF_CORNER_GUSSET_FILE_TO_ROW = new Map(ROOF_CORNER_GUSSET_LOCATIONS.map((l) => [l.file, l.row]));
   // Verified against each file's own geometry (top/bottom Y at Z=99.89/Z=0,
   // cross-checked against "Foot main rollbar left/right.stl": low Y = left,
   // high Y = right in this model): diagonal 1 runs top-right to
@@ -2655,6 +2679,29 @@
       claimUnowned(possibleFilesForElement(elm, rule), elm.id);
     });
 
+    // AI photo-analysis suggestion preview: while a suggestion's checkbox
+    // is checked (not yet applied -- see renderPhotoAnalysis), highlight
+    // the bar(s) it refers to so it's obvious which bar a suggestion means
+    // before accepting it. Overrides whatever color that file would
+    // otherwise have, since this is a transient preview, not a real answer.
+    if (state.aiAnalysis.status === "done") {
+      state.aiAnalysis.suggestions.forEach((s) => {
+        if (!state.aiAnalysis.accepted[s.elementId]) return;
+        let files;
+        if (s.elementId === "main_structure_layout") {
+          const map = baseStructureColors(s.value);
+          files = map ? Object.keys(map) : [];
+        } else if (s.elementId === "a_pillar_reinforcement") {
+          files = s.value === "continuous" ? APILLAR_FILES : s.value === "two_bars" ? APILLAR_2PIECE_FILES : [];
+        } else {
+          const rule = ITEM_PART_RULES[s.elementId];
+          const result = rule ? rule(s.value, { value: s.value }) : null;
+          files = result ? result.files : [];
+        }
+        files.forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
+      });
+    }
+
     CAGE_FILE_OWNER = owner;
     return state.activeTab === 2 ? applyTubingClassificationView(colors) : colors;
   }
@@ -2822,7 +2869,34 @@
     a_pillar_reinforcement: "continuous",
   };
 
+  // A gusset row's own design choice can be restricted to just one shape
+  // (restrictOptionIds, e.g. lateral-to-A-pillar gussets are single-plate
+  // only) -- double-click should fill in whichever shape is actually
+  // allowed there rather than always defaulting to the same one.
+  function defaultGussetDesignFor(rowDef) {
+    if (rowDef && rowDef.restrictOptionIds && rowDef.restrictOptionIds.length === 1) return rowDef.restrictOptionIds[0];
+    return "single_plate";
+  }
+
   function handleCagePartDoubleClick(file) {
+    const gussetRow = GUSSET_FILE_TO_ROW.get(file);
+    if (gussetRow) {
+      const path = RULES[state.vehicle.org].paths[state.pathId];
+      const gussetDesignElm = path.elements.find((e) => e.id === "gusset_design");
+      const rowDef = gussetDesignElm && resolveRows(gussetDesignElm).find((r) => r.id === gussetRow);
+      if (!rowDef) return; // not a currently valid/visible gusset row
+      const key = "gusset_design__" + gussetRow + "__design";
+      const current = getAnswer(key).value;
+      setAnswer(key, { value: current ? "" : defaultGussetDesignFor(rowDef) });
+      return;
+    }
+    const roofCornerRow = ROOF_CORNER_GUSSET_FILE_TO_ROW.get(file);
+    if (roofCornerRow) {
+      const key = "roof_corner_gussets__" + roofCornerRow + "__present";
+      setAnswer(key, { value: getAnswer(key).value === "yes" ? "no" : "yes" });
+      return;
+    }
+
     const toggle = DOUBLE_CLICK_TOGGLE_MAP[file];
     if (toggle) {
       const current = getAnswer(toggle.elementId).value;
