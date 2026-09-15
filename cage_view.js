@@ -232,6 +232,7 @@
   let onReadyCbs = [];
   let ready = false;
   let partClickCb = null;
+  let partDoubleClickCb = null;
 
   function colorToRGB(color) {
     const c = new THREE.Color(color);
@@ -302,6 +303,31 @@
 
     let dragging = false, lastX = 0, lastY = 0, dragButton = 0;
     let downX = 0, downY = 0, moved = false;
+    // Single vs double click/tap disambiguation, shared by mouse and touch
+    // below -- a native dblclick event would fire ALONGSIDE two separate
+    // click cycles (double-firing the single-click jump-to-section action
+    // too), so this is done by hand instead: a click is held back for
+    // CLICK_WINDOW_MS in case a second one lands nearby in time, in which
+    // case it's treated as a double and the pending single is cancelled.
+    const CLICK_WINDOW_MS = 350;
+    let pendingClickTimer = null;
+    let lastClickTime = 0, lastClickX = 0, lastClickY = 0;
+    function registerClick(clientX, clientY) {
+      const now = performance.now();
+      const isDouble = now - lastClickTime < CLICK_WINDOW_MS && Math.abs(clientX - lastClickX) < 12 && Math.abs(clientY - lastClickY) < 12;
+      lastClickTime = isDouble ? 0 : now; // consumed so a 3rd rapid click doesn't chain into another "double"
+      lastClickX = clientX;
+      lastClickY = clientY;
+      if (isDouble) {
+        if (pendingClickTimer) { clearTimeout(pendingClickTimer); pendingClickTimer = null; }
+        pickPart({ clientX, clientY }, true);
+      } else {
+        pendingClickTimer = setTimeout(() => {
+          pendingClickTimer = null;
+          pickPart({ clientX, clientY }, false);
+        }, CLICK_WINDOW_MS);
+      }
+    }
     renderer.domElement.addEventListener("mousedown", (e) => {
       dragging = true; lastX = e.clientX; lastY = e.clientY; dragButton = e.button;
       downX = e.clientX; downY = e.clientY; moved = false;
@@ -309,10 +335,9 @@
     window.addEventListener("mouseup", (e) => {
       dragging = false;
       // A plain left click that didn't drag (rotate/pan) selects whichever
-      // part is under the cursor, so clicking a bar in the model can jump
-      // the checklist to that bar's own section instead of requiring a
-      // separate index to look it up in.
-      if (!moved && dragButton === 0 && e.target === renderer.domElement) pickPart(e);
+      // part is under the cursor -- see registerClick for what single vs
+      // double actually does.
+      if (!moved && dragButton === 0 && e.target === renderer.domElement) registerClick(e.clientX, e.clientY);
     });
     window.addEventListener("mousemove", (e) => {
       if (!dragging) return;
@@ -387,7 +412,10 @@
       e.preventDefault();
     }, { passive: false });
     window.addEventListener("touchend", (e) => {
-      if (touchMode === "rotate" && !tMoved && e.changedTouches.length === 1) pickPart(e.changedTouches[0]);
+      if (touchMode === "rotate" && !tMoved && e.changedTouches.length === 1) {
+        const t = e.changedTouches[0];
+        registerClick(t.clientX, t.clientY);
+      }
       if (e.touches.length === 0) {
         touchMode = null;
       } else if (e.touches.length === 1) {
@@ -403,8 +431,9 @@
     });
 
     const raycaster = new THREE.Raycaster();
-    function pickPart(e) {
-      if (!partClickCb) return;
+    function pickPart(e, isDouble) {
+      const cb = isDouble ? partDoubleClickCb : partClickCb;
+      if (!cb) return;
       const rect = renderer.domElement.getBoundingClientRect();
       const mouse = new THREE.Vector2(
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -416,7 +445,7 @@
       if (!hits.length) return;
       const hitMesh = hits[0].object;
       const file = Object.keys(meshes).find((f) => meshes[f] === hitMesh);
-      if (file) partClickCb(file);
+      if (file) cb(file);
     }
     renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
     renderer.domElement.addEventListener("wheel", (e) => {
@@ -755,8 +784,9 @@
   }
 
   function onPartClick(cb) { partClickCb = cb; }
+  function onPartDoubleClick(cb) { partDoubleClickCb = cb; }
 
-  window.CageView = { init, applyState, resetView, onReady, onPartClick };
+  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");

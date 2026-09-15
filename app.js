@@ -2636,6 +2636,13 @@
     claimUnowned(["Front left lateral.stl", "Front right lateral.stl", "Main rollbar.stl"], "main_structure_layout");
     claimUnowned(["Transverse member.stl"], getAnswer("main_structure_layout").value === "253-1" ? "transverse_members_253_1" : "transverse_member_253_3");
     claimUnowned(APILLAR_FILES.concat(APILLAR_2PIECE_FILES), "a_pillar_reinforcement");
+    // "253-26,27 harness bar.stl" is also reused by main_hoop_diagonals'
+    // "1 horizontal bar" option (same physical tube) -- claimed explicitly
+    // here, before the generic per-element loop below, so a ghost click on
+    // it jumps to the harness bar's own section (its primary identity)
+    // rather than main_hoop_diagonals, which would otherwise win the claim
+    // purely because it happens to appear earlier in path.elements.
+    claimUnowned(["253-26,27 harness bar.stl"], "harness_bar_present");
     FOOT_LOCATIONS.forEach(({ plateFile }) => claimUnowned([plateFile], "mounting_feet_design"));
     GUSSET_LOCATIONS.forEach(({ row, file }) => {
       if (gussetRowsById && !gussetRowsById.has(row)) return; // not a currently real/visible row
@@ -2760,6 +2767,80 @@
   // of contents. While on Part 2, this stays on Part 2 and jumps within its
   // own tube classification table (or, for a mounting foot, its plate-size
   // row) rather than switching to Part 1.
+  // Double-clicking a bar in the 3D model toggles it on/off directly for
+  // "unambiguous" parts (one ghost mesh maps to exactly one answer), or --
+  // for parts shared across multiple design choices (door bars, A-pillar
+  // continuous vs 2-bar, base structure, roof bars, main hoop/backstay
+  // diagonals) -- fills in the single most common design (only if the
+  // element is still unanswered, never overwriting an existing choice) and
+  // jumps to that section the same way a single click does, so an
+  // unusual/non-default design is still one click away to correct.
+  //
+  // toggleComponent implements the shared "does this side/half currently
+  // apply" logic behind every left/right or upper/lower choice (temple bar,
+  // windshield reinforcement, 253-17 rear lateral): given the element's
+  // current value and the component just double-clicked, decide the new
+  // value by adding or removing just that component.
+  function toggleComponent(current, thisComp, otherComp, bothValue, noneValue) {
+    const hasThis = current === thisComp || current === bothValue;
+    const hasOther = current === otherComp || current === bothValue;
+    if (hasThis) return hasOther ? otherComp : noneValue;
+    return hasOther ? bothValue : thisComp;
+  }
+
+  const DOUBLE_CLICK_TOGGLE_MAP = {
+    "Dash bar 253-29.stl": { elementId: "dash_bar_present", kind: "boolean" },
+    "253-18.stl": { elementId: "rear_transversal_present", kind: "boolean" },
+    "253-19 left.stl": { elementId: "rear_lower_x_present", kind: "boolean" },
+    "253-19 right.stl": { elementId: "rear_lower_x_present", kind: "boolean" },
+    "253-25 upper left.stl": { elementId: "anti_intrusion_present", kind: "boolean" },
+    "253-25 lower left.stl": { elementId: "anti_intrusion_present", kind: "boolean" },
+    "253-25 upper right.stl": { elementId: "anti_intrusion_present", kind: "boolean" },
+    "253-25 lower right.stl": { elementId: "anti_intrusion_present", kind: "boolean" },
+    "253-30 lower main hoop bar.stl": { elementId: "lower_main_hoop_bar_present", kind: "boolean" },
+    "253-31 temple bar left.stl": { elementId: "temple_bar_present", kind: "side", side: "left", other: "right" },
+    "253-31 temple bar right.stl": { elementId: "temple_bar_present", kind: "side", side: "right", other: "left" },
+    "253-31 windshield left.stl": { elementId: "windshield_reinforcement_present", kind: "side", side: "left", other: "right" },
+    "253-31 windshield right.stl": { elementId: "windshield_reinforcement_present", kind: "side", side: "right", other: "left" },
+    "253-26,27 harness bar.stl": { elementId: "harness_bar_present", kind: "exclusive", value: "253-26-27" },
+    "253-28,66 rear harness bar.stl": { elementId: "harness_bar_present", kind: "exclusive", value: "253-28-66" },
+    "253-17 left upper.stl": { elementId: "rear_lateral_reinforcement_present", kind: "side", side: "upper", other: "lower" },
+    "253-17 right upper.stl": { elementId: "rear_lateral_reinforcement_present", kind: "side", side: "upper", other: "lower" },
+    "253-17 left lower.stl": { elementId: "rear_lateral_reinforcement_present", kind: "side", side: "lower", other: "upper" },
+    "253-17 right lower.stl": { elementId: "rear_lateral_reinforcement_present", kind: "side", side: "lower", other: "upper" },
+  };
+
+  // Most common design per ambiguous (shared-geometry) element -- filled in
+  // only when that element has no answer yet.
+  const AMBIGUOUS_ELEMENT_DEFAULTS = {
+    main_structure_layout: "253-3",
+    main_hoop_diagonals: "253-7",
+    backstay_diagonals: "253-21",
+    roof_bars: "253-12",
+    door_bars_left: "253-9-intersection-1",
+    door_bars_right: "253-9-intersection-1",
+    a_pillar_reinforcement: "continuous",
+  };
+
+  function handleCagePartDoubleClick(file) {
+    const toggle = DOUBLE_CLICK_TOGGLE_MAP[file];
+    if (toggle) {
+      const current = getAnswer(toggle.elementId).value;
+      let next;
+      if (toggle.kind === "boolean") next = current === "yes" ? "no" : "yes";
+      else if (toggle.kind === "side") next = toggleComponent(current, toggle.side, toggle.other, "both", "none");
+      else if (toggle.kind === "exclusive") next = current === toggle.value ? "none" : toggle.value;
+      if (next !== undefined) setAnswer(toggle.elementId, { value: next });
+      return;
+    }
+
+    const elmId = CAGE_FILE_OWNER[file];
+    if (!elmId) return;
+    const defaultValue = AMBIGUOUS_ELEMENT_DEFAULTS[elmId];
+    if (defaultValue && !getAnswer(elmId).value) setAnswer(elmId, { value: defaultValue });
+    jumpToSection(elmId);
+  }
+
   function handleCagePartClick(file) {
     if (state.activeTab === 2) {
       const footRow = footRowForFile(file);
@@ -2786,6 +2867,7 @@
       const colors = computeCageColors();
       window.CageView.applyState(colors, state.showGhostBars);
       window.CageView.onPartClick(handleCagePartClick);
+      window.CageView.onPartDoubleClick(handleCagePartDoubleClick);
     }
   }
 
