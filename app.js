@@ -2878,7 +2878,27 @@
     return "single_plate";
   }
 
+  // Mounting foot double-click cycles through plate designs (see
+  // MOUNTING_FOOT_DESIGN_OPTIONS) rather than a single toggle, since there
+  // are several real options per foot. Front/main-hoop feet sit upright on
+  // the floor (single-plane 253-50/51/52 is their simplest, most common
+  // design); the backstay feet meet the floor at the backstay's own lean
+  // (hingeFace:"tilted" in FOOT_LOCATIONS), which is what 253-57's flat-or-
+  // curved plate is specifically for -- 253-50 and 253-55/56 aren't really
+  // applicable there, so the rear cycle skips them.
+  const FRONT_FOOT_ROWS = new Set(["front_left", "front_right", "main_hoop_left", "main_hoop_right"]);
+  const FRONT_FOOT_DESIGN_CYCLE = ["single_plane", "double_plane", "multiplane_box", "multiplane_rocker", ""];
+  const REAR_FOOT_DESIGN_CYCLE = ["flat_curved", "double_plane", "multiplane_box", ""];
+
   function handleCagePartDoubleClick(file) {
+    const footRow = footRowForFile(file);
+    if (footRow) {
+      const cycle = FRONT_FOOT_ROWS.has(footRow) ? FRONT_FOOT_DESIGN_CYCLE : REAR_FOOT_DESIGN_CYCLE;
+      const key = "mounting_feet_design__" + footRow + "__design";
+      const idx = cycle.indexOf(getAnswer(key).value);
+      setAnswer(key, { value: cycle[(idx + 1) % cycle.length] });
+      return;
+    }
     const gussetRow = GUSSET_FILE_TO_ROW.get(file);
     if (gussetRow) {
       const path = RULES[state.vehicle.org].paths[state.pathId];
