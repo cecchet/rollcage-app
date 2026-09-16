@@ -830,12 +830,24 @@
   // exact even if the two seats aren't perfectly symmetric about the car.
   const DRIVER_MIRROR_CENTER_Y = 156.25;
   const DRIVER_MIRROR_FILES = ["Driver seat.stl", "Driver.stl", "Driver wheel.stl", "Codriver seat.stl", "Codriver.stl", "Codriver book.stl"];
+  // The frog mannequins' legs are posed slightly asymmetrically in the
+  // source model (independent of our mirroring -- each body's own raw mesh
+  // reaches a bit further on one lateral side than the other): the
+  // codriver frog's leg lands ~4.7mm outside the sill bar on its outward
+  // side, the driver frog by a much smaller ~0.6mm on its own outward side.
+  // A small constant world-space nudge along the car's lateral (Y) axis,
+  // added to each body's position, pulls it back inside -- and because
+  // it's additive in world space rather than baked into the mesh, it stays
+  // correct (still pulling inward, not outward) after mirroring for a
+  // right-hand-drive car, unlike a fix baked into the STL vertices would.
+  const BODY_Y_NUDGE = { "Driver.stl": 4, "Codriver.stl": -6 };
   function setDriverMirrored(mirrored) {
     onReady(() => {
       DRIVER_MIRROR_FILES.forEach((file) => {
         const mesh = meshes[file];
         if (!mesh) return;
-        mesh.position.y = mirrored ? DRIVER_MIRROR_CENTER_Y * 2 : 0;
+        const nudge = BODY_Y_NUDGE[file] || 0;
+        mesh.position.y = mirrored ? DRIVER_MIRROR_CENTER_Y * 2 - nudge : nudge;
         mesh.scale.y = mirrored ? -1 : 1;
       });
     });
