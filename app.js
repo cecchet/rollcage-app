@@ -23,6 +23,7 @@
     activeTab: 1, // UI-only: which phase (Part 1/2/3) tab is currently shown
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
     showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
+    showDriver: true, // UI-only: whether the driver/codriver mannequins show, or are hidden to see the cage behind them
     aiAnalysis: { status: "idle", suggestions: [], error: null, accepted: {} }, // UI-only, never persisted -- see renderPhotoAnalysis()
   };
 
@@ -624,6 +625,23 @@
     ]);
   }
 
+  // A small 2-3-option radio field wired to a checklist answer (getAnswer/
+  // setAnswer), same access pattern as textAnswerField -- unlike
+  // state.vehicle.* fields (name/org/logbookStatus), which drive app
+  // routing logic directly, this is for vehicle facts other parts of the
+  // app (e.g. renderSafetyScore's driver-side callout) just read back.
+  function answerRadioField(label, id, options) {
+    const answer = getAnswer(id);
+    return el("div", { class: "field" }, [
+      el("label", {}, [label]),
+      el(
+        "div",
+        { class: "radio-group" },
+        options.map(([val, optLabel]) => radioOption(id, val, optLabel, answer.value === val, (v) => setAnswer(id, { value: v })))
+      ),
+    ]);
+  }
+
   function renderVehicleDescription(root) {
     const vehiclePanel = el("div", { class: "panel" });
     vehiclePanel.appendChild(
@@ -666,6 +684,22 @@
           // weight class -- captured here for that, even though the actual
           // weight-based tubing rule isn't implemented yet.
           textAnswerField("Vehicle weight", "vehicle_weight", "e.g. 1200 kg or 2650 lb"),
+        ])
+      );
+      vehiclePanel.appendChild(
+        el("div", { class: "field-row" }, [
+          answerRadioField("Drive configuration", "vehicle_drive_side", [
+            ["lhd", "Left-hand drive"],
+            ["rhd", "Right-hand drive"],
+          ]),
+          // Which side actually needs the strongest protection depends on
+          // whether the driver is ever alone in the car -- see
+          // renderSafetyScore's "driver side" callout, which only applies
+          // when running solo.
+          answerRadioField("Occupants", "vehicle_codriver", [
+            ["no", "Driver only"],
+            ["yes", "Driver + Codriver"],
+          ]),
         ])
       );
     }
@@ -1811,13 +1845,38 @@
       ])
     );
 
+    // Without a codriver, the driver is the only occupant, so whichever
+    // side they actually sit on (derived from drive configuration -- LHD
+    // sits left, RHD sits right) is the one side where a weak rating
+    // actually matters for driver protection; with a codriver, both sides
+    // protect someone, so no side gets singled out.
+    const driveSide = getAnswer("vehicle_drive_side").value;
+    const hasCodriver = getAnswer("vehicle_codriver").value;
+    const driverSide = hasCodriver === "no" && driveSide ? (driveSide === "lhd" ? "left" : "right") : null;
+    function sideOf(id) {
+      if (id.endsWith("_left")) return "left";
+      if (id.endsWith("_right")) return "right";
+      return null;
+    }
+    function driverSideSuffix(id) {
+      return driverSide && sideOf(id) === driverSide ? " (driver side)" : "";
+    }
+    if (driverSide) {
+      panel.appendChild(
+        el("div", { class: "safety-score-placeholder" }, [
+          "Running solo (no codriver) with " + (driveSide === "lhd" ? "left-hand drive" : "right-hand drive") +
+            " -- the driver sits on the " + driverSide + ", so items marked \"(driver side)\" below matter most for driver protection.",
+        ])
+      );
+    }
+
     const list = el("div", { class: "safety-tier-list" });
-    function addRow(label, tier, valueText) {
+    function addRow(id, label, tier, valueText) {
       if (!tier) return; // unrated (unanswered, or no rule yet) -- omit rather than show a meaningless row
       list.appendChild(
         el("div", { class: "safety-tier-row tier-" + tier }, [
           el("span", { class: "safety-tier-dot" }),
-          el("span", { class: "safety-tier-label" }, [label]),
+          el("span", { class: "safety-tier-label" }, [label + driverSideSuffix(id)]),
           el("span", { class: "safety-tier-value" }, [valueText]),
         ])
       );
@@ -1828,7 +1887,7 @@
       if (!elm || !elementVisible(elm)) return;
       const answer = getAnswer(elmId);
       const tier = SAFETY_TIER_RULES[elmId](answer.value);
-      addRow(elm.name, tier, answer.value ? elementSummary(elm, answer) : "Not yet answered");
+      addRow(elmId, elm.name, tier, answer.value ? elementSummary(elm, answer) : "Not yet answered");
     });
 
     // A-pillar (253-15) lateral gusset -- missing is a known, specific gap
@@ -1841,7 +1900,7 @@
         if (!rowsById.has(row)) return;
         const design = getAnswer("gusset_design__" + row + "__design").value;
         const optLabel = (gussetOptions.find((o) => o.id === design) || {}).label;
-        addRow(label, design ? "green" : "orange", design ? optLabel || design : "Missing");
+        addRow(row, label, design ? "green" : "orange", design ? optLabel || design : "Missing");
       });
     }
 
@@ -1859,7 +1918,7 @@
       const design = getAnswer("mounting_feet_design__" + row + "__design").value;
       if (!design) return;
       const optLabel = (feetOptions.find((o) => o.id === design) || {}).label || design;
-      addRow(FOOT_ROW_LABELS[row], design === "single_plane" ? "red" : "green", optLabel);
+      addRow(row, FOOT_ROW_LABELS[row], design === "single_plane" ? "red" : "green", optLabel);
     });
 
     panel.appendChild(list);
@@ -1986,6 +2045,13 @@
     // checked (not yet applied) AI suggestion -- see computeCageColors'
     // AI-preview overlay and renderPhotoAnalysis.
     aiPreview: "#39ff14",
+    // Driver/Codriver mannequins -- seat shell and body render dim/ghosted
+    // (not a compliance item themselves, and shouldn't visually compete
+    // with actual cage tubes), while whatever they're holding (steering
+    // wheel / book) gets a bright highlight so it reads as the thing that
+    // has to swap sides for a right-hand-drive car.
+    occupantGhost: "#555a60",
+    occupantProp: "#39c463",
     // Taco and single-plate gussets reuse the same modeled geometry (per the
     // source model), distinguished only by color until a distinct
     // single-plate mesh exists -- deliberately a warm/cool complementary
@@ -2570,6 +2636,29 @@
     const colors = {};
     const owner = {};
     HIDDEN_WHILE_TUNING_FILES.forEach((f) => { colors[f] = "hidden"; });
+
+    // Driver/Codriver mannequins -- not tied to any checklist answer, so
+    // resolved independently of everything below. The driver is always
+    // shown (unless the "Hide driver" toggle is off); the codriver only
+    // shows when actually running with one -- see vehicle_codriver in
+    // Vehicle description. Seat shell and body render dim/ghosted (context,
+    // not a compliance item); the held prop (steering wheel / book) gets a
+    // bright highlight since it's the thing that has to swap sides for a
+    // right-hand-drive car.
+    const DRIVER_FILES = ["Driver seat.stl", "Driver.stl", "Driver wheel.stl"];
+    const CODRIVER_FILES = ["Codriver seat.stl", "Codriver.stl", "Codriver book.stl"];
+    if (!state.showDriver) {
+      DRIVER_FILES.concat(CODRIVER_FILES).forEach((f) => { colors[f] = "hidden"; });
+    } else {
+      colors["Driver seat.stl"] = CAGE_COLOR.occupantGhost;
+      colors["Driver.stl"] = CAGE_COLOR.occupantGhost;
+      colors["Driver wheel.stl"] = CAGE_COLOR.occupantProp;
+      const hasCodriver = getAnswer("vehicle_codriver").value === "yes";
+      colors["Codriver seat.stl"] = hasCodriver ? CAGE_COLOR.occupantGhost : "hidden";
+      colors["Codriver.stl"] = hasCodriver ? CAGE_COLOR.occupantGhost : "hidden";
+      colors["Codriver book.stl"] = hasCodriver ? CAGE_COLOR.occupantProp : "hidden";
+    }
+
     if (!state.pathId || !RULES[state.vehicle.org] || !RULES[state.vehicle.org].paths[state.pathId]) {
       CAGE_FILE_OWNER = owner;
       return colors;
@@ -3086,6 +3175,7 @@
       window.CageView.applyState(colors, state.showGhostBars);
       window.CageView.onPartClick(handleCagePartClick);
       window.CageView.onPartDoubleClick(handleCagePartDoubleClick);
+      window.CageView.setDriverMirrored(getAnswer("vehicle_drive_side").value === "rhd");
     }
   }
 
@@ -3135,6 +3225,14 @@
       ghostBtn.addEventListener("click", () => {
         state.showGhostBars = !state.showGhostBars;
         ghostBtn.textContent = state.showGhostBars ? "Hide ghost bars" : "Show ghost bars";
+        syncCageView();
+      });
+    }
+    const driverBtn = document.getElementById("cageViewerDriverToggle");
+    if (driverBtn) {
+      driverBtn.addEventListener("click", () => {
+        state.showDriver = !state.showDriver;
+        driverBtn.textContent = state.showDriver ? "Hide driver" : "Show driver";
         syncCageView();
       });
     }

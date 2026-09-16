@@ -20,7 +20,7 @@
   // is invisible to any browser or CDN that already cached the old ones
   // under that same URL. Bump this whenever any file in cage_parts/ changes,
   // even if PARTS itself doesn't.
-  const CAGE_PARTS_VERSION = 4;
+  const CAGE_PARTS_VERSION = 7;
 
   const PARTS = [
     "Main rollbar.stl", "Front left lateral.stl", "Front right lateral.stl", "Transverse member.stl",
@@ -122,6 +122,33 @@
     // main hoop bar.stl" is a new independent optional bar.
     "253-26,27 harness bar.stl", "253-28,66 rear harness bar.stl",
     "253-30 lower main hoop bar.stl",
+    // Occupant mannequins (2026-09-16) -- Driver (holding the steering
+    // wheel) and Codriver (holding a book). Each is split into 3 separately
+    // colorable meshes (seat shell+cushions, mannequin body, held prop)
+    // rather than one merged mesh, so the seat/body can render dim/ghosted
+    // while the steering wheel / book stays highlighted. Extracted
+    // differently from everything else here: Driver/Codriver are their own
+    // top-level 3mf build items (not nested inside the Rollcage assembly),
+    // each with its own <item> transform, so MASTER_OFFSET (which has
+    // actually been standing in for the Rollcage object's OWN <item>
+    // transform this whole time, never applied explicitly elsewhere)
+    // doesn't apply on its own here -- see the extraction note in the
+    // session history for the residual-offset fix. Modeled for a
+    // left-hand-drive car (driver on the left); see setDriverMirrored()
+    // for the right-hand-drive case.
+    // "Driver.stl"/"Driver wheel.stl"/"Codriver.stl"/"Codriver book.stl"
+    // re-extracted (2026-09-16, second update) from "rollcage full
+    // options.3mf"'s 2nd plate -- frog mannequins holding a floating
+    // steering wheel / book, replacing the original human figures. That
+    // plate has no seat mesh of its own (frogs sit directly in the
+    // existing seat shells), so "Driver seat.stl"/"Codriver seat.stl" are
+    // untouched. Extracted with a freshly recalibrated MASTER_OFFSET (a
+    // new 3mf save) and a residual against the 2nd plate's own Rollcage
+    // COPY (build item id 67, a pure-translation duplicate of id 50 used
+    // to lay out the 2 plates side by side) rather than id 50 itself, so
+    // the frogs land in the same world frame as everything else.
+    "Driver seat.stl", "Driver.stl", "Driver wheel.stl",
+    "Codriver seat.stl", "Codriver.stl", "Codriver book.stl",
   ];
   // Re-extracted from an updated "all options rollcage.3mf" (2026-09-15) --
   // the 253-15 2-piece tube ("253-15 left/right upper/lower.stl") and its 8
@@ -791,6 +818,29 @@
     });
   }
 
+  // Driver/Codriver were modeled for a left-hand-drive car -- for a
+  // right-hand-drive one, both mannequins (seat, body, and whichever prop
+  // they're holding) need to swap sides. Rather than shipping a second,
+  // mirrored pair of STL files, this mirrors them at render time: setting
+  // position.y = 2*CENTER and scale.y = -1 reflects every world-space
+  // vertex around y=CENTER (world_y = position.y + scale.y*local_y =
+  // 2*CENTER - local_y), landing the Driver mesh exactly on the Codriver
+  // seat and vice versa. CENTER is the midpoint of the two seats' own
+  // extracted Y-centers, not the car's overall centerline, so the swap is
+  // exact even if the two seats aren't perfectly symmetric about the car.
+  const DRIVER_MIRROR_CENTER_Y = 156.25;
+  const DRIVER_MIRROR_FILES = ["Driver seat.stl", "Driver.stl", "Driver wheel.stl", "Codriver seat.stl", "Codriver.stl", "Codriver book.stl"];
+  function setDriverMirrored(mirrored) {
+    onReady(() => {
+      DRIVER_MIRROR_FILES.forEach((file) => {
+        const mesh = meshes[file];
+        if (!mesh) return;
+        mesh.position.y = mirrored ? DRIVER_MIRROR_CENTER_Y * 2 : 0;
+        mesh.scale.y = mirrored ? -1 : 1;
+      });
+    });
+  }
+
   function resetView() {
     theta = Math.PI / 4; phi = Math.PI / 4; roll = 0;
     fitCamera();
@@ -799,7 +849,7 @@
   function onPartClick(cb) { partClickCb = cb; }
   function onPartDoubleClick(cb) { partDoubleClickCb = cb; }
 
-  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick };
+  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick, setDriverMirrored };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
