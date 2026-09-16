@@ -469,6 +469,22 @@ textarea { resize: vertical; min-height: 50px; }
 }
 .results-panel-collapsed .results-summary { color: var(--muted); font-size: 0.85rem; flex: 1; }
 .safety-score-placeholder { color: var(--muted); font-size: 0.9rem; }
+.safety-tier-list { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.safety-tier-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.safety-tier-dot { width: 10px; height: 10px; min-width: 10px; border-radius: 50%; }
+.safety-tier-row.tier-green .safety-tier-dot { background: var(--pass); }
+.safety-tier-row.tier-orange .safety-tier-dot { background: var(--warn); }
+.safety-tier-row.tier-red .safety-tier-dot { background: var(--fail); }
+.safety-tier-label { flex: 1 1 auto; }
+.safety-tier-value { color: var(--muted); font-size: 0.85rem; }
 .verdict.compact { padding: 6px 12px; margin: 0; font-size: 0.9rem; }
 
 .results-header {

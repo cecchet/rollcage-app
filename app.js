@@ -285,7 +285,7 @@
   // getAnswer instead, resolved fresh on every render/status computation.
   function resolveRows(elm) { return typeof elm.rows === "function" ? elm.rows(getAnswer) : elm.rows; }
   function tableCellStatus(col, answer) {
-    if (col.type === "boolean") {
+    if (col.type === "boolean" || col.type === "compliance") {
       if (answer.value === "yes") return "pass";
       if (answer.value === "no") return "fail";
       return "warn";
@@ -611,13 +611,14 @@
     ]);
   }
 
-  function textAnswerField(label, id) {
+  function textAnswerField(label, id, placeholder) {
     const answer = getAnswer(id);
     return el("div", { class: "field" }, [
       el("label", {}, [label]),
       el("input", {
         type: "text",
         value: answer.value || "",
+        placeholder: placeholder || "",
         onchange: (e) => setAnswer(id, { value: e.target.value }),
       }),
     ]);
@@ -657,6 +658,14 @@
           textAnswerField("VIN", "vehicle_vin"),
           textAnswerField("Rollcage builder (name & address)", "vehicle_builder"),
           textAnswerField("Build date", "vehicle_build_date"),
+        ])
+      );
+      vehiclePanel.appendChild(
+        el("div", { class: "field-row" }, [
+          // Some sanctioning bodies' minimum tubing spec varies by vehicle
+          // weight class -- captured here for that, even though the actual
+          // weight-based tubing rule isn't implemented yet.
+          textAnswerField("Vehicle weight", "vehicle_weight", "e.g. 1200 kg or 2650 lb"),
         ])
       );
     }
@@ -1313,7 +1322,11 @@
       input.value = answer.value || "";
       card.appendChild(input);
     } else {
-      const opts = [["yes", "Yes / Present"], ["no", "No / Absent"]];
+      // A plain fact/compliance question (e.g. "is the cage within the
+      // suspension points?") reads oddly as "Yes / Present" -- yesNoLabels
+      // lets a specific element override the default presence-style
+      // wording with plain "Yes"/"No" (or any other 2-label pair).
+      const opts = elm.yesNoLabels ? [["yes", elm.yesNoLabels[0]], ["no", elm.yesNoLabels[1]]] : [["yes", "Yes / Present"], ["no", "No / Absent"]];
       const row = el(
         "div",
         { class: "answer-row" },
@@ -1395,24 +1408,6 @@
       });
     }
 
-    // Part 1 is pure geometry capture with no photo upload at all (see
-    // PHOTOS_ENABLED) -- this hint is entirely about photo-verifiability,
-    // so it doesn't belong on those cards.
-    if (
-      elm.evaluationType !== "text" &&
-      elm.evaluationType !== "longtext" &&
-      !elm.noCapture &&
-      !elm.hideVisualFlag &&
-      !PHASE_1_DESIGN_CHOICE_IDS.has(elm.id)
-    ) {
-      card.appendChild(
-        el("div", { class: "visual-flag" }, [
-          elm.visuallyVerifiable
-            ? "Can usually be checked from a clear photo."
-            : "Usually requires direct measurement, documentation, or scrutineer attestation — a photo alone is unlikely to confirm this.",
-        ])
-      );
-    }
 
     if (elm.tubing && elm.tubing.length) {
       const tubingWrap = el("div", { class: "tubing-block" });
@@ -1603,6 +1598,15 @@
         el("button", { class: "answer-btn small " + (cellAnswer.value === "no" ? "active no" : ""), onclick: () => setAnswer(cellId, { value: "no" }) }, ["No"]),
       ]);
     }
+    // Same yes/no value convention as "boolean" (so tableCellStatus treats
+    // "no" as an actual fail, not just a data-capture choice), but labeled
+    // as a compliance judgment rather than a presence/absence fact.
+    if (col.type === "compliance") {
+      return el("div", { class: "cell-answer-row" }, [
+        el("button", { class: "answer-btn small " + (cellAnswer.value === "yes" ? "active yes" : ""), onclick: () => setAnswer(cellId, { value: "yes" }) }, ["Compliant"]),
+        el("button", { class: "answer-btn small " + (cellAnswer.value === "no" ? "active no" : ""), onclick: () => setAnswer(cellId, { value: "no" }) }, ["Not compliant"]),
+      ]);
+    }
     if (col.type === "number") {
       return el("input", { type: "number", step: "any", class: "cell-number", value: cellAnswer.value || "", onchange: (e) => setAnswer(cellId, { value: e.target.value }) });
     }
@@ -1744,19 +1748,121 @@
     return card;
   }
 
-  // Placeholder -- the actual 0-100 scoring model isn't designed yet. Shown
-  // between the checklist and the Logbook (pass/fail-for-a-ruleset) section
-  // since it's a distinct concept: an overall safety rating of the design
-  // itself, independent of whether any particular sanctioning body's rules
-  // are satisfied.
-  function renderSafetyScore(root) {
+  // ---- Safety score (qualitative, provisional) ---------------------------
+  // A separate, sanctioning-body-independent "how good is this design"
+  // rating -- explicitly a work in progress per the user's own framing ("we
+  // will refine further once we have angle and tube specs"), so only the
+  // elements/values rated below appear in the list; everything else is
+  // intentionally left out rather than guessed at. The eventual 0-100
+  // aggregate score still isn't designed (needs those angle/tube-spec
+  // rules first), so for now this is just the per-element green/orange/red
+  // list itself.
+  function doorBarSafetyTier(v) {
+    if (v === "253-9-intersection-1" || v === "253-9-intersection-2" || v === "253-9-bent") return "green";
+    if (v === "253-10" || v === "253-11" || v === "nascar") return "orange";
+    if (v === "single-bar" || v === "none") return "red";
+    return null;
+  }
+  // Optional bars: any real design present is a bonus (green) no matter how
+  // simple -- unlike a required element, a single-tube optional bar isn't a
+  // compromise, it's just less bar than a fancier one would be. Absence
+  // isn't a deficiency either (that's the normal baseline for something
+  // optional), so it's left unrated rather than marked down for it.
+  function optionalBarSafetyTier(v) {
+    if (!v || v === "no" || v === "none") return null;
+    return "green";
+  }
+  const SAFETY_TIER_RULES = {
+    main_rollbar_present: (v) => (v === "yes" ? "green" : v === "no" ? "red" : null),
+    main_hoop_diagonals: (v) => ({
+      "253-7": "green",
+      "diag-left": "orange", "diag-right": "orange",
+      "diag-horizontal": "red", "diag-lower-half": "red", "diag-v-center": "red",
+    }[v] || null),
+    roof_bars: (v) => ({
+      "253-12": "green", "253-14": "green",
+      "rb-4": "orange",
+      "253-13": "red", "single-center": "red", "single-front-left": "red", "single-front-right": "red", "none": "red",
+    }[v] || null),
+    backstay_diagonals: (v) => ({
+      "253-21": "green", "253-22": "green",
+      "253-20": "orange", "253-20-right": "orange",
+      "none": "red",
+    }[v] || null),
+    door_bars_left: doorBarSafetyTier,
+    door_bars_right: doorBarSafetyTier,
+    harness_bar_present: optionalBarSafetyTier,
+    rear_lateral_reinforcement_present: optionalBarSafetyTier,
+    rear_transversal_present: optionalBarSafetyTier,
+    rear_lower_x_present: optionalBarSafetyTier,
+    anti_intrusion_present: optionalBarSafetyTier,
+    dash_bar_present: optionalBarSafetyTier,
+    lower_main_hoop_bar_present: optionalBarSafetyTier,
+    temple_bar_present: optionalBarSafetyTier,
+    windshield_reinforcement_present: optionalBarSafetyTier,
+  };
+
+  function renderSafetyScore(root, path) {
     const panel = el("div", { class: "panel" });
     panel.appendChild(el("h2", {}, ["Safety score"]));
     panel.appendChild(
       el("div", { class: "safety-score-placeholder" }, [
-        "Coming soon -- will rate the overall safety of this rollcage design (0-100) based on the elements captured above, independent of any specific sanctioning body's requirements.",
+        "First-pass, provisional ratings below (green/orange/red) per a set of safety rules of thumb -- independent of any specific sanctioning body's requirements, and not yet a single 0-100 score (that needs angle and tube-spec rules first). Not every element is rated yet.",
       ])
     );
+
+    const list = el("div", { class: "safety-tier-list" });
+    function addRow(label, tier, valueText) {
+      if (!tier) return; // unrated (unanswered, or no rule yet) -- omit rather than show a meaningless row
+      list.appendChild(
+        el("div", { class: "safety-tier-row tier-" + tier }, [
+          el("span", { class: "safety-tier-dot" }),
+          el("span", { class: "safety-tier-label" }, [label]),
+          el("span", { class: "safety-tier-value" }, [valueText]),
+        ])
+      );
+    }
+
+    Object.keys(SAFETY_TIER_RULES).forEach((elmId) => {
+      const elm = path.elements.find((e) => e.id === elmId);
+      if (!elm || !elementVisible(elm)) return;
+      const answer = getAnswer(elmId);
+      const tier = SAFETY_TIER_RULES[elmId](answer.value);
+      addRow(elm.name, tier, answer.value ? elementSummary(elm, answer) : "Not yet answered");
+    });
+
+    // A-pillar (253-15) lateral gusset -- missing is a known, specific gap
+    // (orange), not as severe as a genuinely absent required bar.
+    const gussetDesignElm = path.elements.find((e) => e.id === "gusset_design");
+    if (gussetDesignElm) {
+      const gussetOptions = (gussetDesignElm.columns.find((c) => c.key === "design") || {}).options || [];
+      const rowsById = new Map(resolveRows(gussetDesignElm).map((r) => [r.id, r]));
+      [["a_pillar_left", "Lateral to A-pillar gusset — left"], ["a_pillar_right", "Lateral to A-pillar gusset — right"]].forEach(([row, label]) => {
+        if (!rowsById.has(row)) return;
+        const design = getAnswer("gusset_design__" + row + "__design").value;
+        const optLabel = (gussetOptions.find((o) => o.id === design) || {}).label;
+        addRow(label, design ? "green" : "orange", design ? optLabel || design : "Missing");
+      });
+    }
+
+    // Front/main-hoop mounting feet: a plain single-plane plate (253-50/51/
+    // 52) is the weakest of the real options there. Backstay feet aren't
+    // rated yet -- no rule of thumb given for those.
+    const feetElm = path.elements.find((e) => e.id === "mounting_feet_design");
+    const feetOptions = feetElm ? ((feetElm.columns.find((c) => c.key === "design") || {}).options || []) : [];
+    const FOOT_ROW_LABELS = {
+      front_left: "Mounting foot — front left", front_right: "Mounting foot — front right",
+      main_hoop_left: "Mounting foot — main hoop left", main_hoop_right: "Mounting foot — main hoop right",
+    };
+    FOOT_LOCATIONS.forEach(({ row }) => {
+      if (!FRONT_FOOT_ROWS.has(row)) return;
+      const design = getAnswer("mounting_feet_design__" + row + "__design").value;
+      if (!design) return;
+      const optLabel = (feetOptions.find((o) => o.id === design) || {}).label || design;
+      addRow(FOOT_ROW_LABELS[row], design === "single_plane" ? "red" : "green", optLabel);
+    });
+
+    panel.appendChild(list);
     root.appendChild(panel);
   }
 
@@ -2890,7 +2996,25 @@
   const FRONT_FOOT_DESIGN_CYCLE = ["single_plane", "double_plane", "multiplane_box", "multiplane_rocker", ""];
   const REAR_FOOT_DESIGN_CYCLE = ["flat_curved", "double_plane", "multiplane_box", ""];
 
+  const TUBE_SPEC_CYCLE = ["primary", "secondary", ""];
+
   function handleCagePartDoubleClick(file) {
+    // Part 2 (Tubing sizes & materials): double-click cycles that bar's own
+    // primary/secondary tubing spec instead of anything Part-1-related --
+    // matches how a single click already jumps to the tube-classification
+    // row instead of the design-choice section while this tab is active.
+    // A band-split file (one mesh, two classification rows -- see
+    // tubeRowSplitBand) cycles both rows together, in lockstep.
+    if (state.activeTab === 2) {
+      const band = tubeRowSplitBand(file);
+      const row = fileTubeRow(file);
+      const rowIds = band ? [band.insideRow, band.outsideRow] : row ? [row] : [];
+      if (!rowIds.length) return;
+      const current = getAnswer("tubing_bar_classification__" + rowIds[0] + "__spec").value;
+      const next = TUBE_SPEC_CYCLE[(TUBE_SPEC_CYCLE.indexOf(current) + 1) % TUBE_SPEC_CYCLE.length];
+      rowIds.forEach((rowId) => setAnswer("tubing_bar_classification__" + rowId + "__spec", { value: next }));
+      return;
+    }
     const footRow = footRowForFile(file);
     if (footRow) {
       const cycle = FRONT_FOOT_ROWS.has(footRow) ? FRONT_FOOT_DESIGN_CYCLE : REAR_FOOT_DESIGN_CYCLE;
@@ -2990,7 +3114,7 @@
     // Safety score, then Logbook (verdict for the selected sanctioning body,
     // merged with its paperwork fields) -- always trailing the checklist
     // now, no tab to move them behind.
-    renderSafetyScore(root);
+    renderSafetyScore(root, path);
     renderResults(root, path);
     syncCageView();
   }
