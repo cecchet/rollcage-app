@@ -915,7 +915,13 @@
     1: "Part 1 — Structure & design choices",
     2: "Part 2 — Tubing sizes & materials",
     3: "Part 3 — Measurements, angles & welds",
+    4: "Part 4 — Seats, belts & routing",
   };
+  // Padding and sections 9-11 of the source document (seat mounting, belt
+  // anchoring, routing of lines) are a distinct later stage of the
+  // inspection -- occupant safety equipment rather than the cage structure
+  // itself -- so they get their own phase instead of piling into Part 3.
+  const PHASE_4_CATEGORIES = new Set(["Padding", "9. Seat mounting points", "10. Belt anchoring points", "11. Routing of lines"]);
   function isTubingSizingTable(elm) {
     if (elm.evaluationType === "tubing3solo") return true;
     if (elm.evaluationType === "plateSolo") return true;
@@ -930,6 +936,7 @@
   function elementPhase(elm) {
     if (PHASE_1_DESIGN_CHOICE_IDS.has(elm.id)) return 1;
     if (isTubingSizingTable(elm)) return 2;
+    if (PHASE_4_CATEGORIES.has(elm.category)) return 4;
     return 3;
   }
 
@@ -1080,9 +1087,9 @@
     panel.appendChild(el("h2", {}, ["Rollcage design"]));
 
     const visible = path.elements.filter(elementVisible).filter((elm) => !RENDERED_IN_LOGBOOK_PANEL.includes(elm.id));
-    const phases = { 1: [], 2: [], 3: [] };
+    const phases = { 1: [], 2: [], 3: [], 4: [] };
     visible.forEach((elm) => phases[elementPhase(elm)].push(elm));
-    const usedPhases = [1, 2, 3].filter((p) => phases[p].length);
+    const usedPhases = [1, 2, 3, 4].filter((p) => phases[p].length);
     const showTabs = usedPhases.length > 1;
     if (showTabs && !usedPhases.includes(state.activeTab)) state.activeTab = usedPhases[0];
     const shownPhases = showTabs ? [state.activeTab] : usedPhases;
@@ -1760,6 +1767,9 @@
     );
     card.appendChild(el("div", { class: "element-ref" }, [elm.reference]));
     if (elm.description) card.appendChild(el("div", { class: "element-desc" }, [elm.description]));
+    if (elm.diagram && window.DIAGRAMS && window.DIAGRAMS[elm.diagram]) {
+      card.appendChild(el("div", { class: "element-diagram", html: window.DIAGRAMS[elm.diagram] }));
+    }
 
     const table = el("table", { class: "row-table" });
     table.appendChild(el("thead", {}, [el("tr", {}, [el("th", {}, ["Location"])].concat(elm.columns.map((c) => el("th", {}, [c.label]))))]));

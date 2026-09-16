@@ -334,6 +334,19 @@ textarea { resize: vertical; min-height: 50px; }
   color: var(--muted);
 }
 .element-diagram svg, .element-diagram img { width: 100%; height: auto; display: block; border-radius: 6px; }
+.diagram-cheat-sheet {
+  width: 100%;
+  margin-top: 6px;
+  border-collapse: collapse;
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+.diagram-cheat-sheet th, .diagram-cheat-sheet td {
+  padding: 2px 4px;
+  text-align: center;
+  border: 1px solid var(--border);
+}
+.diagram-cheat-sheet th { font-weight: 600; color: var(--ink); }
 
 .choice-radio-group {
   display: grid;

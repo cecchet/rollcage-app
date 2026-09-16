@@ -148,6 +148,9 @@
   // ---- Main hoop leaning angle (+/-10 degrees from vertical) ----
   D["lean-angle"] = wrapImg("main_hoop_angle.jpg");
 
+  // ---- Main hoop tube axis within one single (flat) plane ----
+  D["single-plane"] = wrapImg("main_hoop_single_plane.png");
+
   // ---- Main hoop bend count (1 max) ----
   D["main-hoop-bend"] = wrapImg("main_hoop_bend.jpg");
 
@@ -158,7 +161,23 @@
   D["backstay-angle"] = wrapImg("backstay_angle.jpg");
 
   // ---- Bend radius / stretch compliance (cold-bend, 90% stretch, 3x radius) ----
-  D["bend-radius"] = wrapImg("bend_radius_compliance.png");
+  // Cheat-sheet table worked out for the same diameter presets offered
+  // everywhere else tubing is picked (app.js DIAMETER_PRESETS) -- min
+  // radius = 3x diameter, max stretch = 90% of diameter.
+  const BEND_RADIUS_CHEAT_SHEET_ROWS = [
+    ["1.5\"", "4.5\"", "1.35\""],
+    ["1.75\"", "5.25\"", "1.575\""],
+    ["2\"", "6\"", "1.8\""],
+    ["38mm", "114mm", "34.2mm"],
+    ["40mm", "120mm", "36mm"],
+    ["45mm", "135mm", "40.5mm"],
+    ["50mm", "150mm", "45mm"],
+  ];
+  D["bend-radius"] =
+    wrapImg("bend_radius_compliance.png") +
+    '<table class="diagram-cheat-sheet"><thead><tr><th>Tube OD</th><th>Min radius (3x)</th><th>Max stretch (90%)</th></tr></thead><tbody>' +
+    BEND_RADIUS_CHEAT_SHEET_ROWS.map((r) => "<tr><td>" + r.join("</td><td>") + "</td></tr>").join("") +
+    "</tbody></table>";
 
   // ---- Cage contained between front and rear suspension mounting points ----
   D["suspension-containment"] = wrapImg("suspension_containment.png");
