@@ -20,7 +20,7 @@
   // is invisible to any browser or CDN that already cached the old ones
   // under that same URL. Bump this whenever any file in cage_parts/ changes,
   // even if PARTS itself doesn't.
-  const CAGE_PARTS_VERSION = 2;
+  const CAGE_PARTS_VERSION = 3;
 
   const PARTS = [
     "Main rollbar.stl", "Front left lateral.stl", "Front right lateral.stl", "Transverse member.stl",
@@ -123,6 +123,16 @@
     "253-26,27 harness bar.stl", "253-28,66 rear harness bar.stl",
     "253-30 lower main hoop bar.stl",
   ];
+  // Re-extracted from an updated "all options rollcage.3mf" (2026-09-15) --
+  // the 253-15 2-piece tube ("253-15 left/right upper/lower.stl") and its 8
+  // 2pc gussets plus 2 side gussets weren't actually intersecting the door
+  // bar/each other correctly; the user fixed the positions directly in CAD.
+  // Same MASTER_OFFSET pipeline (freshly recalibrated), no Z_FIXUPS entry,
+  // no new filenames (all already in the PARTS list above) -- just updated
+  // bytes, hence the CAGE_PARTS_VERSION bump. Same 2 recurring left/right
+  // mislabelings as the 2026-09-14 batch (one "side gusset" and the
+  // duplicate-named "upper front" gusset) -- resolved the same way, by
+  // Y-sign against "253-15 Left/Right.stl", not the source labels.
 
   // Same verified Z-fixups as cage_assembly.html (derived from
   // "253-3 rollcage.3mf" -- see that file's comment for how these were measured).
