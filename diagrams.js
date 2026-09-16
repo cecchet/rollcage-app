@@ -182,5 +182,9 @@
   // ---- Cage contained between front and rear suspension mounting points ----
   D["suspension-containment"] = wrapImg("suspension_containment.png");
 
+  // ---- Installation constraints: A/B/C/H/E (253-49) and R1/R2 windshield
+  // projection (253-48) ----
+  D["installation-constraints"] = wrapImg("installation_constraints.png");
+
   window.DIAGRAMS = D;
 })();
