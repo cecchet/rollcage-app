@@ -41,12 +41,17 @@
     '<text x="70" y="68" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.65">FRONT</text>';
   const roofTrap = `<path d="M25,20 L115,20 L95,55 L45,55 Z" ${CTX}/>` + roofLabels;
   D["253-12"] = wrap(roofTrap + `<path d="M25,20 L95,55 M115,20 L45,55" ${HI}/>`);
-  // 253-13 is the front-to-back mirror of 253-14: apex at rear center,
-  // one bar to each front corner (instead of apex-front/legs-to-rear).
-  D["253-13"] = wrap(roofTrap + `<path d="M45,55 L70,20 L95,55" ${HI}/>`);
-  // 253-14: a symmetric V/"Lambda" -- apex at front center, one bar to
-  // each rear corner (not a single one-directional diagonal).
-  D["253-14"] = wrap(roofTrap + `<path d="M25,20 L70,55 L115,20" ${HI}/>`);
+  // 253-13 ("no front roof corner support"): apex at front center, one bar
+  // to each rear corner -- so neither front corner gets its own individual
+  // brace, only this shared front-center point. Verified against the real
+  // modeled geometry's own endpoints (253-13 left/right both have their
+  // shared-center-Y end at the front and their corner end at the rear) --
+  // these two were previously swapped here.
+  D["253-13"] = wrap(roofTrap + `<path d="M25,20 L70,55 L115,20" ${HI}/>`);
+  // 253-14 is the front-to-back mirror of 253-13: apex at rear center, one
+  // bar to each front corner (so it DOES brace both front corners
+  // individually, unlike 253-13).
+  D["253-14"] = wrap(roofTrap + `<path d="M45,55 L70,20 L95,55" ${HI}/>`);
   D["rb-4"] = wrap(roofTrap + `<path d="M25,20 L95,55" ${HI}/>` + `<path d="M100,22 L112,22 L112,32 Z" ${HI}/><path d="M40,53 L52,53 L40,43 Z" ${HI}/>`);
   // Simpler/older single-bar roof configurations -- captured for
   // identification, not compliant with FIA 253-12/253-14 for new
