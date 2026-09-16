@@ -20,7 +20,7 @@
   // is invisible to any browser or CDN that already cached the old ones
   // under that same URL. Bump this whenever any file in cage_parts/ changes,
   // even if PARTS itself doesn't.
-  const CAGE_PARTS_VERSION = 3;
+  const CAGE_PARTS_VERSION = 4;
 
   const PARTS = [
     "Main rollbar.stl", "Front left lateral.stl", "Front right lateral.stl", "Transverse member.stl",
@@ -133,6 +133,9 @@
   // mislabelings as the 2026-09-14 batch (one "side gusset" and the
   // duplicate-named "upper front" gusset) -- resolved the same way, by
   // Y-sign against "253-15 Left/Right.stl", not the source labels.
+  // "253-15 gusset right upper rear.stl" got one more small (~1mm) touch-up
+  // in a same-day follow-up 3mf save -- re-extracted the same way, another
+  // CAGE_PARTS_VERSION bump.
 
   // Same verified Z-fixups as cage_assembly.html (derived from
   // "253-3 rollcage.3mf" -- see that file's comment for how these were measured).
