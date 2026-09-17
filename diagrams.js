@@ -74,7 +74,8 @@
   D["roof-single-front-right"] = wrap(roofTrap + `<path d="M25,20 L95,55" ${HI}/>`);
 
   // ---- Backstay diagonals (rear view) ----
-  const backstaysRear = `<path d="M40,15 L20,90" ${CTX}/><path d="M100,15 L120,90" ${CTX}/>`;
+  const backstayLabel = '<text x="70" y="10" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.65">BACKSTAY (rear view)</text>';
+  const backstaysRear = `<path d="M40,15 L20,90" ${CTX}/><path d="M100,15 L120,90" ${CTX}/>` + backstayLabel;
   D["253-20"] = wrap(backstaysRear + `<path d="M40,15 L120,90" ${HI}/>`);
   D["253-20-right"] = wrap(backstaysRear + `<path d="M100,15 L20,90" ${HI}/>`);
   D["253-21"] = wrap(backstaysRear + `<path d="M40,15 L120,90 M100,15 L20,90" ${HI}/>`);
@@ -90,7 +91,8 @@
   D["253-22"] = wrap(backstaysRear + `<path d="M20,90 L70,15 L120,90" ${HI}/>`);
 
   // ---- Main hoop diagonal (front view of main hoop) ----
-  const hoopFront = `<path d="M30,90 L30,20 Q30,10 45,10 L95,10 Q110,10 110,20 L110,90" ${CTX}/>`;
+  const hoopLabel = '<text x="70" y="8" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.65">MAIN ROLLBAR (front view)</text>';
+  const hoopFront = `<path d="M30,90 L30,20 Q30,10 45,10 L95,10 Q110,10 110,20 L110,90" ${CTX}/>` + hoopLabel;
   D["253-5"] = wrap(hoopFront + `<path d="M30,90 L70,45 L110,90" ${HI}/><path d="M45,60 L95,60" ${HI}/>`);
   D["253-6"] = wrap(hoopFront + `<path d="M30,90 L70,60 L110,90" ${HI}/><path d="M45,70 L95,70" ${HI}/>`);
   D["253-7"] = wrap(hoopFront + `<path d="M30,90 L110,20 M110,90 L30,20" ${HI}/>`);
@@ -110,7 +112,8 @@
   D["diag-v-center"] = wrap(hoopFront + `<path d="M30,90 L70,20 L110,90" ${HI}/>`);
 
   // ---- Rear lower X (253-19, rear view of the lower rear structure) ----
-  const rearLowerCtx = `<rect x="25" y="20" width="90" height="60" rx="4" ${CTX}/>`;
+  const rearLowerLabel = '<text x="70" y="14" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.65">REAR LOWER X (rear view)</text>';
+  const rearLowerCtx = `<rect x="25" y="20" width="90" height="60" rx="4" ${CTX}/>` + rearLowerLabel;
   // Same continuous-vs-cut convention as 253-7/253-9/253-12/253-21: the
   // continuous diagonal draws unbroken, the other gets a small gap at the
   // crossing. "253-19 left" (top-left to bottom-right) is "-1"'s continuous
