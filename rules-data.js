@@ -126,14 +126,13 @@
 
   // ---- Shared column sets for table elements ---------------------------
   const WELD_COLUMNS = [{ key: "weld", label: "Complete weld", type: "boolean" }];
-  const WELD_WITH_DIST_COLUMNS = [
+  const DISTANCE_COLUMNS = [
     { key: "distance", label: "Distance from junction (<100mm/3.94in)", type: "number", compare: { op: "lt", value: 100 } },
-    { key: "weld", label: "Complete weld", type: "boolean" },
   ];
-  function gussetColumns(reqBundle) {
+  // Material/diameter/thickness for every gusset is already captured once,
+  // generically, in Part 2 (gusset_material) -- not repeated per location.
+  function gussetColumns() {
     return [
-      { key: "tube", label: "Tube (material/diameter/thickness)", type: "tubing3", requirements: reqBundle },
-      { key: "thickness", label: "Gusset thickness (mm, >=1)", type: "number", compare: { op: "gte", value: 1 } },
       { key: "length", label: "Length E (2D<E<4D)", type: "text" },
       { key: "corner_cutout", label: "Corner cutout (R<1.5D)", type: "boolean" },
       { key: "hole", label: "Hole diameter (<D)", type: "boolean" },
@@ -256,6 +255,25 @@
       warnMessage: "253-15 bar required",
       visuallyVerifiable: false,
       hardFail: false,
+    },
+    {
+      id: "windshield_measurements",
+      name: "253-15 windscreen pillar reinforcement straightness and bend angle",
+      category: "1. Installation constraints",
+      requirement: "required",
+      reference: "",
+      // # sections (1 vs 2 piece) is already captured by a_pillar_reinforcement
+      // in Part 1 -- not repeated here.
+      description: "",
+      diagram: "253-15-bend-angle",
+      evaluationType: "table",
+      rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
+      columns: [
+        { key: "straight", label: "Straight in side view", type: "boolean" },
+        { key: "bend_angle", label: "Bend angle (<20 degrees)", type: "number", compare: { op: "lt", value: 20 } },
+      ],
+      visuallyVerifiable: true,
+      hardFail: true,
     },
     {
       id: "main_structure_layout",
@@ -516,7 +534,7 @@
         { key: "bend_count", label: "Number of bends below where it ceases to follow the windscreen pillar", unit: "bends", compare: { op: "lte", value: 0 } },
         { key: "angle", label: "Angle", unit: "degrees rearward", compare: { op: "between", min: 0, max: 10 } },
       ],
-      diagram: "front-rollbar-bend",
+      diagram: "front-rollbar-angle",
       visuallyVerifiable: false,
       hardFail: true,
     },
@@ -531,7 +549,7 @@
       evaluationType: "boolean",
       strictYesNo: true,
       yesNoLabels: ["Yes", "No"],
-      diagram: "front-rollbar-bend",
+      diagram: "front-feet-forward",
       visuallyVerifiable: true,
       hardFail: true,
     },
@@ -550,15 +568,13 @@
     {
       id: "mounting_feet_table",
       name: "Mounting feet welds",
-      category: "2.2. Mounting feet",
+      category: "Welds",
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.6",
       description: "Minimum one mounting point per front-rollbar pillar, per lateral/half-lateral-rollbar pillar, per main-rollbar pillar, and per backstay (six total for the common 253-3 layout). Location is given from the driver's perspective (left is driver side in a LHD car). Design, bolted/welded, and plate size are captured in Part 1/Part 2.",
       evaluationType: "table",
       rows: MOUNTING_FEET_ROWS,
-      columns: [
-        { key: "welds", label: "Welds complete", type: "boolean" },
-      ],
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true,
       hardFail: true,
       hardFailMessage: "Fewer than the minimum mounting points, or feet not adequately reinforced.",
@@ -966,7 +982,7 @@
       description: "D = outer diameter of the biggest tube joined.",
       evaluationType: "table",
       rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
-      columns: gussetColumns(NASA_SECONDARY_REQ),
+      columns: gussetColumns(),
       visuallyVerifiable: true,
       hardFail: false,
     },
@@ -1006,6 +1022,12 @@
     { id: "front_roof_right", label: "5. Front roof right" }, { id: "rear_roof_right", label: "6. Rear roof right" },
     { id: "top_rear_diag_right", label: "7. Top rear diagonal right" }, { id: "bottom_rear_diag_right", label: "8. Bottom rear diagonal right" },
   ];
+  const ROOF_4_2_WELD_ROWS = [
+    { id: "front_roof_left", label: "1. Front roof left" }, { id: "front_roof_right", label: "2. Front roof right" },
+    { id: "center_roof_left", label: "3. Center roof left" }, { id: "center_roof_right", label: "4. Center roof right" },
+    { id: "top_rear_left", label: "5. Top rear left" }, { id: "top_rear_right", label: "6. Top rear right" },
+    { id: "bottom_rear_left", label: "7. Bottom rear left" }, { id: "bottom_rear_right", label: "8. Bottom rear right" },
+  ];
   const SECTION_4_1 = [
     Object.assign({}, ROOF_BAR_DESIGN_CHOICE),
     // Optional corner-brace gussets, independent of which roof bar design is
@@ -1038,16 +1060,31 @@
       hardFail: false,
     },
     {
-      id: "roof_4_1_measurements_welds",
-      name: "253-12/253-21: Measurements and welds",
-      category: "4.1. Roof bars & rear diagonals -- 253-12/253-21 design",
+      id: "roof_4_1_distances",
+      name: "253-12/253-21: Junction distances",
+      category: "Bar junction distances",
       requirement: "required",
       reference: "",
       description: "",
       showIf: { id: "roof_bars", equals: "253-12" },
       evaluationType: "table",
       rows: ROOF_4_1_WELD_ROWS,
-      columns: WELD_WITH_DIST_COLUMNS,
+      columns: DISTANCE_COLUMNS,
+      distanceQuickCheck: true,
+      visuallyVerifiable: true,
+      hardFail: true,
+    },
+    {
+      id: "roof_4_1_measurements_welds",
+      name: "253-12/253-21: Welds",
+      category: "Welds",
+      requirement: "required",
+      reference: "",
+      description: "",
+      showIf: { id: "roof_bars", equals: "253-12" },
+      evaluationType: "table",
+      rows: ROOF_4_1_WELD_ROWS,
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true,
       hardFail: true,
     },
@@ -1061,7 +1098,7 @@
       showIf: { id: "roof_bars", equals: "253-12" },
       evaluationType: "table",
       rows: [{ id: "front_left", label: "Front or Left" }, { id: "rear_right", label: "Rear or Right" }],
-      columns: gussetColumns(NASA_SECONDARY_REQ),
+      columns: gussetColumns(),
       visuallyVerifiable: true,
       hardFail: true,
     },
@@ -1075,26 +1112,36 @@
       showIf: { id: "roof_bars", equals: "253-12" },
       evaluationType: "table",
       rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
-      columns: gussetColumns(NASA_SECONDARY_REQ),
+      columns: gussetColumns(),
       visuallyVerifiable: true,
       hardFail: false,
     },
     {
-      id: "roof_4_2_measurements_welds",
-      name: "253-14/253-22: Measurements and welds",
-      category: "4.2. Roof bars & rear diagonals -- 253-14/253-22 design",
+      id: "roof_4_2_distances",
+      name: "253-14/253-22: Junction distances",
+      category: "Bar junction distances",
       requirement: "required",
       reference: "",
       description: "",
       showIf: { id: "roof_bars", equals: "253-14" },
       evaluationType: "table",
-      rows: [
-        { id: "front_roof_left", label: "1. Front roof left" }, { id: "front_roof_right", label: "2. Front roof right" },
-        { id: "center_roof_left", label: "3. Center roof left" }, { id: "center_roof_right", label: "4. Center roof right" },
-        { id: "top_rear_left", label: "5. Top rear left" }, { id: "top_rear_right", label: "6. Top rear right" },
-        { id: "bottom_rear_left", label: "7. Bottom rear left" }, { id: "bottom_rear_right", label: "8. Bottom rear right" },
-      ],
-      columns: WELD_WITH_DIST_COLUMNS,
+      rows: ROOF_4_2_WELD_ROWS,
+      columns: DISTANCE_COLUMNS,
+      distanceQuickCheck: true,
+      visuallyVerifiable: true,
+      hardFail: true,
+    },
+    {
+      id: "roof_4_2_measurements_welds",
+      name: "253-14/253-22: Welds",
+      category: "Welds",
+      requirement: "required",
+      reference: "",
+      description: "",
+      showIf: { id: "roof_bars", equals: "253-14" },
+      evaluationType: "table",
+      rows: ROOF_4_2_WELD_ROWS,
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true,
       hardFail: true,
     },
@@ -1186,7 +1233,7 @@
     {
       id: "door_9_intersection_welds",
       name: "Welds -- intersection configuration",
-      category: "5.1. Door bars -- 253-9 (X bar design)",
+      category: "Welds",
       requirement: "required", reference: "", description: "",
       showIf: DOOR_9X_SHOWIF,
       evaluationType: "table",
@@ -1209,7 +1256,7 @@
         });
         return rows;
       },
-      columns: gussetColumns(NASA_PRIMARY_REQ),
+      columns: gussetColumns(),
       visuallyVerifiable: true, hardFail: true,
     },
     {
@@ -1237,7 +1284,7 @@
     {
       id: "door_9_2bar_welds",
       name: "Welds -- 2-bar configurations",
-      category: "5.1. Door bars -- 253-9 (X bar design)",
+      category: "Welds",
       requirement: "required", reference: "", description: "",
       showIf: DOOR_9BENT_SHOWIF,
       evaluationType: "table",
@@ -1252,7 +1299,7 @@
     {
       id: "door_10_welds",
       name: "253-10: Welds",
-      category: "5.2. Door bars -- 253-10 (triangle design)",
+      category: "Welds",
       requirement: "required", reference: "", description: "",
       showIf: DOOR_10_SHOWIF,
       evaluationType: "table",
@@ -1287,7 +1334,7 @@
     {
       id: "door_11_welds",
       name: "253-11: Welds",
-      category: "5.3. Door bars -- 253-11 (double bars)",
+      category: "Welds",
       requirement: "required", reference: "", description: "",
       showIf: DOOR_11_SHOWIF,
       evaluationType: "table",
@@ -1310,6 +1357,10 @@
   // =====================================================================
   // Section 6. Windshield support bar (253-15)
   // =====================================================================
+  const WINDSHIELD_WELD_ROWS = [
+    { id: "top_left", label: "1. Top left" }, { id: "center_top_left", label: "2. Center top left (*)" }, { id: "center_lower_left", label: "3. Center lower left (*)" }, { id: "bottom_left", label: "4. Bottom left" },
+    { id: "top_right", label: "5. Top right" }, { id: "center_top_right", label: "6. Center top right (*)" }, { id: "center_lower_right", label: "7. Center lower right (*)" }, { id: "bottom_right", label: "8. Bottom right" },
+  ];
   const SECTION_6_WINDSHIELD = [
     {
       id: "a_pillar_reinforcement",
@@ -1330,35 +1381,29 @@
       hardFailMessage: "A-pillar reinforcement missing where dimension A exceeds 200mm.",
     },
     {
-      id: "windshield_measurements",
-      name: "Measurements",
-      category: "6. Windshield support bar (253-15)",
+      id: "windshield_distances",
+      name: "253-15: Junction distances",
+      category: "Bar junction distances",
       requirement: "required",
       reference: "",
       description: "",
       evaluationType: "table",
-      rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
-      columns: [
-        { key: "sections", label: "# sections", type: "select", options: [{ id: "1", label: "1" }, { id: "2", label: "2" }] },
-        { key: "straight", label: "Straight in side view", type: "boolean" },
-        { key: "bend_angle", label: "Bend angle (<20 degrees)", type: "number", compare: { op: "lt", value: 20 } },
-      ],
+      rows: WINDSHIELD_WELD_ROWS,
+      columns: DISTANCE_COLUMNS,
+      distanceQuickCheck: true,
       visuallyVerifiable: true,
       hardFail: true,
     },
     {
       id: "windshield_welds",
-      name: "Welds",
-      category: "6. Windshield support bar (253-15)",
+      name: "253-15: Welds",
+      category: "Welds",
       requirement: "required",
       reference: "",
       description: "",
       evaluationType: "table",
-      rows: [
-        { id: "top_left", label: "1. Top left" }, { id: "center_top_left", label: "2. Center top left (*)" }, { id: "center_lower_left", label: "3. Center lower left (*)" }, { id: "bottom_left", label: "4. Bottom left" },
-        { id: "top_right", label: "5. Top right" }, { id: "center_top_right", label: "6. Center top right (*)" }, { id: "center_lower_right", label: "7. Center lower right (*)" }, { id: "bottom_right", label: "8. Bottom right" },
-      ],
-      columns: WELD_WITH_DIST_COLUMNS,
+      rows: WINDSHIELD_WELD_ROWS,
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true,
       hardFail: true,
     },
@@ -1375,7 +1420,7 @@
         { id: "driver_top_left_23", label: "Driver: Top or Left (gusset 2/3)" }, { id: "driver_bottom_right_23", label: "Driver: Bottom or Right (gusset 2/3)" },
         { id: "codriver_top_left_23", label: "Codriver: Top or Left (gusset 2/3)" }, { id: "codriver_bottom_right_23", label: "Codriver: Bottom or Right (gusset 2/3)" },
       ],
-      columns: gussetColumns(NASA_SECONDARY_REQ),
+      columns: gussetColumns(),
       visuallyVerifiable: true,
       hardFail: true,
     },
@@ -1432,7 +1477,7 @@
     {
       id: "harness_bar_26_27_welds",
       name: "Harness bar (253-26/27, legacy diagram 200 / FFSA) welds",
-      category: "Optional bars",
+      category: "Welds",
       requirement: "recommended", reference: "03-ART 253 Equipement de Securite Gr. N-A-R-GT-F2000 2020", description: "Traditional harness bar secured to the main hoop. May be at a different height for driver/codriver. Minimum diameter x thickness is 38 x 2.5mm.",
       showIf: { id: "harness_bar_present", equals: "253-26-27" },
       evaluationType: "table",
@@ -1443,7 +1488,7 @@
     {
       id: "harness_bar_28_66_welds",
       name: "Rear harness bar (253-28/66) welds",
-      category: "Optional bars",
+      category: "Welds",
       requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253", description: "",
       showIf: { id: "harness_bar_present", equals: "253-28-66" },
       evaluationType: "table", rows: [{ id: "bar", label: "253-28/66" }], columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
@@ -1459,7 +1504,7 @@
     {
       id: "lower_main_hoop_bar_detail",
       name: "253-30 welds",
-      category: "Optional bars",
+      category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "lower_main_hoop_bar_present", equals: "yes" },
       evaluationType: "table", rows: [{ id: "bar", label: "253-30" }], columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
@@ -1482,7 +1527,7 @@
     {
       id: "rear_lateral_reinforcement_detail",
       name: "253-17 welds",
-      category: "Optional bars",
+      category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "rear_lateral_reinforcement_present", notEquals: "none" },
       evaluationType: "table",
@@ -1500,7 +1545,7 @@
     {
       id: "rear_transversal_detail",
       name: "253-18 / 253-18B welds",
-      category: "Optional bars",
+      category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "rear_transversal_present", equals: "yes" },
       evaluationType: "table",
@@ -1518,7 +1563,7 @@
     {
       id: "rear_lower_x_detail",
       name: "253-19 sections and welds",
-      category: "Optional bars",
+      category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "rear_lower_x_present", equals: "yes" },
       evaluationType: "table",
@@ -1534,7 +1579,7 @@
       showIf: { id: "rear_lower_x_present", equals: "yes" },
       evaluationType: "table",
       rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
-      columns: gussetColumns(NASA_SECONDARY_REQ),
+      columns: gussetColumns(),
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1547,7 +1592,7 @@
     {
       id: "anti_intrusion_detail",
       name: "253-25 welds",
-      category: "Optional bars",
+      category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "anti_intrusion_present", equals: "yes" },
       evaluationType: "table",
@@ -1558,7 +1603,7 @@
     {
       id: "anti_intrusion_plates",
       name: "253-25 plates",
-      category: "Optional bars",
+      category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "anti_intrusion_present", equals: "yes" },
       evaluationType: "table",
@@ -1579,7 +1624,7 @@
     {
       id: "dash_bar_detail",
       name: "253-29 welds",
-      category: "Optional bars",
+      category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "dash_bar_present", equals: "yes" },
       evaluationType: "table", rows: [{ id: "bar", label: "253-29" }], columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
@@ -1614,7 +1659,7 @@
     {
       id: "temple_bar_detail",
       name: "Temple bar (253-31) welds",
-      category: "Optional bars",
+      category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "temple_bar_present", notEquals: "none" },
       evaluationType: "table",
@@ -1641,7 +1686,7 @@
     {
       id: "windshield_reinforcement_detail",
       name: "Windshield reinforcement (253-31) welds",
-      category: "Optional bars",
+      category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "windshield_reinforcement_present", notEquals: "none" },
       evaluationType: "table",
@@ -1957,15 +2002,10 @@
       },
       primary_tubing: { reference: ARA_REF, requirements: ARA_PRIMARY_REQ },
       secondary_tubing: { reference: ARA_REF, requirements: ARA_SECONDARY_STD_REQ },
-      main_diagonal_gussets: { columnOverrides: { tube: { requirements: ARA_SECONDARY_REINF_REQ } } },
-      roof_4_1_gussets_mandatory: { columnOverrides: { tube: { requirements: ARA_SECONDARY_REINF_REQ } } },
-      roof_4_1_gussets_optional: { columnOverrides: { tube: { requirements: ARA_SECONDARY_REINF_REQ } } },
-      door_9_intersection_gussets: { columnOverrides: { tube: { requirements: ARA_PRIMARY_REQ } } },
       a_pillar_reinforcement: {
         reference: "ARA RTR 2.2.2(c)(2)(a); 2020 FIA 253 Ch.8.3.2.1.4",
         description: "ARA is explicit: new cages without windscreen supports will NOT be accepted for logbooking whenever dimension A exceeds 200mm -- which is the case for essentially all cars.",
       },
-      windshield_gussets: { columnOverrides: { tube: { requirements: ARA_SECONDARY_REINF_REQ } } },
       gusset_placement: { description: "Minimum 2 gussets required at: main-rollbar diagonal junctions, roof-reinforcement junctions (253-12 design only), door-bar junctions (253-9 design only), and door-bar-to-windscreen-pillar-reinforcement junctions. Unlike NASA, ARA's RTR does not separately mandate a weld-inspection corner cut on every gusset." },
       padding_helmet: {
         reference: "ARA RTR 2.2.3",
@@ -1983,11 +2023,6 @@
       homologation_route: { reference: "CARS NRR 12.3.2.3" },
       primary_tubing: { reference: CARS_REF, requirements: CARS_PRIMARY_REQ },
       secondary_tubing: { reference: CARS_REF, requirements: CARS_SECONDARY_REQ },
-      main_diagonal_gussets: { columnOverrides: { tube: { requirements: CARS_SECONDARY_REQ } } },
-      roof_4_1_gussets_mandatory: { columnOverrides: { tube: { requirements: CARS_SECONDARY_REQ } } },
-      roof_4_1_gussets_optional: { columnOverrides: { tube: { requirements: CARS_SECONDARY_REQ } } },
-      door_9_intersection_gussets: { columnOverrides: { tube: { requirements: CARS_PRIMARY_REQ } } },
-      windshield_gussets: { columnOverrides: { tube: { requirements: CARS_SECONDARY_REQ } } },
       gusset_placement: { description: "Minimum 2 gussets required at: main-rollbar diagonal junctions, roof-reinforcement junctions (253-12 design only), door-bar junctions (253-9 design only), and door-bar-to-windscreen-pillar-reinforcement junctions. The CARS text sourced here does not separately mandate a weld-inspection corner cut." },
       padding_helmet: { reference: "CARS NRR 12.3.2.6", description: "Padding to FIA 8857-2001 type A or SFI 45.1 wherever an occupant's crash helmet could contact the cage." },
       padding_body: {

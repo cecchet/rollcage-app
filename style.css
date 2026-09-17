@@ -416,6 +416,9 @@ textarea { resize: vertical; min-height: 50px; }
 .unit-label { color: var(--muted); font-size: 0.85rem; }
 .numeric-warning { color: var(--fail); font-weight: 600; font-size: 0.85rem; margin: 2px 0 6px; }
 
+.quick-check-row { margin: 8px 0; }
+.quick-check-label { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); cursor: pointer; }
+.row-table-skipped { opacity: 0.5; }
 .row-table-wrap { overflow-x: auto; margin: 8px 0; }
 .row-table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
 .row-table th, .row-table td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }

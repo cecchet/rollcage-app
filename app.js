@@ -24,6 +24,7 @@
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
     showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
     showDriver: true, // UI-only: whether the driver/codriver mannequins show, or are hidden to see the cage behind them
+    part3ViewMode: null, // UI-only: null | "weld" | "junction" -- see applyPart3View()
     aiAnalysis: { status: "idle", suggestions: [], error: null, accepted: {} }, // UI-only, never persisted -- see renderPhotoAnalysis()
   };
 
@@ -309,7 +310,14 @@
     // text/select: just needs an entry, no automatic pass/fail judgement
     return answer.value ? "pass" : "warn";
   }
+  // A distance-from-junction table can carry a "quick check" shortcut (see
+  // renderTableElement) -- confirming every row is under the standard
+  // 100mm threshold at a glance, without recording each junction's own
+  // measurement. Answered "yes" there short-circuits the table to pass
+  // regardless of what (if anything) is filled in below it.
+  function distanceQuickCheckId(elm) { return elm.id + "__quick"; }
   function tableElementStatus(elm) {
+    if (elm.distanceQuickCheck && getAnswer(distanceQuickCheckId(elm)).value === "yes") return "pass";
     let worst = "pass";
     resolveRows(elm).forEach((row) => {
       elm.columns.forEach((col) => {
@@ -930,7 +938,7 @@
     if (elm.id === "mounting_feet_size") return true;
     if (elm.evaluationType !== "table" || !elm.columns) return false;
     const hasTubing3 = elm.columns.some((c) => c.type === "tubing3");
-    const isGusset = elm.columns.some((c) => c.key === "corner_cutout"); // gusset tables also carry a tubing3 "tube" reference column
+    const isGusset = elm.columns.some((c) => c.key === "corner_cutout"); // a gusset-dimensions table (length/corner-cutout/hole), not a tubing size table
     return hasTubing3 && !isGusset;
   }
   function elementPhase(elm) {
@@ -1113,6 +1121,44 @@
           )
         )
       );
+    }
+
+    // Part 3's own 3D view-mode toggle -- mirrors Part 2's tubing-spec
+    // double-click view (see applyTubingClassificationView), but as an
+    // explicit toggle rather than automatic-while-on-this-tab, since Part 3
+    // has two different views (welds, junction distances) plus its normal
+    // view, not just one. See applyPart3View() for exactly which bars each
+    // view can currently highlight.
+    if (state.activeTab === 3) {
+      panel.appendChild(
+        el("div", { class: "phase-tabs part3-view-tabs" }, [
+          el(
+            "button",
+            {
+              class: "phase-tab" + (state.part3ViewMode === "weld" ? " active" : ""),
+              onclick: () => { state.part3ViewMode = state.part3ViewMode === "weld" ? null : "weld"; render(); },
+            },
+            ["Weld view"]
+          ),
+          el(
+            "button",
+            {
+              class: "phase-tab" + (state.part3ViewMode === "junction" ? " active" : ""),
+              onclick: () => { state.part3ViewMode = state.part3ViewMode === "junction" ? null : "junction"; render(); },
+            },
+            ["Bar junctions view"]
+          ),
+        ])
+      );
+      if (state.part3ViewMode) {
+        panel.appendChild(
+          el("div", { class: "element-desc" }, [
+            state.part3ViewMode === "weld"
+              ? "Double-click a highlighted bar in the 3D model to cycle its weld status: green = complete, red = incomplete, ghost = not yet checked. Currently wired up for mounting feet only -- other bars stay ghost here for now."
+              : "Bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Currently wired up for the main-rollbar diagonals and backstays only -- other bars stay ghost here for now.",
+          ])
+        );
+      }
     }
 
     shownPhases.forEach((p) => {
@@ -1774,7 +1820,26 @@
       card.appendChild(el("div", { class: "element-diagram", html: window.DIAGRAMS[elm.diagram] }));
     }
 
-    const table = el("table", { class: "row-table" });
+    let quickChecked = false;
+    if (elm.distanceQuickCheck) {
+      const quickId = distanceQuickCheckId(elm);
+      const quickAnswer = getAnswer(quickId);
+      quickChecked = quickAnswer.value === "yes";
+      card.appendChild(
+        el("div", { class: "quick-check-row" }, [
+          el("label", { class: "quick-check-label" }, [
+            el("input", {
+              type: "checkbox",
+              checked: quickChecked,
+              onchange: (e) => setAnswer(quickId, { value: e.target.checked ? "yes" : "" }),
+            }),
+            "All junctions below confirmed under 100mm (skip entering each one individually)",
+          ]),
+        ])
+      );
+    }
+
+    const table = el("table", { class: "row-table" + (quickChecked ? " row-table-skipped" : "") });
     table.appendChild(el("thead", {}, [el("tr", {}, [el("th", {}, ["Location"])].concat(elm.columns.map((c) => el("th", {}, [c.label]))))]));
     const tbody = el("tbody");
     resolveRows(elm).forEach((row) => {
@@ -2071,6 +2136,10 @@
     // pair (not 2 shades of the same hue) so they read apart at a glance.
     gussetTaco: "#f97316", gussetSinglePlate: "#2563eb",
     tubingPrimary: "#3b82f6", tubingSecondary: "#f59e0b", tubingUnclassified: "#9ca3af",
+    // Part 3's Weld view / Bar junctions view (see applyPart3View()) --
+    // green/red match the same pass/fail meaning as the checklist's own
+    // Compliant/Not-compliant styling, not a structural category color.
+    statusPass: "#2ecc71", statusFail: "#e74c3c",
   };
   // Ties the Tube classification table's Primary/Secondary buttons to the
   // exact same colors the Part 2 3D view paints those bars -- so the
@@ -2637,6 +2706,75 @@
     return view;
   }
 
+  // ---- Part 3 Weld view / Bar junctions view ----------------------------
+  // Highlights, in the live 3D model, whichever bars currently have a
+  // weld-completion answer (Weld view) or a junction-distance answer (Bar
+  // junctions view) -- scoped for now to the bars whose physical file
+  // identity is already unambiguous elsewhere in this file: mounting feet,
+  // the 2 main-rollbar-diagonal tubes, and the 2 backstays. Roof/door/
+  // windshield welds and distances aren't wired up yet -- each of those
+  // tables' rows span sub-sections of a single shared tube (e.g. one
+  // continuous 253-12 roof tube covers 4 of its own 8 weld rows), which
+  // needs its own verified per-tube geometry breakdown before it can
+  // highlight correctly rather than guessing; those bars just render as
+  // ghost (same as "not checked") in both views for now, same as anything
+  // truly out of scope.
+  function weldCellColor(elementId, rowId) {
+    const v = getAnswer(elementId + "__" + rowId + "__weld").value;
+    if (v === "yes") return CAGE_COLOR.statusPass;
+    if (v === "no") return CAGE_COLOR.statusFail;
+    return null;
+  }
+  function distanceValueColor(v) {
+    if (v === "" || v === undefined || v === null) return null;
+    const num = parseFloat(v);
+    if (isNaN(num)) return null;
+    return num < 100 ? CAGE_COLOR.statusPass : CAGE_COLOR.statusFail;
+  }
+  // Diagonal 1 (top-right to bottom-left, see MAIN_DIAG_TOP_RIGHT/LEFT_FILE
+  // above) meets the LEFT foot and the RIGHT backstay; diagonal 2 (top-left
+  // to bottom-right) meets the RIGHT foot and the LEFT backstay.
+  function mainDiagonalJunctionColor(file) {
+    const values = getAnswer("main_diagonal_distances").value || {};
+    const keys = file === MAIN_DIAG_TOP_RIGHT_FILE ? ["dist_left_foot", "dist_right_backstay"]
+      : file === MAIN_DIAG_TOP_LEFT_FILE ? ["dist_right_foot", "dist_left_backstay"]
+      : null;
+    if (!keys) return null;
+    const colors = keys.map((k) => distanceValueColor(values[k]));
+    if (colors.includes(CAGE_COLOR.statusFail)) return CAGE_COLOR.statusFail;
+    if (colors.every(Boolean)) return CAGE_COLOR.statusPass;
+    return null;
+  }
+  function applyPart3View(colors) {
+    const mode = state.part3ViewMode;
+    if (mode !== "weld" && mode !== "junction") return colors;
+    const view = {};
+    // Keep "hidden" files hidden (a mesh variant genuinely not active right
+    // now, e.g. a foot design's cube/rocker alternative) -- everything else
+    // defaults to ghost (absent from `view`) unless overridden below, even
+    // if it was ghost for a totally different reason in the normal view
+    // (e.g. a mounting foot whose own design hasn't been picked in Part 1
+    // yet still has its own independent weld answer worth showing here).
+    Object.keys(colors).forEach((file) => { if (colors[file] === "hidden") view[file] = "hidden"; });
+    function setIfActive(file, color) {
+      if (colors[file] === "hidden") return; // a different mesh variant is the active one right now
+      if (color) view[file] = color;
+    }
+    if (mode === "weld") {
+      FOOT_LOCATIONS.forEach(({ row, plateFile }) => {
+        const color = weldCellColor("mounting_feet_table", row);
+        [plateFile, footCubeFile(row), doublePlaneFile(row), rockerBaseFile(row), rockerFoldFile(row)].forEach((f) => setIfActive(f, color));
+      });
+    } else {
+      const backstayColor = distanceValueColor(getAnswer("backstay_distance_upper_laterals").value);
+      setIfActive("Left backstay.stl", backstayColor);
+      setIfActive("Right backstay.stl", backstayColor);
+      setIfActive(MAIN_DIAG_TOP_RIGHT_FILE, mainDiagonalJunctionColor(MAIN_DIAG_TOP_RIGHT_FILE));
+      setIfActive(MAIN_DIAG_TOP_LEFT_FILE, mainDiagonalJunctionColor(MAIN_DIAG_TOP_LEFT_FILE));
+    }
+    return view;
+  }
+
   // Which design-choice element is currently responsible for a given file's
   // color -- rebuilt every computeCageColors() call alongside the colors
   // themselves, and used by handleCagePartClick() to jump the checklist to
@@ -2911,7 +3049,9 @@
     }
 
     CAGE_FILE_OWNER = owner;
-    return state.activeTab === 2 ? applyTubingClassificationView(colors) : colors;
+    if (state.activeTab === 2) return applyTubingClassificationView(colors);
+    if (state.activeTab === 3) return applyPart3View(colors);
+    return colors;
   }
 
   // The live cage model panel is position:sticky at the top of the page
@@ -3115,6 +3255,20 @@
       const current = getAnswer("tubing_bar_classification__" + rowIds[0] + "__spec").value;
       const next = TUBE_SPEC_CYCLE[(TUBE_SPEC_CYCLE.indexOf(current) + 1) % TUBE_SPEC_CYCLE.length];
       rowIds.forEach((rowId) => setAnswer("tubing_bar_classification__" + rowId + "__spec", { value: next }));
+      return;
+    }
+    // Part 3 Weld view: double-click cycles that bar's own weld-completion
+    // answer (yes -> no -> not-yet-checked) instead of anything else a
+    // double-click would normally do -- scoped to the same bars
+    // applyPart3View() knows how to color (see its own comment for why).
+    if (state.activeTab === 3 && state.part3ViewMode === "weld") {
+      const weldFootRow = footRowForFile(file);
+      if (weldFootRow) {
+        const key = "mounting_feet_table__" + weldFootRow + "__weld";
+        const cycle = ["yes", "no", ""];
+        const idx = cycle.indexOf(getAnswer(key).value);
+        setAnswer(key, { value: cycle[(idx + 1) % cycle.length] });
+      }
       return;
     }
     const footRow = footRowForFile(file);

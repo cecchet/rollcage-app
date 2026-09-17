@@ -154,8 +154,12 @@
   // ---- Main hoop bend count (1 max) ----
   D["main-hoop-bend"] = wrapImg("main_hoop_bend.jpg");
 
-  // ---- Front rollbar angle / no bends below windscreen line ----
-  D["front-rollbar-bend"] = wrapImg("front_rollbar_bend.jpg");
+  // ---- Front rollbar angle (-10/0 degree cone on both front pillars) ----
+  D["front-rollbar-angle"] = wrapImg("front_rollbar_angle.png");
+
+  // ---- Front mounting feet forward of foremost rollbar (foot-plate +
+  // reference-line marker on both front feet) ----
+  D["front-feet-forward"] = wrapImg("front_feet_forward.png");
 
   // ---- Backstay angle (>30 degrees from vertical) ----
   D["backstay-angle"] = wrapImg("backstay_angle.jpg");
