@@ -41,6 +41,16 @@
     '<text x="70" y="68" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.65">FRONT</text>';
   const roofTrap = `<path d="M25,20 L115,20 L95,55 L45,55 Z" ${CTX}/>` + roofLabels;
   D["253-12"] = wrap(roofTrap + `<path d="M25,20 L95,55 M115,20 L45,55" ${HI}/>`);
+  // 253-12's 2 fabrication variants, same visual convention as the door
+  // bars' 253-9-intersection-1/-2 icons above: the continuous diagonal
+  // draws as one unbroken line, the other diagonal (cut into front/rear
+  // half bars at the crossing) gets a small gap right at the center to
+  // show it's actually 2 pieces. Front-left corner (45,55) to rear-right
+  // corner (115,20) is "Roof bar 1"; front-right (95,55) to rear-left
+  // (25,20) is "Roof bar 2" -- matching the live 3D model's own verified
+  // geometry (see roofBarFileTubeRow() in app.js).
+  D["253-12-1"] = wrap(roofTrap + `<path d="M45,55 L115,20" ${HI}/><path d="M95,55 L78,46 M63,39 L25,20" ${HI}/>`);
+  D["253-12-2"] = wrap(roofTrap + `<path d="M95,55 L25,20" ${HI}/><path d="M45,55 L63,46 M77,39 L115,20" ${HI}/>`);
   // 253-13 ("no front roof corner support"): apex at front center, one bar
   // to each rear corner -- so neither front corner gets its own individual
   // brace, only this shared front-center point. Verified against the real
