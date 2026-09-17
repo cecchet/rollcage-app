@@ -414,6 +414,7 @@ textarea { resize: vertical; min-height: 50px; }
 .numeric-input { max-width: 120px; }
 .numeric-field-label { flex: 1; font-size: 0.85rem; }
 .unit-label { color: var(--muted); font-size: 0.85rem; }
+.numeric-warning { color: var(--fail); font-weight: 600; font-size: 0.85rem; margin: 2px 0 6px; }
 
 .row-table-wrap { overflow-x: auto; margin: 8px 0; }
 .row-table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }

@@ -192,5 +192,8 @@
     '<div>' + wrapImg("installation_constraints_253-49.png") + "</div>" +
     "</div>";
 
+  // ---- 253-15 windscreen pillar reinforcement dimension A ----
+  D["253-15-dimension-a"] = wrapImg("253-15_dimension_a.png");
+
   window.DIAGRAMS = D;
 })();

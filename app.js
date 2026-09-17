@@ -1346,6 +1346,9 @@
         onchange: (e) => setAnswer(elm.id, { value: e.target.value }),
       });
       card.appendChild(el("div", { class: "numeric-row" }, [input, el("span", { class: "unit-label" }, [elm.unit || ""])]));
+      if (elm.warnCompare && elm.warnMessage && answer.value !== "" && answer.value !== undefined && compareOk(parseFloat(answer.value), elm.warnCompare)) {
+        card.appendChild(el("div", { class: "numeric-warning" }, [elm.warnMessage]));
+      }
     } else if (elm.evaluationType === "text") {
       const input = el("input", {
         type: "text",
