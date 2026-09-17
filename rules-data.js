@@ -856,41 +856,68 @@
       // which 253-9/10/11 design is currently selected (see
       // doorBarTubeRows() above) -- app.js's resolveRows() calls this with
       // its own getAnswer whenever it needs the current row list.
-      rows: (getAnswer) => [
-        { id: "main_rollbar", label: "Main rollbar" },
-        { id: "front_laterals_left", label: "Front / lateral rollbar -- Left" },
-        { id: "front_laterals_right", label: "Front / lateral rollbar -- Right" },
-        { id: "transverse_member", label: "Transverse member(s)" },
-        { id: "backstays_left", label: "Backstay -- Left" },
-        { id: "backstays_right", label: "Backstay -- Right" },
-        { id: "backstay_diagonals_left", label: "Backstay diagonal -- Left" },
-        { id: "backstay_diagonals_right", label: "Backstay diagonal -- Right" },
-        { id: "main_diagonals_left", label: "253-7: Main rollbar diagonal -- Left" },
-        { id: "main_diagonals_right", label: "253-7: Main rollbar diagonal -- Right" },
-        ...roofBarTubeRows(getAnswer("roof_bars").value),
-        ...doorBarTubeRowsForSide(getAnswer("door_bars_left").value, "left"),
-        ...doorBarTubeRowsForSide(getAnswer("door_bars_right").value, "right"),
-        { id: "sill_bar_left", label: "Sill bar -- Left" },
-        { id: "sill_bar_right", label: "Sill bar -- Right" },
-        { id: "a_pillar_left", label: "253-15: A-pillar reinforcement -- Left" },
-        { id: "a_pillar_right", label: "253-15: A-pillar reinforcement -- Right" },
-        { id: "harness_bar", label: "253-26/27, 253-28/66: Harness bar" },
-        { id: "rear_lateral_left", label: "253-17: Rear lateral reinforcement -- Left" },
-        { id: "rear_lateral_right", label: "253-17: Rear lateral reinforcement -- Right" },
-        { id: "rear_transversal", label: "253-18: Rear transversal reinforcement" },
-        { id: "rear_lower_x_driver_top", label: "253-19: Rear lower X -- Driver top to codriver bottom" },
-        { id: "rear_lower_x_codriver_top", label: "253-19: Rear lower X -- Codriver top to driver bottom" },
-        { id: "anti_intrusion_left_upper", label: "253-25: Anti-intrusion -- Left upper" },
-        { id: "anti_intrusion_left_lower", label: "253-25: Anti-intrusion -- Left lower" },
-        { id: "anti_intrusion_right_upper", label: "253-25: Anti-intrusion -- Right upper" },
-        { id: "anti_intrusion_right_lower", label: "253-25: Anti-intrusion -- Right lower" },
-        { id: "dash_bar", label: "253-29: Dash bar" },
-        { id: "lower_main_hoop_bar", label: "253-30: Lower main hoop bar" },
-        { id: "temple_bar_left", label: "253-31: Temple bar -- Left" },
-        { id: "temple_bar_right", label: "253-31: Temple bar -- Right" },
-        { id: "windshield_reinforcement_left", label: "253-31: Windshield reinforcement -- Left" },
-        { id: "windshield_reinforcement_right", label: "253-31: Windshield reinforcement -- Right" },
-      ],
+      // Every optional bar below is gated on the SAME Part 1 "present"
+      // answer (and, for temple bar / windshield reinforcement, the same
+      // left/right/both side choice via sideRows()) that its own weld
+      // table already uses -- a bar marked "not present"/"none" in Part 1
+      // shouldn't still ask for a tube spec here.
+      rows: (getAnswer) => {
+        const rows = [
+          { id: "main_rollbar", label: "Main rollbar" },
+          { id: "front_laterals_left", label: "Front / lateral rollbar -- Left" },
+          { id: "front_laterals_right", label: "Front / lateral rollbar -- Right" },
+          { id: "transverse_member", label: "Transverse member(s)" },
+          { id: "backstays_left", label: "Backstay -- Left" },
+          { id: "backstays_right", label: "Backstay -- Right" },
+          { id: "backstay_diagonals_left", label: "Backstay diagonal -- Left" },
+          { id: "backstay_diagonals_right", label: "Backstay diagonal -- Right" },
+          { id: "main_diagonals_left", label: "253-7: Main rollbar diagonal -- Left" },
+          { id: "main_diagonals_right", label: "253-7: Main rollbar diagonal -- Right" },
+          ...roofBarTubeRows(getAnswer("roof_bars").value),
+          ...doorBarTubeRowsForSide(getAnswer("door_bars_left").value, "left"),
+          ...doorBarTubeRowsForSide(getAnswer("door_bars_right").value, "right"),
+        ];
+        if (getAnswer("door_bars_left").extra.sill_bar === "yes") rows.push({ id: "sill_bar_left", label: "Sill bar -- Left" });
+        if (getAnswer("door_bars_right").extra.sill_bar === "yes") rows.push({ id: "sill_bar_right", label: "Sill bar -- Right" });
+        rows.push(
+          { id: "a_pillar_left", label: "253-15: A-pillar reinforcement -- Left" },
+          { id: "a_pillar_right", label: "253-15: A-pillar reinforcement -- Right" }
+        );
+        const harnessVal = getAnswer("harness_bar_present").value;
+        if (harnessVal === "253-26-27" || harnessVal === "253-28-66") {
+          rows.push({ id: "harness_bar", label: "253-26/27, 253-28/66: Harness bar" });
+        }
+        if (getAnswer("rear_lateral_reinforcement_present").value !== "none") {
+          rows.push({ id: "rear_lateral_left", label: "253-17: Rear lateral reinforcement -- Left" }, { id: "rear_lateral_right", label: "253-17: Rear lateral reinforcement -- Right" });
+        }
+        if (getAnswer("rear_transversal_present").value === "yes") {
+          rows.push({ id: "rear_transversal", label: "253-18: Rear transversal reinforcement" });
+        }
+        if (getAnswer("rear_lower_x_present").value === "yes") {
+          rows.push({ id: "rear_lower_x_driver_top", label: "253-19: Rear lower X -- Driver top to codriver bottom" }, { id: "rear_lower_x_codriver_top", label: "253-19: Rear lower X -- Codriver top to driver bottom" });
+        }
+        if (getAnswer("anti_intrusion_present").value === "yes") {
+          rows.push(
+            { id: "anti_intrusion_left_upper", label: "253-25: Anti-intrusion -- Left upper" },
+            { id: "anti_intrusion_left_lower", label: "253-25: Anti-intrusion -- Left lower" },
+            { id: "anti_intrusion_right_upper", label: "253-25: Anti-intrusion -- Right upper" },
+            { id: "anti_intrusion_right_lower", label: "253-25: Anti-intrusion -- Right lower" }
+          );
+        }
+        if (getAnswer("dash_bar_present").value === "yes") {
+          rows.push({ id: "dash_bar", label: "253-29: Dash bar" });
+        }
+        if (getAnswer("lower_main_hoop_bar_present").value === "yes") {
+          rows.push({ id: "lower_main_hoop_bar", label: "253-30: Lower main hoop bar" });
+        }
+        if (getAnswer("temple_bar_present").value !== "none") {
+          sideRows(getAnswer("temple_bar_present").value).forEach((s) => rows.push({ id: "temple_bar_" + s.id, label: "253-31: Temple bar -- " + s.label }));
+        }
+        if (getAnswer("windshield_reinforcement_present").value !== "none") {
+          sideRows(getAnswer("windshield_reinforcement_present").value).forEach((s) => rows.push({ id: "windshield_reinforcement_" + s.id, label: "253-31: Windshield reinforcement -- " + s.label }));
+        }
+        return rows;
+      },
       columns: [
         { key: "spec", label: "Tubing spec", type: "radio", options: [{ id: "primary", label: "Primary" }, { id: "secondary", label: "Secondary" }] },
       ],
