@@ -334,6 +334,12 @@ textarea { resize: vertical; min-height: 50px; }
   color: var(--muted);
 }
 .element-diagram svg, .element-diagram img { width: 100%; height: auto; display: block; border-radius: 6px; }
+/* A diagram made of 2+ separate images (e.g. installation constraints'
+   253-48/253-49 drawings) gets more width to lay out side by side --
+   wrapping to stacked automatically once that width won't fit. */
+.element-diagram:has(.diagram-pair) { max-width: 480px; }
+.diagram-pair { display: flex; gap: 10px; flex-wrap: wrap; }
+.diagram-pair > div { flex: 1 1 200px; min-width: 140px; }
 .diagram-cheat-sheet {
   width: 100%;
   margin-top: 6px;

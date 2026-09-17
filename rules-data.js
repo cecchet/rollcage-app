@@ -203,6 +203,43 @@
 
   // -- Cage Design --
   const SECTION_2_1_ANGLES = [
+    // -- 1. Installation constraints -- shown first: whether the cage even
+    // fits within the car's physical envelope (suspension points, cockpit
+    // encroachment, windshield projection) is a precondition for
+    // everything else in Part 3, not just another measurement among them.
+    {
+      id: "cage_within_suspension_points",
+      name: "Cage within suspension mounting points",
+      category: "1. Installation constraints",
+      hideNotes: true,
+      requirement: "required",
+      reference: "",
+      description: "",
+      evaluationType: "boolean",
+      strictYesNo: true,
+      yesNoLabels: ["Yes", "No"],
+      visuallyVerifiable: true,
+      diagram: "suspension-containment",
+      hardFail: true,
+    },
+    {
+      id: "installation_constraints",
+      name: "Installation constraints",
+      category: "1. Installation constraints",
+      requirement: "required",
+      reference: "",
+      description: "Dimensional limits controlling cockpit encroachment and windshield projection. A/B/C/H/E measured per Drawing 253-49; R1/R2 measured per Drawing 253-48.",
+      diagram: "installation-constraints",
+      evaluationType: "table",
+      rows: [
+        { id: "a", label: "A (>300mm/11.8in)" }, { id: "b", label: "B (<250mm/9.85in)" }, { id: "c", label: "C (<300mm/11.8in)" },
+        { id: "h", label: "H (door opening height)" }, { id: "e", label: "E (<0.5 H)" },
+        { id: "r1", label: "R1 (top projection through windshield <100mm)" }, { id: "r2", label: "R2 (side projection through windshield <70mm)" },
+      ],
+      columns: [{ key: "value", label: "Value (mm)", type: "number" }],
+      visuallyVerifiable: false,
+      hardFail: true,
+    },
     {
       id: "main_structure_layout",
       name: "Base structure layout",
@@ -1689,41 +1726,6 @@
         { key: "corner_cutout", label: "Corner cutout for weld inspection", type: "boolean" },
         { key: "hole_diameter", label: "Hole diameter (mm, if any)", type: "number", optional: true },
       ],
-      visuallyVerifiable: false,
-      hardFail: true,
-    },
-
-    // -- 8. Installation constraints --
-    {
-      id: "cage_within_suspension_points",
-      name: "Cage within suspension mounting points",
-      category: "8. Installation constraints",
-      hideNotes: true,
-      requirement: "required",
-      reference: "",
-      description: "",
-      evaluationType: "boolean",
-      strictYesNo: true,
-      yesNoLabels: ["Yes", "No"],
-      visuallyVerifiable: true,
-      diagram: "suspension-containment",
-      hardFail: true,
-    },
-    {
-      id: "installation_constraints",
-      name: "Installation constraints",
-      category: "8. Installation constraints",
-      requirement: "required",
-      reference: "",
-      description: "Dimensional limits controlling cockpit encroachment and windshield projection. A/B/C/H/E measured per Drawing 253-49; R1/R2 measured per Drawing 253-48.",
-      diagram: "installation-constraints",
-      evaluationType: "table",
-      rows: [
-        { id: "a", label: "A (>300mm/11.8in)" }, { id: "b", label: "B (<250mm/9.85in)" }, { id: "c", label: "C (<300mm/11.8in)" },
-        { id: "h", label: "H (door opening height)" }, { id: "e", label: "E (<0.5 H)" },
-        { id: "r1", label: "R1 (top projection through windshield <100mm)" }, { id: "r2", label: "R2 (side projection through windshield <70mm)" },
-      ],
-      columns: [{ key: "value", label: "Value (mm)", type: "number" }],
       visuallyVerifiable: false,
       hardFail: true,
     },

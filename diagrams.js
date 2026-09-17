@@ -183,8 +183,14 @@
   D["suspension-containment"] = wrapImg("suspension_containment.png");
 
   // ---- Installation constraints: A/B/C/H/E (253-49) and R1/R2 windshield
-  // projection (253-48) ----
-  D["installation-constraints"] = wrapImg("installation_constraints.png");
+  // projection (253-48) -- 2 separate images (split from one combined
+  // reference photo) laid out side by side via CSS when there's room,
+  // stacked otherwise (see .diagram-pair in style.css).
+  D["installation-constraints"] =
+    '<div class="diagram-pair">' +
+    '<div>' + wrapImg("installation_constraints_253-48.png") + "</div>" +
+    '<div>' + wrapImg("installation_constraints_253-49.png") + "</div>" +
+    "</div>";
 
   window.DIAGRAMS = D;
 })();
