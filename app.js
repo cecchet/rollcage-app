@@ -1887,7 +1887,7 @@
   const SAFETY_TIER_RULES = {
     main_rollbar_present: (v) => (v === "yes" ? "green" : v === "no" ? "red" : null),
     main_hoop_diagonals: (v) => ({
-      "253-7": "green",
+      "253-7-1": "green", "253-7-2": "green",
       "diag-left": "orange", "diag-right": "orange",
       "diag-horizontal": "red", "diag-lower-half": "red", "diag-v-center": "red",
     }[v] || null),
@@ -1897,7 +1897,7 @@
       "253-13": "red", "single-center": "red", "single-front-left": "red", "single-front-right": "red", "none": "red",
     }[v] || null),
     backstay_diagonals: (v) => ({
-      "253-21": "green", "253-22": "green",
+      "253-21-1": "green", "253-21-2": "green", "253-22": "green",
       "253-20": "orange", "253-20-right": "orange",
       "none": "red",
     }[v] || null),
@@ -2397,7 +2397,7 @@
     backstay_diagonals: (v) => {
       if (v === "253-20") return { files: ["Rear diagonal 1.stl"], color: CAGE_COLOR.backstayDiag };
       if (v === "253-20-right") return { files: ["Rear diagonal 2.stl"], color: CAGE_COLOR.backstayDiag };
-      if (v === "253-21") return { files: BACKSTAY_DIAG_FILES, color: CAGE_COLOR.backstayDiag };
+      if (v === "253-21-1" || v === "253-21-2") return { files: BACKSTAY_DIAG_FILES, color: CAGE_COLOR.backstayDiag };
       if (v === "253-22") return { files: ["Rear diagonal 253-22 left.stl", "Rear diagonal 253-22 right.stl"], color: CAGE_COLOR.backstayDiag };
       return null;
     },
@@ -2408,7 +2408,7 @@
     // "1 horizontal bar" is physically the same bar/position as the 253-26/27
     // harness bar, so it reuses that same part.
     main_hoop_diagonals: (v) => {
-      if (v === "253-7") return { files: MAIN_DIAG_FILES, color: CAGE_COLOR.mainDiag };
+      if (v === "253-7-1" || v === "253-7-2") return { files: MAIN_DIAG_FILES, color: CAGE_COLOR.mainDiag };
       if (v === "diag-left") return { files: [MAIN_DIAG_TOP_LEFT_FILE], color: CAGE_COLOR.mainDiag };
       if (v === "diag-right") return { files: [MAIN_DIAG_TOP_RIGHT_FILE], color: CAGE_COLOR.mainDiag };
       if (v === "diag-horizontal") return { files: ["253-26,27 harness bar.stl"], color: CAGE_COLOR.mainDiag };
@@ -2442,7 +2442,7 @@
     },
     rear_transversal_present: (v) => (v === "yes" ? { files: ["253-18.stl"], color: CAGE_COLOR.rearTransversal } : null),
     dash_bar_present: (v) => (v === "yes" ? { files: ["Dash bar 253-29.stl"], color: CAGE_COLOR.dashBar } : null),
-    rear_lower_x_present: (v) => (v === "yes" ? { files: ["253-19 left.stl", "253-19 right.stl"], color: CAGE_COLOR.rearLowerX } : null),
+    rear_lower_x_present: (v) => (v === "253-19-1" || v === "253-19-2" ? { files: ["253-19 left.stl", "253-19 right.stl"], color: CAGE_COLOR.rearLowerX } : null),
     anti_intrusion_present: (v) =>
       v === "yes"
         ? { files: ["253-25 upper left.stl", "253-25 upper right.stl", "253-25 lower left.stl", "253-25 lower right.stl"], color: CAGE_COLOR.antiIntrusion }
@@ -2518,12 +2518,12 @@
     // "Main diagonal 1" is the TOP-RIGHT-originating leg (used alone for the
     // "diag-right" single-diagonal option), "Main diagonal 2" TOP-LEFT (used
     // alone for "diag-left") -- see MAIN_DIAG_TOP_RIGHT/LEFT_FILE above.
-    "Main diagonal  1-  253-7.stl": "main_diagonals_right", "Main diagonal  2-  253-7.stl": "main_diagonals_left",
+    // "Main diagonal 1/2-253-7.stl" and "Rear diagonal 1/2.stl" are
+    // deliberately NOT listed here -- 253-7-1/-2 and 253-21-1/-2 relabel
+    // them as continuous/other, so they're resolved dynamically in
+    // mainDiagFileTubeRow()/backstayDiagFileTubeRow() instead.
     "Main rollbar lower half left.stl": "main_diagonals_left", "Main rollbar lower half right.stl": "main_diagonals_right",
     "Main rollbar V left.stl": "main_diagonals_left", "Main rollbar V right.stl": "main_diagonals_right",
-    // "253-20" (no suffix) is the left-side single diagonal, "253-20-right"
-    // the right-side one -- see the backstay_diagonals rule above.
-    "Rear diagonal 1.stl": "backstay_diagonals_left", "Rear diagonal 2.stl": "backstay_diagonals_right",
     "Rear diagonal 253-22 left.stl": "backstay_diagonals_left", "Rear diagonal 253-22 right.stl": "backstay_diagonals_right",
     // "Roof bar 1/2.stl", "Roof bar 253-1x left/right.stl", and "Roof bar
     // single center.stl" are deliberately NOT listed here -- roof_bars'
@@ -2544,7 +2544,9 @@
     "253-17 left upper.stl": "rear_lateral_left", "253-17 right upper.stl": "rear_lateral_right",
     "253-17 left lower.stl": "rear_lateral_left", "253-17 right lower.stl": "rear_lateral_right",
     "253-18.stl": "rear_transversal",
-    "253-19 left.stl": "rear_lower_x_driver_top", "253-19 right.stl": "rear_lower_x_codriver_top",
+    // "253-19 left/right.stl" are deliberately NOT listed here -- 253-19-1/
+    // -2 relabel them as continuous/other, resolved dynamically in
+    // rearLowerXFileTubeRow() instead.
     "253-25 upper left.stl": "anti_intrusion_left_upper", "253-25 lower left.stl": "anti_intrusion_left_lower",
     "253-25 upper right.stl": "anti_intrusion_right_upper", "253-25 lower right.stl": "anti_intrusion_right_lower",
     "Dash bar 253-29.stl": "dash_bar",
@@ -2557,6 +2559,44 @@
     const v = getAnswer("harness_bar_present").value;
     if (v && v !== "none") return "harness_bar";
     return null;
+  }
+  // Main rollbar diagonal (253-7), backstay diagonal (253-21), and rear
+  // lower X (253-19) each have 2 already-separate, complete mesh files
+  // forming their X -- unlike the door/roof bars, nothing here needs a
+  // band-split, just knowing which file the "-1"/"-2" design pick made
+  // continuous vs. the other (cut) one.
+  function continuousMainDiagFile() {
+    return getAnswer("main_hoop_diagonals").value === "253-7-2" ? MAIN_DIAG_TOP_LEFT_FILE : MAIN_DIAG_TOP_RIGHT_FILE;
+  }
+  function otherMainDiagFile() {
+    return continuousMainDiagFile() === MAIN_DIAG_TOP_RIGHT_FILE ? MAIN_DIAG_TOP_LEFT_FILE : MAIN_DIAG_TOP_RIGHT_FILE;
+  }
+  function mainDiagFileTubeRow(file) {
+    const v = getAnswer("main_hoop_diagonals").value;
+    if (v === "253-7-1" || v === "253-7-2") return file === continuousMainDiagFile() ? "main_diagonal_continuous" : "main_diagonal_other";
+    return file === MAIN_DIAG_TOP_RIGHT_FILE ? "main_diagonals_right" : "main_diagonals_left";
+  }
+  function continuousBackstayDiagFile() {
+    return getAnswer("backstay_diagonals").value === "253-21-2" ? "Rear diagonal 2.stl" : "Rear diagonal 1.stl";
+  }
+  function otherBackstayDiagFile() {
+    return continuousBackstayDiagFile() === "Rear diagonal 1.stl" ? "Rear diagonal 2.stl" : "Rear diagonal 1.stl";
+  }
+  function backstayDiagFileTubeRow(file) {
+    const v = getAnswer("backstay_diagonals").value;
+    if (v === "253-21-1" || v === "253-21-2") return file === continuousBackstayDiagFile() ? "backstay_diag_continuous" : "backstay_diag_other";
+    return file === "Rear diagonal 1.stl" ? "backstay_diagonals_left" : "backstay_diagonals_right";
+  }
+  function continuousRearLowerXFile() {
+    return getAnswer("rear_lower_x_present").value === "253-19-2" ? "253-19 right.stl" : "253-19 left.stl";
+  }
+  function otherRearLowerXFile() {
+    return continuousRearLowerXFile() === "253-19 left.stl" ? "253-19 right.stl" : "253-19 left.stl";
+  }
+  function rearLowerXFileTubeRow(file) {
+    const v = getAnswer("rear_lower_x_present").value;
+    if (v !== "253-19-1" && v !== "253-19-2") return null;
+    return file === continuousRearLowerXFile() ? "rear_lower_x_continuous" : "rear_lower_x_other";
   }
   // "Left/Right door bar 1/2-253-9.stl" are the same 4 meshes across
   // 253-9-bent, 253-9-intersection, and 253-11 (see doorBarSideRule()
@@ -2673,6 +2713,9 @@
   );
   function fileTubeRow(file) {
     if (file === "253-26,27 harness bar.stl" || file === "253-28,66 rear harness bar.stl") return harnessBarTubeRow();
+    if (file === MAIN_DIAG_TOP_RIGHT_FILE || file === MAIN_DIAG_TOP_LEFT_FILE) return mainDiagFileTubeRow(file);
+    if (file === "Rear diagonal 1.stl" || file === "Rear diagonal 2.stl") return backstayDiagFileTubeRow(file);
+    if (file === "253-19 left.stl" || file === "253-19 right.stl") return rearLowerXFileTubeRow(file);
     if (DOOR_BAR_DYNAMIC_FILES.indexOf(file) !== -1) return doorBarFileTubeRow(file);
     if (ROOF_BAR_DYNAMIC_FILES.indexOf(file) !== -1) return roofBarFileTubeRow(file);
     return FILE_TO_TUBE_ROW[file] || null;
@@ -2816,6 +2859,17 @@
   // view) just cycles both halves' rows together in lockstep.
   function part3RowTargetsForFile(file) {
     const roofVal = getAnswer("roof_bars").value;
+    // The continuous leg is one uncut piece -- only the OTHER (cut) leg's 2
+    // halves need a weld/gusset here, at the crossing with the continuous
+    // one (same 2 positions as their own required-gusset table).
+    const mainDiagVal = getAnswer("main_hoop_diagonals").value;
+    if ((mainDiagVal === "253-7-1" || mainDiagVal === "253-7-2") && file === otherMainDiagFile()) {
+      return { rowIds: ["top_left", "bottom_right"], weldElementId: "main_diagonal_welds", distElementId: null };
+    }
+    const rearLowerXVal = getAnswer("rear_lower_x_present").value;
+    if ((rearLowerXVal === "253-19-1" || rearLowerXVal === "253-19-2") && file === otherRearLowerXFile()) {
+      return { rowIds: ["top_left", "bottom_right"], weldElementId: null, distElementId: "rear_lower_x_distances" };
+    }
     if (file === "Rear diagonal 1.stl" || file === "Rear diagonal 2.stl") {
       if (roofVal === "253-12-1" || roofVal === "253-12-2") return { rowIds: ROOF_4_1_DIAG_ROWS, weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID };
       return null;
@@ -2852,9 +2906,22 @@
     const files = ROOF_BAR_FILES.concat(BACKSTAY_DIAG_FILES, [
       "Roof bar 253-14 left.stl", "Roof bar 253-14 right.stl",
       "Rear diagonal 253-22 left.stl", "Rear diagonal 253-22 right.stl",
+      MAIN_DIAG_TOP_RIGHT_FILE, MAIN_DIAG_TOP_LEFT_FILE,
+      "253-19 left.stl", "253-19 right.stl",
     ], APILLAR_FILES, APILLAR_2PIECE_FILES);
     ["left", "right"].forEach((side) => { files.push.apply(files, doorSideFiles(side, getAnswer("door_bars_" + side).value)); });
     return files;
+  }
+  // "253-19 left/right.stl" also each carry their OWN weld-completion
+  // answer (rear_lower_x_detail, keyed by physical leg identity rather
+  // than crossing position) regardless of which is continuous -- handled
+  // directly here, like mounting feet and the main-diagonal distances,
+  // rather than through part3RowTargetsForFile's crossing-only mapping.
+  function rearLowerXOwnWeldColor(file) {
+    const v = getAnswer("rear_lower_x_present").value;
+    if (v !== "253-19-1" && v !== "253-19-2") return null;
+    const row = file === "253-19 left.stl" ? "driver_top_codriver_bottom" : file === "253-19 right.stl" ? "codriver_top_driver_bottom" : null;
+    return row ? weldCellColor("rear_lower_x_detail", row) : null;
   }
   // Matches cage_view.js's own GHOST_COLOR -- used as a band half's color
   // when that half has no weld/distance answer yet, since a band-split spec
@@ -2883,10 +2950,12 @@
       if (getAnswer("roof_bars").value === "253-12-1" && colors["Roof bar 2.stl"] !== "hidden") {
         view["Roof bar 2.stl"] = { axis: "x", min: 179.52, max: 999, inside: weldRowsColor(ROOF_4_1_WELD_ID, ["rear_roof_left"]) || PART3_GHOST_HEX, outside: weldRowsColor(ROOF_4_1_WELD_ID, ["front_roof_right"]) || PART3_GHOST_HEX };
       }
+      setIfActive("253-19 left.stl", rearLowerXOwnWeldColor("253-19 left.stl"));
+      setIfActive("253-19 right.stl", rearLowerXOwnWeldColor("253-19 right.stl"));
       part3CandidateFiles().forEach((file) => {
         if (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1") return; // handled above as a band split
         const t = part3RowTargetsForFile(file);
-        if (t) setIfActive(file, weldRowsColor(t.weldElementId, t.rowIds));
+        if (t && t.weldElementId) setIfActive(file, weldRowsColor(t.weldElementId, t.rowIds));
       });
     } else {
       const backstayColor = distanceValueColor(getAnswer("backstay_distance_upper_laterals").value);
@@ -3317,8 +3386,6 @@
   const DOUBLE_CLICK_TOGGLE_MAP = {
     "Dash bar 253-29.stl": { elementId: "dash_bar_present", kind: "boolean" },
     "253-18.stl": { elementId: "rear_transversal_present", kind: "boolean" },
-    "253-19 left.stl": { elementId: "rear_lower_x_present", kind: "boolean" },
-    "253-19 right.stl": { elementId: "rear_lower_x_present", kind: "boolean" },
     "253-25 upper left.stl": { elementId: "anti_intrusion_present", kind: "boolean" },
     "253-25 lower left.stl": { elementId: "anti_intrusion_present", kind: "boolean" },
     "253-25 upper right.stl": { elementId: "anti_intrusion_present", kind: "boolean" },
@@ -3340,12 +3407,13 @@
   // only when that element has no answer yet.
   const AMBIGUOUS_ELEMENT_DEFAULTS = {
     main_structure_layout: "253-3",
-    main_hoop_diagonals: "253-7",
-    backstay_diagonals: "253-21",
+    main_hoop_diagonals: "253-7-1",
+    backstay_diagonals: "253-21-1",
     roof_bars: "253-12-1",
     door_bars_left: "253-9-intersection-1",
     door_bars_right: "253-9-intersection-1",
     a_pillar_reinforcement: "continuous",
+    rear_lower_x_present: "253-19-1",
   };
 
   // A gusset row's own design choice can be restricted to just one shape
@@ -3401,6 +3469,19 @@
         setAnswer(key, { value: cycle[(idx + 1) % cycle.length] });
         return;
       }
+      // "253-19 left/right.stl" each carry their OWN weld answer (keyed by
+      // physical leg, not crossing position -- see rearLowerXOwnWeldColor)
+      // regardless of which is continuous.
+      if (file === "253-19 left.stl" || file === "253-19 right.stl") {
+        const v = getAnswer("rear_lower_x_present").value;
+        if (v === "253-19-1" || v === "253-19-2") {
+          const row = file === "253-19 left.stl" ? "driver_top_codriver_bottom" : "codriver_top_driver_bottom";
+          const key = "rear_lower_x_detail__" + row + "__weld";
+          const idx = cycle.indexOf(getAnswer(key).value);
+          setAnswer(key, { value: cycle[(idx + 1) % cycle.length] });
+        }
+        return;
+      }
       // Roof bar 2 under "253-12-1" is a band-split mesh (2 rows, no
       // dedicated resolver entry -- see part3RowTargetsForFile) -- cycles
       // both halves' rows together in lockstep, same as Part 2's tubing
@@ -3408,7 +3489,7 @@
       const target = (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1")
         ? { rowIds: ["front_roof_right", "rear_roof_left"], weldElementId: ROOF_4_1_WELD_ID }
         : part3RowTargetsForFile(file);
-      if (target && target.rowIds.length) {
+      if (target && target.weldElementId && target.rowIds.length) {
         const keys = target.rowIds.map((r) => target.weldElementId + "__" + r + "__weld");
         const idx = cycle.indexOf(getAnswer(keys[0]).value);
         const next = cycle[(idx + 1) % cycle.length];

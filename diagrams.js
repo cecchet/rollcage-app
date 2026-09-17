@@ -78,6 +78,13 @@
   D["253-20"] = wrap(backstaysRear + `<path d="M40,15 L120,90" ${HI}/>`);
   D["253-20-right"] = wrap(backstaysRear + `<path d="M100,15 L20,90" ${HI}/>`);
   D["253-21"] = wrap(backstaysRear + `<path d="M40,15 L120,90 M100,15 L20,90" ${HI}/>`);
+  // 253-21's 2 fabrication variants, same convention as 253-9/253-12's own
+  // continuous-vs-cut icons: the continuous diagonal draws as one unbroken
+  // line, the other gets a small gap at the crossing. "Rear diagonal 1"
+  // (top-left to bottom-right) is "-1"'s continuous leg; "Rear diagonal 2"
+  // (top-right to bottom-left) is "-2"'s.
+  D["253-21-1"] = wrap(backstaysRear + `<path d="M40,15 L120,90" ${HI}/><path d="M100,15 L72,41 M48,64 L20,90" ${HI}/>`);
+  D["253-21-2"] = wrap(backstaysRear + `<path d="M100,15 L20,90" ${HI}/><path d="M40,15 L68,41 M92,64 L120,90" ${HI}/>`);
   // 253-22 is a V (apex at top center, legs down to both bottom corners) --
   // NOT a single diagonal.
   D["253-22"] = wrap(backstaysRear + `<path d="M20,90 L70,15 L120,90" ${HI}/>`);
@@ -87,6 +94,13 @@
   D["253-5"] = wrap(hoopFront + `<path d="M30,90 L70,45 L110,90" ${HI}/><path d="M45,60 L95,60" ${HI}/>`);
   D["253-6"] = wrap(hoopFront + `<path d="M30,90 L70,60 L110,90" ${HI}/><path d="M45,70 L95,70" ${HI}/>`);
   D["253-7"] = wrap(hoopFront + `<path d="M30,90 L110,20 M110,90 L30,20" ${HI}/>`);
+  // 253-7's 2 fabrication variants, same convention as 253-9/253-12/253-21's
+  // own continuous-vs-cut icons: the continuous diagonal draws as one
+  // unbroken line, the other gets a small gap at the crossing. "Main
+  // diagonal 1" (bottom-left to top-right) is "-1"'s continuous leg; "Main
+  // diagonal 2" (bottom-right to top-left) is "-2"'s.
+  D["253-7-1"] = wrap(hoopFront + `<path d="M30,90 L110,20" ${HI}/><path d="M110,90 L82,66 M58,45 L30,20" ${HI}/>`);
+  D["253-7-2"] = wrap(hoopFront + `<path d="M110,90 L30,20" ${HI}/><path d="M30,90 L58,66 M82,45 L110,20" ${HI}/>`);
   // Non-253-7 main-hoop-diagonal configurations -- captured for grandfathering
   // review / other disciplines, not compliant with FIA 253-7 new-construction.
   D["diag-left"] = wrap(hoopFront + `<path d="M30,20 L110,90" ${HI}/>`);
@@ -94,6 +108,15 @@
   D["diag-horizontal"] = wrap(hoopFront + `<path d="M30,55 L110,55" ${HI}/>`);
   D["diag-lower-half"] = wrap(hoopFront + `<path d="M30,55 L70,90 M110,55 L70,90" ${HI}/>`);
   D["diag-v-center"] = wrap(hoopFront + `<path d="M30,90 L70,20 L110,90" ${HI}/>`);
+
+  // ---- Rear lower X (253-19, rear view of the lower rear structure) ----
+  const rearLowerCtx = `<rect x="25" y="20" width="90" height="60" rx="4" ${CTX}/>`;
+  // Same continuous-vs-cut convention as 253-7/253-9/253-12/253-21: the
+  // continuous diagonal draws unbroken, the other gets a small gap at the
+  // crossing. "253-19 left" (top-left to bottom-right) is "-1"'s continuous
+  // leg; "253-19 right" (top-right to bottom-left) is "-2"'s.
+  D["253-19-1"] = wrap(rearLowerCtx + `<path d="M25,20 L115,80" ${HI}/><path d="M115,20 L84,41 M57,59 L25,80" ${HI}/>`);
+  D["253-19-2"] = wrap(rearLowerCtx + `<path d="M115,20 L25,80" ${HI}/><path d="M25,20 L57,41 M84,59 L115,80" ${HI}/>`);
 
   // ---- Door bars (side view of door opening) ----
   const doorOpening = `<rect x="25" y="15" width="90" height="70" rx="6" ${CTX}/>`;

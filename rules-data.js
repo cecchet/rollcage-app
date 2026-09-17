@@ -400,8 +400,14 @@
         { id: "main_structure_layout", in: ["253-1", "253-2", "253-3"] },
       ] },
       evaluationType: "choice",
+      // Like 253-9/253-12, which physical leg of the X is fabricated
+      // continuous vs. cut into 2 half-bars meeting at the crossing isn't
+      // fixed by the rule, so it's offered as 2 mirror-image options.
+      // "-1" keeps "Main diagonal 1" (the top-right-originating leg)
+      // continuous; "-2" mirrors it.
       options: [
-        { id: "253-7", label: "253-7: Two diagonals (X)", diagram: "253-7", outcome: "pass" },
+        { id: "253-7-1", label: "253-7: Two diagonals (X)", diagram: "253-7-1", outcome: "pass" },
+        { id: "253-7-2", label: "253-7: Two diagonals (X) (other diagonal continuous)", diagram: "253-7-2", outcome: "pass" },
         { id: "diag-left", label: "1 diagonal, top on left side", diagram: "diag-left", note: "A single diagonal does not satisfy FIA 253-7 for new rally construction. May be permitted for road racing, or eligible for grandfathering -- confirm with the applicable sanctioning body.", outcome: "fail" },
         { id: "diag-right", label: "1 diagonal, top on right side", diagram: "diag-right", note: "A single diagonal does not satisfy FIA 253-7 for new rally construction. May be permitted for road racing, or eligible for grandfathering -- confirm with the applicable sanctioning body.", outcome: "fail" },
         { id: "diag-horizontal", label: "1 horizontal bar", diagram: "diag-horizontal", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
@@ -493,10 +499,15 @@
       reference: "2020 FIA 253 Ch.8.3.2.1.1(b) and 8.3.2.2.1",
       description: "253-20 is the compulsory baseline. 253-21 (X-config) pairs with a 253-12 roof bar; 253-22 pairs with a 253-14 roof bar.",
       evaluationType: "choice",
+      // Like 253-7/253-9/253-12, which physical leg of the X is fabricated
+      // continuous vs. cut into 2 half-bars isn't fixed by the rule, so
+      // 253-21 is offered as 2 mirror-image options. "-1" keeps "Rear
+      // diagonal 1" continuous; "-2" mirrors it.
       options: [
         { id: "253-20", label: "253-20: Single diagonal, top left", diagram: "253-20", outcome: "pass" },
         { id: "253-20-right", label: "253-20: Single diagonal, top right", diagram: "253-20-right", outcome: "pass" },
-        { id: "253-21", label: "253-21: X-configuration", diagram: "253-21", outcome: "pass" },
+        { id: "253-21-1", label: "253-21: X-configuration", diagram: "253-21-1", outcome: "pass" },
+        { id: "253-21-2", label: "253-21: X-configuration (other diagonal continuous)", diagram: "253-21-2", outcome: "pass" },
         { id: "253-22", label: "253-22: V (mandatory with roof bar 253-14)", diagram: "253-22", outcome: "pass" },
         { id: "none", label: "None present", outcome: "fail" },
       ],
@@ -632,6 +643,48 @@
     return []; // "none" or unanswered -- nothing to classify yet
   }
 
+  // Main rollbar diagonal (253-7) and backstay diagonal (253-21) rows: same
+  // "1 continuous + 1 cut-in-2-half-bars" fabrication ambiguity as
+  // 253-9/253-12, but here BOTH legs of the X are already their own
+  // separate, complete meshes in the 3D model (nothing to band-split) -- so
+  // this is purely a row-label change once the design says which leg is
+  // continuous. The legacy/grandfathering configs (a single diagonal, an
+  // older non-X layout) have no such ambiguity, so they keep the original
+  // generic left/right rows.
+  function mainDiagonalTubeRows(value) {
+    if (value === "253-7-1" || value === "253-7-2") {
+      return [
+        { id: "main_diagonal_continuous", label: "253-7: Main rollbar diagonal -- Continuous" },
+        { id: "main_diagonal_other", label: "253-7: Main rollbar diagonal -- Other (2 half bars, same spec)" },
+      ];
+    }
+    return [
+      { id: "main_diagonals_left", label: "253-7: Main rollbar diagonal -- Left" },
+      { id: "main_diagonals_right", label: "253-7: Main rollbar diagonal -- Right" },
+    ];
+  }
+  function backstayDiagonalTubeRows(value) {
+    if (value === "253-21-1" || value === "253-21-2") {
+      return [
+        { id: "backstay_diag_continuous", label: "253-21: Backstay diagonal -- Continuous" },
+        { id: "backstay_diag_other", label: "253-21: Backstay diagonal -- Other (2 half bars, same spec)" },
+      ];
+    }
+    return [
+      { id: "backstay_diagonals_left", label: "Backstay diagonal -- Left" },
+      { id: "backstay_diagonals_right", label: "Backstay diagonal -- Right" },
+    ];
+  }
+  function rearLowerXTubeRows(value) {
+    if (value === "253-19-1" || value === "253-19-2") {
+      return [
+        { id: "rear_lower_x_continuous", label: "253-19: Rear lower X -- Continuous" },
+        { id: "rear_lower_x_other", label: "253-19: Rear lower X -- Other (2 half bars, same spec)" },
+      ];
+    }
+    return []; // "none" or unanswered -- nothing to classify yet
+  }
+
   // Roof bar rows vary the same way, but 253-12 is ONE shared X spanning the
   // whole roof (its two diagonal legs each run corner-to-corner, not two
   // independent per-side X's the way doors have) -- so there are only 2
@@ -732,7 +785,7 @@
     // gusset (at the diagonal brace's own crossing/junction, not the
     // backstay tubes themselves) -- the 253-20 (single diagonal) and
     // 253-22 (V) designs don't. Same 4-position pattern as 253-7.
-    if (getAnswer("backstay_diagonals").value === "253-21") {
+    if (getAnswer("backstay_diagonals").value === "253-21-1" || getAnswer("backstay_diagonals").value === "253-21-2") {
       rows.push(
         { id: "backstay_diag_left", label: "253-21: Backstay diagonal - left" },
         { id: "backstay_diag_right", label: "253-21: Backstay diagonal - right" },
@@ -809,7 +862,8 @@
     if (getAnswer("windshield_reinforcement_present").value === "yes") {
       rows.push({ id: "windshield_left", label: "Windshield bar junction - left" }, { id: "windshield_right", label: "Windshield bar junction - right" });
     }
-    if (getAnswer("rear_lower_x_present").value === "yes") {
+    const rearLowerXVal = getAnswer("rear_lower_x_present").value;
+    if (rearLowerXVal === "253-19-1" || rearLowerXVal === "253-19-2") {
       rows.push({ id: "rear_lower_x_left", label: "253-19: Rear lower X junction - left" }, { id: "rear_lower_x_right", label: "253-19: Rear lower X junction - right" });
     }
     return rows;
@@ -869,10 +923,8 @@
           { id: "transverse_member", label: "Transverse member(s)" },
           { id: "backstays_left", label: "Backstay -- Left" },
           { id: "backstays_right", label: "Backstay -- Right" },
-          { id: "backstay_diagonals_left", label: "Backstay diagonal -- Left" },
-          { id: "backstay_diagonals_right", label: "Backstay diagonal -- Right" },
-          { id: "main_diagonals_left", label: "253-7: Main rollbar diagonal -- Left" },
-          { id: "main_diagonals_right", label: "253-7: Main rollbar diagonal -- Right" },
+          ...backstayDiagonalTubeRows(getAnswer("backstay_diagonals").value),
+          ...mainDiagonalTubeRows(getAnswer("main_hoop_diagonals").value),
           ...roofBarTubeRows(getAnswer("roof_bars").value),
           ...doorBarTubeRowsForSide(getAnswer("door_bars_left").value, "left"),
           ...doorBarTubeRowsForSide(getAnswer("door_bars_right").value, "right"),
@@ -893,9 +945,7 @@
         if (getAnswer("rear_transversal_present").value === "yes") {
           rows.push({ id: "rear_transversal", label: "253-18: Rear transversal reinforcement" });
         }
-        if (getAnswer("rear_lower_x_present").value === "yes") {
-          rows.push({ id: "rear_lower_x_driver_top", label: "253-19: Rear lower X -- Driver top to codriver bottom" }, { id: "rear_lower_x_codriver_top", label: "253-19: Rear lower X -- Codriver top to driver bottom" });
-        }
+        rows.push(...rearLowerXTubeRows(getAnswer("rear_lower_x_present").value));
         if (getAnswer("anti_intrusion_present").value === "yes") {
           rows.push(
             { id: "anti_intrusion_left_upper", label: "253-25: Anti-intrusion -- Left upper" },
@@ -1022,6 +1072,22 @@
       columns: gussetColumns(),
       visuallyVerifiable: true,
       hardFail: false,
+    },
+    // The continuous leg is one uncut piece, so only the OTHER (cut) leg's
+    // 2 halves each need a weld at the crossing -- same 2 positions as the
+    // gusset table above, since the gusset reinforces that same joint.
+    {
+      id: "main_diagonal_welds",
+      name: "253-7: Main rollbar diagonal welds",
+      category: "Welds",
+      requirement: "required",
+      reference: "",
+      description: "Only the non-continuous diagonal's 2 half-bars need a weld here, where each meets the continuous leg at the crossing.",
+      evaluationType: "table",
+      rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
+      columns: WELD_COLUMNS,
+      visuallyVerifiable: true,
+      hardFail: true,
     },
   ];
 
@@ -1603,17 +1669,39 @@
       name: "Rear lower X (253-19) present",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "",
-      evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
+      // Like 253-7/253-9/253-12/253-21, which of the 2 diagonals is
+      // fabricated continuous vs. cut into 2 half-bars isn't fixed by the
+      // rule, so it's offered as 2 mirror-image options. "-1" keeps "253-19
+      // left" continuous; "-2" mirrors it.
+      evaluationType: "choice",
+      options: [
+        { id: "253-19-1", label: "253-19: Rear lower X", diagram: "253-19-1", outcome: "pass" },
+        { id: "253-19-2", label: "253-19: Rear lower X (other diagonal continuous)", diagram: "253-19-2", outcome: "pass" },
+        { id: "none", label: "None present", outcome: "fail" },
+      ],
+      visuallyVerifiable: true, hardFail: false,
     },
     {
       id: "rear_lower_x_detail",
-      name: "253-19 sections and welds",
+      name: "253-19 welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "",
-      showIf: { id: "rear_lower_x_present", equals: "yes" },
+      showIf: { id: "rear_lower_x_present", notEquals: "none" },
       evaluationType: "table",
       rows: [{ id: "driver_top_codriver_bottom", label: "Driver top to codriver bottom" }, { id: "codriver_top_driver_bottom", label: "Codriver top to driver bottom" }],
-      columns: [{ key: "sections", label: "# sections", type: "select", options: [{ id: "1", label: "1" }, { id: "2", label: "2" }] }, { key: "welds", label: "Welds complete", type: "boolean" }],
+      columns: WELD_COLUMNS,
+      visuallyVerifiable: true, hardFail: false,
+    },
+    {
+      id: "rear_lower_x_distances",
+      name: "253-19: Junction distances",
+      category: "Bar junction distances",
+      requirement: "recommended", reference: "", description: "Only the non-continuous diagonal's 2 half-bars need a distance measured here, where each meets the continuous leg at the crossing.",
+      showIf: { id: "rear_lower_x_present", notEquals: "none" },
+      evaluationType: "table",
+      rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
+      columns: DISTANCE_COLUMNS,
+      distanceQuickCheck: true,
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1621,7 +1709,7 @@
       name: "253-19 gussets",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "",
-      showIf: { id: "rear_lower_x_present", equals: "yes" },
+      showIf: { id: "rear_lower_x_present", notEquals: "none" },
       evaluationType: "table",
       rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
       columns: gussetColumns(),
