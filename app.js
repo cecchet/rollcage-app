@@ -1154,8 +1154,8 @@
         panel.appendChild(
           el("div", { class: "element-desc" }, [
             state.part3ViewMode === "weld"
-              ? "Double-click a highlighted bar in the 3D model to cycle its weld status: green = complete, red = incomplete, ghost = not yet checked. Currently wired up for mounting feet only -- other bars stay ghost here for now."
-              : "Bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Currently wired up for the main-rollbar diagonals and backstays only -- other bars stay ghost here for now.",
+              ? "Double-click a highlighted bar in the 3D model to cycle its weld status: green = complete, red = incomplete, ghost = not yet checked. Some bars combine several weld points into one color (worst case wins) where the exact tube-to-weld-point geometry isn't verified -- door bars, and one leg of a 253-12 roof/253-21 rear diagonal."
+              : "Bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Door bars have no junction-distance data to show here.",
           ])
         );
       }
@@ -1892,7 +1892,7 @@
       "diag-horizontal": "red", "diag-lower-half": "red", "diag-v-center": "red",
     }[v] || null),
     roof_bars: (v) => ({
-      "253-12": "green", "253-14": "green",
+      "253-12-1": "green", "253-12-2": "green", "253-14": "green",
       "rb-4": "orange",
       "253-13": "red", "single-center": "red", "single-front-left": "red", "single-front-right": "red", "none": "red",
     }[v] || null),
@@ -2370,12 +2370,13 @@
     mounting_feet_count: (v) => (v === "yes" ? { files: FEET_FILES, color: CAGE_COLOR.foot } : null),
     mounting_feet_gf: (v) => (v === "yes" ? { files: FEET_FILES, color: CAGE_COLOR.foot } : null),
 
-    // 253-12 uses the original generic roof-bar parts; 253-14 and 253-13
-    // (captured for identification even though it's a known-deficient
-    // design) each have their own dedicated geometry (extracted from
-    // "all options rollcage.3mf").
+    // 253-12 (either build variant -- see roofBarFileTubeRow) uses the
+    // original generic roof-bar parts; 253-14 and 253-13 (captured for
+    // identification even though it's a known-deficient design) each have
+    // their own dedicated geometry (extracted from "all options
+    // rollcage.3mf").
     roof_bars: (v) => {
-      if (v === "253-12") return { files: ROOF_BAR_FILES, color: CAGE_COLOR.roofBar };
+      if (v === "253-12-1" || v === "253-12-2") return { files: ROOF_BAR_FILES, color: CAGE_COLOR.roofBar };
       if (v === "253-14") return { files: ["Roof bar 253-14 left.stl", "Roof bar 253-14 right.stl"], color: CAGE_COLOR.roofBar };
       if (v === "253-13") return { files: ["Roof bar 253-13 left.stl", "Roof bar 253-13 right.stl"], color: CAGE_COLOR.roofBar };
       if (v === "single-center") return { files: ["Roof bar single center.stl"], color: CAGE_COLOR.roofBar };
@@ -2625,11 +2626,17 @@
   // (corner-to-corner each, not two independent per-side X's like doors --
   // see the diagram note on roof_bars' rule above), so for 253-12 there are
   // only 2 real tube pieces total, fabricated the same "1 continuous + 2
-  // half bars" way as 253-9: "Roof bar 1" is treated as the continuous leg;
-  // "Roof bar 2" is NOT mapped here -- see tubeRowSplitBand() below.
+  // half bars" way as 253-9: for "-1" (the default/verified build), "Roof
+  // bar 1" is the continuous leg and "Roof bar 2" is NOT mapped here -- see
+  // tubeRowSplitBand() below, which splits it into front/rear halves. "-2"
+  // mirrors which leg is continuous, but "Roof bar 1" has no verified
+  // front/rear split threshold of its own, so it's a single "r12_other" row
+  // (not band-split) in that variant instead.
   function roofBarFileTubeRow(file) {
     const roofVal = getAnswer("roof_bars").value;
-    if (roofVal === "253-12" && file === "Roof bar 1.stl") return "r12_continuous";
+    if (roofVal === "253-12-1" && file === "Roof bar 1.stl") return "r12_continuous";
+    if (roofVal === "253-12-2" && file === "Roof bar 2.stl") return "r12_continuous";
+    if (roofVal === "253-12-2" && file === "Roof bar 1.stl") return "r12_other";
     if (roofVal === "253-13" || roofVal === "253-14") {
       if (file === "Roof bar 253-13 left.stl" || file === "Roof bar 253-14 left.stl") return "roof_bars_left";
       if (file === "Roof bar 253-13 right.stl" || file === "Roof bar 253-14 right.stl") return "roof_bars_right";
@@ -2655,7 +2662,7 @@
     if (isDoor9Intersection(getAnswer("door_bars_right").value) && file === otherDoorTubeFile("right")) {
       return { axis: "z", min: 29.085, max: 999, insideRow: "d9x_right_upper_half", outsideRow: "d9x_right_lower_half" };
     }
-    if (getAnswer("roof_bars").value === "253-12" && file === "Roof bar 2.stl") {
+    if (getAnswer("roof_bars").value === "253-12-1" && file === "Roof bar 2.stl") {
       return { axis: "x", min: 179.52, max: 999, insideRow: "r12_rear_half", outsideRow: "r12_front_half" };
     }
     return null;
@@ -2709,16 +2716,13 @@
   // ---- Part 3 Weld view / Bar junctions view ----------------------------
   // Highlights, in the live 3D model, whichever bars currently have a
   // weld-completion answer (Weld view) or a junction-distance answer (Bar
-  // junctions view) -- scoped for now to the bars whose physical file
-  // identity is already unambiguous elsewhere in this file: mounting feet,
-  // the 2 main-rollbar-diagonal tubes, and the 2 backstays. Roof/door/
-  // windshield welds and distances aren't wired up yet -- each of those
-  // tables' rows span sub-sections of a single shared tube (e.g. one
-  // continuous 253-12 roof tube covers 4 of its own 8 weld rows), which
-  // needs its own verified per-tube geometry breakdown before it can
-  // highlight correctly rather than guessing; those bars just render as
-  // ghost (same as "not checked") in both views for now, same as anything
-  // truly out of scope.
+  // junctions view). Mounting feet, the main-rollbar diagonals, and the
+  // backstays map 1:1 to their own table row. Everything else -- roof
+  // bars/rear diagonal, windshield support bar, door bars -- has a table
+  // whose rows are named by which corner/section of a shared tube each weld
+  // belongs to; part3RowTargetsForFile() below resolves each such file to
+  // its table + the row ids that apply to it, so this stays one shared
+  // aggregation instead of a bespoke branch per bar.
   function weldCellColor(elementId, rowId) {
     const v = getAnswer(elementId + "__" + rowId + "__weld").value;
     if (v === "yes") return CAGE_COLOR.statusPass;
@@ -2745,6 +2749,117 @@
     if (colors.every(Boolean)) return CAGE_COLOR.statusPass;
     return null;
   }
+  // Folds several rows' weld/distance answers down to one worst-case color
+  // for a single mesh: red if any row is failing, green only once every row
+  // is confirmed passing, ghost (null) otherwise -- used any time one
+  // physical tube's status is really the combination of several rows in a
+  // checklist table rather than a 1:1 row.
+  function aggregateColor(colorList) {
+    if (colorList.indexOf(CAGE_COLOR.statusFail) !== -1) return CAGE_COLOR.statusFail;
+    if (colorList.length && colorList.every(Boolean)) return CAGE_COLOR.statusPass;
+    return null;
+  }
+  function weldRowsColor(elementId, rowIds) {
+    return aggregateColor(rowIds.map((r) => weldCellColor(elementId, r)));
+  }
+  function distanceRowsColor(elementId, rowIds) {
+    return aggregateColor(rowIds.map((r) => distanceValueColor(getAnswer(elementId + "__" + r + "__distance").value)));
+  }
+  const ROOF_4_1_WELD_ID = "roof_4_1_measurements_welds";
+  const ROOF_4_1_DIST_ID = "roof_4_1_distances";
+  // The rear-diagonal (253-21) half of this shared 8-row table has no
+  // verified per-tube geometry -- "Rear diagonal 1/2.stl" cross in a true X
+  // (verified: 1 runs top-left to bottom-right, 2 top-right to
+  // bottom-left), and it isn't confirmed whether "top_rear_diag_left"/
+  // "bottom_rear_diag_left" name one tube's 2 ends or 2 different tubes'
+  // same-side corner -- so both files just share one aggregate of all 4
+  // diag rows instead of guessing a split.
+  const ROOF_4_1_DIAG_ROWS = ["top_rear_diag_left", "bottom_rear_diag_left", "top_rear_diag_right", "bottom_rear_diag_right"];
+  const ROOF_4_2_WELD_ID = "roof_4_2_measurements_welds";
+  const ROOF_4_2_DIST_ID = "roof_4_2_distances";
+  const WINDSHIELD_WELD_ID = "windshield_welds";
+  const WINDSHIELD_DIST_ID = "windshield_distances";
+  function doorWeldElementId(doorVal) {
+    if (isDoor9Intersection(doorVal)) return "door_9_intersection_welds";
+    if (doorVal === "253-9-bent") return "door_9_2bar_welds";
+    if (doorVal === "253-10") return "door_10_welds";
+    if (doorVal === "253-11") return "door_11_welds";
+    return null;
+  }
+  function doorWeldRowIds(side, doorVal) {
+    if (isDoor9Intersection(doorVal)) return ["front_top_" + side, "front_bottom_" + side, "center_front_" + side, "center_rear_" + side, "top_rear_" + side, "bottom_rear_" + side];
+    if (doorVal === "253-9-bent") return ["front_top_" + side, "front_bottom_" + side, "top_rear_" + side, "bottom_rear_" + side];
+    if (doorVal === "253-10") return ["front_top_" + side, "front_lower_" + side, "center_" + side, "rear_top_" + side, "rear_lower_" + side];
+    if (doorVal === "253-11") return ["front_top_" + side, "front_lower_" + side, "rear_top_" + side, "rear_lower_" + side];
+    return [];
+  }
+  // Every physical mesh belonging to a door-bar side -- unlike the roof/
+  // windshield tables, a door-bar table's rows aren't verified against
+  // which exact tube each weld point sits on, so every mesh on that side
+  // (continuous tube + split tube, or upper/front/rear for 253-10) shares
+  // one worst-case aggregate of the whole side's rows instead.
+  function doorSideFiles(side, doorVal) {
+    if (isDoor9Intersection(doorVal)) return [continuousDoorTubeFile(side), otherDoorTubeFile(side)];
+    if (doorVal === "253-9-bent") { const cap = side === "left" ? "Left" : "Right"; return [cap + " door bar 1-  253-9.stl", cap + " door bar 2-  253-9.stl"]; }
+    if (doorVal === "253-10") return ["Door bar 253-10 upper " + side + ".stl", "Door bar 253-10 front " + side + ".stl", "Door bar 253-10 rear " + side + ".stl"];
+    if (doorVal === "253-11") return [side === "left" ? "Left door bar 2-  253-9.stl" : "Right door bar 1-  253-9.stl"];
+    return [];
+  }
+  // Resolves one mesh file to the table (weld + distance element id) and
+  // row ids that apply to it, for every bar beyond mounting feet/main
+  // diagonals/backstays (which stay handled directly in applyPart3View,
+  // since they're already simple 1:1 mappings). Roof bar 2 under "253-12-1"
+  // is deliberately NOT resolved here for weld/distance coloring -- it's a
+  // true band-split (see the verified x=179.52 threshold already used by
+  // tubeRowSplitBand), handled separately in applyPart3View -- but IS
+  // resolved here for double-click cycling, which (like the Part 2 tubing
+  // view) just cycles both halves' rows together in lockstep.
+  function part3RowTargetsForFile(file) {
+    const roofVal = getAnswer("roof_bars").value;
+    if (file === "Rear diagonal 1.stl" || file === "Rear diagonal 2.stl") {
+      if (roofVal === "253-12-1" || roofVal === "253-12-2") return { rowIds: ROOF_4_1_DIAG_ROWS, weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID };
+      return null;
+    }
+    if (file === "Roof bar 1.stl" && (roofVal === "253-12-1" || roofVal === "253-12-2")) {
+      return { rowIds: ["front_roof_left", "rear_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID };
+    }
+    if (file === "Roof bar 2.stl" && (roofVal === "253-12-1" || roofVal === "253-12-2")) {
+      return { rowIds: ["front_roof_right", "rear_roof_left"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID };
+    }
+    if (file === "Roof bar 253-14 left.stl") return { rowIds: ["front_roof_left", "center_roof_left"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID };
+    if (file === "Roof bar 253-14 right.stl") return { rowIds: ["front_roof_right", "center_roof_right"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID };
+    if (file === "Rear diagonal 253-22 left.stl") return { rowIds: ["top_rear_left", "bottom_rear_left"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID };
+    if (file === "Rear diagonal 253-22 right.stl") return { rowIds: ["top_rear_right", "bottom_rear_right"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID };
+    if (file === "253-15 Left.stl") return { rowIds: ["top_left", "center_top_left", "center_lower_left", "bottom_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    if (file === "253-15 Right.stl") return { rowIds: ["top_right", "center_top_right", "center_lower_right", "bottom_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    if (file === "253-15 left upper.stl") return { rowIds: ["top_left", "center_top_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    if (file === "253-15 left lower.stl") return { rowIds: ["center_lower_left", "bottom_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    if (file === "253-15 right upper.stl") return { rowIds: ["top_right", "center_top_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    if (file === "253-15 right lower.stl") return { rowIds: ["center_lower_right", "bottom_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    for (const side of ["left", "right"]) {
+      const doorVal = getAnswer("door_bars_" + side).value;
+      const elementId = doorWeldElementId(doorVal);
+      if (!elementId) continue;
+      if (doorSideFiles(side, doorVal).indexOf(file) !== -1) return { rowIds: doorWeldRowIds(side, doorVal), weldElementId: elementId, distElementId: null };
+    }
+    return null;
+  }
+  // Files part3RowTargetsForFile() can ever resolve, gathered once for
+  // applyPart3View() to iterate -- door-bar file identity depends on the
+  // currently-selected design per side, so this recomputes on every call
+  // rather than being a fixed list.
+  function part3CandidateFiles() {
+    const files = ROOF_BAR_FILES.concat(BACKSTAY_DIAG_FILES, [
+      "Roof bar 253-14 left.stl", "Roof bar 253-14 right.stl",
+      "Rear diagonal 253-22 left.stl", "Rear diagonal 253-22 right.stl",
+    ], APILLAR_FILES, APILLAR_2PIECE_FILES);
+    ["left", "right"].forEach((side) => { files.push.apply(files, doorSideFiles(side, getAnswer("door_bars_" + side).value)); });
+    return files;
+  }
+  // Matches cage_view.js's own GHOST_COLOR -- used as a band half's color
+  // when that half has no weld/distance answer yet, since a band-split spec
+  // (unlike a flat color) has no separate "ghost" state of its own.
+  const PART3_GHOST_HEX = "#555a60";
   function applyPart3View(colors) {
     const mode = state.part3ViewMode;
     if (mode !== "weld" && mode !== "junction") return colors;
@@ -2765,12 +2880,28 @@
         const color = weldCellColor("mounting_feet_table", row);
         [plateFile, footCubeFile(row), doublePlaneFile(row), rockerBaseFile(row), rockerFoldFile(row)].forEach((f) => setIfActive(f, color));
       });
+      if (getAnswer("roof_bars").value === "253-12-1" && colors["Roof bar 2.stl"] !== "hidden") {
+        view["Roof bar 2.stl"] = { axis: "x", min: 179.52, max: 999, inside: weldRowsColor(ROOF_4_1_WELD_ID, ["rear_roof_left"]) || PART3_GHOST_HEX, outside: weldRowsColor(ROOF_4_1_WELD_ID, ["front_roof_right"]) || PART3_GHOST_HEX };
+      }
+      part3CandidateFiles().forEach((file) => {
+        if (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1") return; // handled above as a band split
+        const t = part3RowTargetsForFile(file);
+        if (t) setIfActive(file, weldRowsColor(t.weldElementId, t.rowIds));
+      });
     } else {
       const backstayColor = distanceValueColor(getAnswer("backstay_distance_upper_laterals").value);
       setIfActive("Left backstay.stl", backstayColor);
       setIfActive("Right backstay.stl", backstayColor);
       setIfActive(MAIN_DIAG_TOP_RIGHT_FILE, mainDiagonalJunctionColor(MAIN_DIAG_TOP_RIGHT_FILE));
       setIfActive(MAIN_DIAG_TOP_LEFT_FILE, mainDiagonalJunctionColor(MAIN_DIAG_TOP_LEFT_FILE));
+      if (getAnswer("roof_bars").value === "253-12-1" && colors["Roof bar 2.stl"] !== "hidden") {
+        view["Roof bar 2.stl"] = { axis: "x", min: 179.52, max: 999, inside: distanceRowsColor(ROOF_4_1_DIST_ID, ["rear_roof_left"]) || PART3_GHOST_HEX, outside: distanceRowsColor(ROOF_4_1_DIST_ID, ["front_roof_right"]) || PART3_GHOST_HEX };
+      }
+      part3CandidateFiles().forEach((file) => {
+        if (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1") return; // handled above as a band split
+        const t = part3RowTargetsForFile(file);
+        if (t && t.distElementId) setIfActive(file, distanceRowsColor(t.distElementId, t.rowIds));
+      });
     }
     return view;
   }
@@ -3211,7 +3342,7 @@
     main_structure_layout: "253-3",
     main_hoop_diagonals: "253-7",
     backstay_diagonals: "253-21",
-    roof_bars: "253-12",
+    roof_bars: "253-12-1",
     door_bars_left: "253-9-intersection-1",
     door_bars_right: "253-9-intersection-1",
     a_pillar_reinforcement: "continuous",
@@ -3263,11 +3394,25 @@
     // applyPart3View() knows how to color (see its own comment for why).
     if (state.activeTab === 3 && state.part3ViewMode === "weld") {
       const weldFootRow = footRowForFile(file);
+      const cycle = ["yes", "no", ""];
       if (weldFootRow) {
         const key = "mounting_feet_table__" + weldFootRow + "__weld";
-        const cycle = ["yes", "no", ""];
         const idx = cycle.indexOf(getAnswer(key).value);
         setAnswer(key, { value: cycle[(idx + 1) % cycle.length] });
+        return;
+      }
+      // Roof bar 2 under "253-12-1" is a band-split mesh (2 rows, no
+      // dedicated resolver entry -- see part3RowTargetsForFile) -- cycles
+      // both halves' rows together in lockstep, same as Part 2's tubing
+      // view already does for its own band-split files.
+      const target = (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1")
+        ? { rowIds: ["front_roof_right", "rear_roof_left"], weldElementId: ROOF_4_1_WELD_ID }
+        : part3RowTargetsForFile(file);
+      if (target && target.rowIds.length) {
+        const keys = target.rowIds.map((r) => target.weldElementId + "__" + r + "__weld");
+        const idx = cycle.indexOf(getAnswer(keys[0]).value);
+        const next = cycle[(idx + 1) % cycle.length];
+        keys.forEach((key) => setAnswer(key, { value: next }));
       }
       return;
     }

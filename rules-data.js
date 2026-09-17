@@ -641,11 +641,21 @@
   // designs keep the existing left/right/center split -- no fabrication
   // ambiguity has been raised for those.
   function roofBarTubeRows(roofVal) {
-    if (roofVal === "253-12") {
+    if (roofVal === "253-12-1") {
       return [
         { id: "r12_continuous", label: "253-12: Roof bar -- Continuous bar" },
         { id: "r12_front_half", label: "253-12: Roof bar -- Front half bar" },
         { id: "r12_rear_half", label: "253-12: Roof bar -- Rear half bar" },
+      ];
+    }
+    // "-2" (mirror build) doesn't have a verified front/rear split
+    // threshold for "Roof bar 1" the way "-1" does for "Roof bar 2" (see
+    // tubeRowSplitBand) -- so its own half-tube is one combined row for
+    // now instead of guessing an unmeasured geometry threshold.
+    if (roofVal === "253-12-2") {
+      return [
+        { id: "r12_continuous", label: "253-12: Roof bar -- Continuous bar" },
+        { id: "r12_other", label: "253-12: Roof bar -- Other diagonal (front+rear half, unsplit)" },
       ];
     }
     if (roofVal === "253-13" || roofVal === "253-14") {
@@ -733,7 +743,7 @@
     // Same 4-position pattern as 253-7, just left/right/front/rear instead
     // of left/right/upper/lower. Only the 253-12 roof bar design needs this
     // gusset -- 253-14, 253-13, and the single-bar variants don't.
-    if (getAnswer("roof_bars").value === "253-12") {
+    if (getAnswer("roof_bars").value === "253-12-1" || getAnswer("roof_bars").value === "253-12-2") {
       rows.push(
         { id: "roof_left", label: "253-12: Roof bar junction - left" },
         { id: "roof_right", label: "253-12: Roof bar junction - right" },
@@ -1003,7 +1013,15 @@
     showIf: { id: "lateral_rollbars_other", notEquals: "none" },
     evaluationType: "choice",
     options: [
-      { id: "253-12", label: "253-12", diagram: "253-12", outcome: "pass" },
+      // Like 253-9's door bars, 253-12's own X is fabricated as 1
+      // continuous diagonal + the other diagonal cut into front/rear half
+      // bars meeting it at the crossing -- not fixed by the FIA rule, so
+      // (same reasoning as 253-9-intersection-1/-2) offered as 2 mirror-
+      // image options rather than assumed. "-1" is the continuous-leg-on-
+      // the-front-left-to-rear-right-diagonal build (front-left/rear-right
+      // corners); "-2" is the mirror (front-right/rear-left continuous).
+      { id: "253-12-1", label: "253-12: 1 continuous bar + 2 half bars", diagram: "253-12", outcome: "pass" },
+      { id: "253-12-2", label: "253-12: 1 continuous bar + 2 half bars (other diagonal continuous)", diagram: "253-12", outcome: "pass" },
       { id: "253-14", label: "253-14", diagram: "253-14", outcome: "pass" },
       { id: "253-13", label: "253-13", diagram: "253-13", note: "No front roof corner support -- known to be deficient and does not satisfy FIA 253 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
       { id: "single-center", label: "Single bar center", diagram: "roof-single-center", note: "A single center roof bar does not satisfy FIA 253-12/253-14 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
@@ -1066,7 +1084,7 @@
       requirement: "required",
       reference: "",
       description: "",
-      showIf: { id: "roof_bars", equals: "253-12" },
+      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
       evaluationType: "table",
       rows: ROOF_4_1_WELD_ROWS,
       columns: DISTANCE_COLUMNS,
@@ -1081,7 +1099,7 @@
       requirement: "required",
       reference: "",
       description: "",
-      showIf: { id: "roof_bars", equals: "253-12" },
+      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
       evaluationType: "table",
       rows: ROOF_4_1_WELD_ROWS,
       columns: WELD_COLUMNS,
@@ -1095,7 +1113,7 @@
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1.5",
       description: "",
-      showIf: { id: "roof_bars", equals: "253-12" },
+      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
       evaluationType: "table",
       rows: [{ id: "front_left", label: "Front or Left" }, { id: "rear_right", label: "Rear or Right" }],
       columns: gussetColumns(),
@@ -1109,7 +1127,7 @@
       requirement: "recommended",
       reference: "",
       description: "",
-      showIf: { id: "roof_bars", equals: "253-12" },
+      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
       evaluationType: "table",
       rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
       columns: gussetColumns(),
@@ -1320,7 +1338,7 @@
     {
       id: "door_10_rocker_plate",
       name: "253-10: Rocker plate",
-      category: "5.2. Door bars -- 253-10 (triangle design)",
+      category: "Welds",
       requirement: "conditional", reference: "", description: "If no sill bar is used with this configuration, the bottom of the V must be secured to the chassis with a plate similar to a rear backstay mounting foot.",
       showIf: DOOR_10_SHOWIF,
       evaluationType: "table",
