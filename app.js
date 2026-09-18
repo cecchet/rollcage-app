@@ -2961,8 +2961,14 @@
           return { rowIds: ["front_top_" + side, "bottom_rear_" + side], weldElementId: elementId, distElementId: null };
         }
         if (file === otherDoorTubeFile(side)) {
+          // Order matches the verified low-to-high z split in
+          // doorOtherSplitSpec (front_bottom/center_front below the
+          // crossing threshold, center_rear/top_rear above it) -- this is
+          // the SAME array both the visual band-split and the double-click
+          // hit-test key off of, so what lights up always matches what got
+          // clicked.
           return {
-            rowIds: ["center_front_" + side, "front_bottom_" + side, "center_rear_" + side, "top_rear_" + side],
+            rowIds: ["front_bottom_" + side, "center_front_" + side, "center_rear_" + side, "top_rear_" + side],
             weldElementId: elementId, distElementId: null, doorOtherSplitSide: side,
           };
         }
@@ -3050,14 +3056,16 @@
   // crossing point for a diagonal tube. Lower half aggregates its own far
   // corner (front-bottom) with its own gusset-to-continuous-leg weld;
   // upper half does the same toward the top-rear corner.
-  function doorOtherSplitSpec(file, elementId, side) {
+  function doorOtherSplitSpec(file, elementId, rowIds) {
     // Four real weld points on one physical tube: the two outer/corner
     // welds (front_bottom, top_rear) the driver actually looks at, plus two
     // inner welds at the X crossing (center_front, center_rear). Each gets
     // its own segment -- rather than aggregating the corner with its
     // nearby crossing weld -- so e.g. top_rear can read green even when
-    // center_rear (a separate weld) is still failing.
-    const rowIds = ["front_bottom_" + side, "center_front_" + side, "center_rear_" + side, "top_rear_" + side];
+    // center_rear (a separate weld) is still failing. rowIds is passed in
+    // (from part3RowTargetsForFile) rather than redeclared here, so the
+    // double-click hit-test and this visual split can never disagree on
+    // which row is which segment.
     const band = tubeRowSplitBand(file);
     const bounds = band && window.CageView && window.CageView.getMeshBoundsForAxis
       ? window.CageView.getMeshBoundsForAxis(file, band.axis) : null;
@@ -3111,6 +3119,18 @@
         const color = weldCellColor("mounting_feet_table", row);
         [plateFile, footCubeFile(row), doublePlaneFile(row), rockerBaseFile(row), rockerFoldFile(row)].forEach((f) => setIfActive(f, color));
       });
+      // The base-structure pillars themselves, not just their foot plates --
+      // "mounting_feet_table" is really each pillar's own base weld (leg to
+      // foot), so the leg should read the same status as its foot. Laterals
+      // and backstays are already separate meshes per side; the main hoop is
+      // one continuous mesh for both legs, so it gets the same low-to-high-Y
+      // band split as the left/right foot meshes it's verified to align with
+      // (low Y = left leg, matching "Foot main rollbar left.stl").
+      setIfActive("Front left lateral.stl", weldCellColor("mounting_feet_table", "front_left"));
+      setIfActive("Front right lateral.stl", weldCellColor("mounting_feet_table", "front_right"));
+      setIfActive("Left backstay.stl", weldCellColor("mounting_feet_table", "backstay_left"));
+      setIfActive("Right backstay.stl", weldCellColor("mounting_feet_table", "backstay_right"));
+      setIfActive("Main rollbar.stl", weldSpec("Main rollbar.stl", "mounting_feet_table", ["main_hoop_left", "main_hoop_right"]));
       if (getAnswer("roof_bars").value === "253-12-1" && colors["Roof bar 2.stl"] !== "hidden") {
         view["Roof bar 2.stl"] = { axis: "x", min: 179.52, max: 999, inside: weldRowsColor(ROOF_4_1_WELD_ID, ["rear_roof_left"]) || PART3_GHOST_HEX, outside: weldRowsColor(ROOF_4_1_WELD_ID, ["front_roof_right"]) || PART3_GHOST_HEX };
       }
@@ -3124,7 +3144,7 @@
         if (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1") return; // handled above as a band split
         const t = part3RowTargetsForFile(file);
         if (!t || !t.weldElementId) { setIfActive(file, null); return; }
-        setIfActive(file, t.doorOtherSplitSide ? doorOtherSplitSpec(file, t.weldElementId, t.doorOtherSplitSide) : weldSpec(file, t.weldElementId, t.rowIds));
+        setIfActive(file, t.doorOtherSplitSide ? doorOtherSplitSpec(file, t.weldElementId, t.rowIds) : weldSpec(file, t.weldElementId, t.rowIds));
       });
     } else {
       const backstayColor = distanceValueColor(getAnswer("backstay_distance_upper_laterals").value);
@@ -3713,13 +3733,13 @@
       // rows regardless of variant, so no special case is needed here.)
       const target = part3RowTargetsForFile(file);
       if (target && target.weldElementId && target.rowIds.length) {
-        // The 253-9-intersection cut leg's 4 listed rows are really 2 REAL
-        // halves (see doorOtherSplitSpec) -- cycle each half's 2 rows
-        // together in lockstep, split by fraction, rather than treating
-        // all 4 as independently clickable points.
-        const rowGroups = target.doorOtherSplitSide
-          ? [["center_front_" + target.doorOtherSplitSide, "front_bottom_" + target.doorOtherSplitSide], ["center_rear_" + target.doorOtherSplitSide, "top_rear_" + target.doorOtherSplitSide]]
-          : target.rowIds.map((r) => [r]);
+        // Each of a bar's listed rows (up to 4, for the 253-9-intersection
+        // cut leg -- see doorOtherSplitSpec) is now its own independently
+        // colored segment, so it needs to be its own independently
+        // clickable zone too -- matching group count to color-segment count
+        // keeps "what you click is what lights up" true for all 4 points,
+        // not just the 2 outer corners.
+        const rowGroups = target.rowIds.map((r) => [r]);
         const group = nearestRowGroupByFraction(rowGroups, frac);
         const keys = group.map((r) => target.weldElementId + "__" + r + "__weld");
         const idx = cycle.indexOf(getAnswer(keys[0]).value);
