@@ -2937,6 +2937,43 @@
       const doorVal = getAnswer("door_bars_" + side).value;
       const elementId = doorWeldElementId(doorVal);
       if (!elementId) continue;
+      // Each door-bar file gets just the weld rows for its OWN end(s) --
+      // door_9_intersection_welds' rows are named by which corner/junction
+      // they're at, not by tube identity, but each row still belongs to
+      // exactly one physical tube (or one HALF of the cut tube):
+      // - The continuous leg runs corner-to-corner (front-top to
+      //   rear-bottom) with no crossing joint of its own, so its 2 rows are
+      //   just its own 2 far ends.
+      // - The cut leg's 2 halves each have their own far corner PLUS their
+      //   own gusset point where they weld to the continuous leg at the
+      //   crossing -- resolved to an actual 2-way split using the SAME
+      //   verified z-threshold tubeRowSplitBand() already uses for this
+      //   mesh in Part 2 (see applyPart3View's doorOtherSplitSide
+      //   handling), not a generic bounding-box guess.
+      if (isDoor9Intersection(doorVal)) {
+        if (file === continuousDoorTubeFile(side)) {
+          return { rowIds: ["front_top_" + side, "bottom_rear_" + side], weldElementId: elementId, distElementId: null };
+        }
+        if (file === otherDoorTubeFile(side)) {
+          return {
+            rowIds: ["center_front_" + side, "front_bottom_" + side, "center_rear_" + side, "top_rear_" + side],
+            weldElementId: elementId, distElementId: null, doorOtherSplitSide: side,
+          };
+        }
+        continue;
+      }
+      if (doorVal === "253-9-bent") {
+        const cap = side === "left" ? "Left" : "Right";
+        if (file === cap + " door bar 1-  253-9.stl") return { rowIds: ["front_top_" + side, "top_rear_" + side], weldElementId: elementId, distElementId: null };
+        if (file === cap + " door bar 2-  253-9.stl") return { rowIds: ["front_bottom_" + side, "bottom_rear_" + side], weldElementId: elementId, distElementId: null };
+        continue;
+      }
+      if (doorVal === "253-10") {
+        if (file === "Door bar 253-10 upper " + side + ".stl") return { rowIds: ["center_" + side], weldElementId: elementId, distElementId: null };
+        if (file === "Door bar 253-10 front " + side + ".stl") return { rowIds: ["front_top_" + side, "front_lower_" + side], weldElementId: elementId, distElementId: null };
+        if (file === "Door bar 253-10 rear " + side + ".stl") return { rowIds: ["rear_top_" + side, "rear_lower_" + side], weldElementId: elementId, distElementId: null };
+        continue;
+      }
       if (doorSideFiles(side, doorVal).indexOf(file) !== -1) return { rowIds: doorWeldRowIds(side, doorVal), weldElementId: elementId, distElementId: null };
     }
     return null;
@@ -3000,6 +3037,30 @@
   function weldSpec(file, elementId, rowIds) {
     return bandSplitOrAggregate(file, rowIds, (r) => weldCellColor(elementId, r), () => weldRowsColor(elementId, rowIds));
   }
+  // 253-9-intersection's cut leg: a real, VERIFIED z-threshold split
+  // (tubeRowSplitBand -- the exact same one already used for this mesh in
+  // Part 2's own tube classification) instead of a generic bounding-box
+  // guess, since a plain even split doesn't reliably land at the true
+  // crossing point for a diagonal tube. Lower half aggregates its own far
+  // corner (front-bottom) with its own gusset-to-continuous-leg weld;
+  // upper half does the same toward the top-rear corner.
+  function doorOtherSplitSpec(file, elementId, side) {
+    // Four real weld points on one physical tube: the two outer/corner
+    // welds (front_bottom, top_rear) the driver actually looks at, plus two
+    // inner welds at the X crossing (center_front, center_rear). Each gets
+    // its own segment -- rather than aggregating the corner with its
+    // nearby crossing weld -- so e.g. top_rear can read green even when
+    // center_rear (a separate weld) is still failing.
+    const rowIds = ["front_bottom_" + side, "center_front_" + side, "center_rear_" + side, "top_rear_" + side];
+    const band = tubeRowSplitBand(file);
+    const bounds = band && window.CageView && window.CageView.getMeshBoundsForAxis
+      ? window.CageView.getMeshBoundsForAxis(file, band.axis) : null;
+    if (!bounds) return weldSpec(file, elementId, rowIds);
+    // band.min is the verified threshold between the tube's lower half
+    // (front_bottom/center_front side) and upper half (center_rear/top_rear
+    // side); rowIds above already runs low-to-high to match that direction.
+    return { axis: band.axis, min: bounds.min, max: bounds.max, colors: rowIds.map((r) => weldCellColor(elementId, r) || PART3_GHOST_HEX) };
+  }
   function distanceSpec(file, elementId, rowIds) {
     return bandSplitOrAggregate(
       file, rowIds,
@@ -3048,7 +3109,8 @@
       part3CandidateFiles().forEach((file) => {
         if (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1") return; // handled above as a band split
         const t = part3RowTargetsForFile(file);
-        setIfActive(file, t && t.weldElementId ? weldSpec(file, t.weldElementId, t.rowIds) : null);
+        if (!t || !t.weldElementId) { setIfActive(file, null); return; }
+        setIfActive(file, t.doorOtherSplitSide ? doorOtherSplitSpec(file, t.weldElementId, t.doorOtherSplitSide) : weldSpec(file, t.weldElementId, t.rowIds));
       });
     } else {
       const backstayColor = distanceValueColor(getAnswer("backstay_distance_upper_laterals").value);
@@ -3574,16 +3636,18 @@
 
   const TUBE_SPEC_CYCLE = ["primary", "secondary", ""];
 
-  // Picks which of a bar's several weld-point rows a click at this
+  // Picks which of a bar's several weld-point groups a click at this
   // position along the bar (0-1, from cage_view.js's axisFraction) meant --
-  // rows are assumed to run in the same order as they appear along the
-  // bar, low fraction to high. Falls back to the first/only row when there
-  // is nothing to disambiguate (single click, or a foot with one weld).
-  function nearestRowByFraction(rowIds, frac) {
-    if (!rowIds.length) return null;
-    if (rowIds.length === 1 || frac == null) return rowIds[0];
-    const idx = Math.min(rowIds.length - 1, Math.max(0, Math.floor(frac * rowIds.length)));
-    return rowIds[idx];
+  // groups are assumed to run in the same order as they appear along the
+  // bar, low fraction to high. Each entry is itself a list of row ids
+  // (usually just one; 2 for a group that cycles together, like
+  // doorOtherSplitSpec's 2 halves). Falls back to the first/only group when
+  // there's nothing to disambiguate (single click, or a foot with one weld).
+  function nearestRowGroupByFraction(rowGroups, frac) {
+    if (!rowGroups.length) return [];
+    if (rowGroups.length === 1 || frac == null) return rowGroups[0];
+    const idx = Math.min(rowGroups.length - 1, Math.max(0, Math.floor(frac * rowGroups.length)));
+    return rowGroups[idx];
   }
   function handleCagePartDoubleClick(file, frac) {
     // Part 2 (Tubing sizes & materials): double-click cycles that bar's own
@@ -3630,18 +3694,25 @@
       }
       // Every other weld-tracked bar: part3RowTargetsForFile already lists
       // that file's own weld points (2 for most crossing-cut bars, more for
-      // door bars/windshield/roof) -- pick whichever one the click landed
-      // nearest and cycle just that one, not the whole bar in lockstep.
-      // (Roof bar 2 under "253-12-1" is a real band-split mesh -- see
-      // tubeRowSplitBand -- but part3RowTargetsForFile already resolves it
-      // to the same 2 rows regardless of variant, so no special case is
-      // needed here any more.)
+      // windshield/roof) -- pick whichever one the click landed nearest and
+      // cycle just that one, not the whole bar in lockstep. (Roof bar 2
+      // under "253-12-1" is a real band-split mesh -- see tubeRowSplitBand
+      // -- but part3RowTargetsForFile already resolves it to the same 2
+      // rows regardless of variant, so no special case is needed here.)
       const target = part3RowTargetsForFile(file);
       if (target && target.weldElementId && target.rowIds.length) {
-        const row = nearestRowByFraction(target.rowIds, frac);
-        const key = target.weldElementId + "__" + row + "__weld";
-        const idx = cycle.indexOf(getAnswer(key).value);
-        setAnswer(key, { value: cycle[(idx + 1) % cycle.length] });
+        // The 253-9-intersection cut leg's 4 listed rows are really 2 REAL
+        // halves (see doorOtherSplitSpec) -- cycle each half's 2 rows
+        // together in lockstep, split by fraction, rather than treating
+        // all 4 as independently clickable points.
+        const rowGroups = target.doorOtherSplitSide
+          ? [["center_front_" + target.doorOtherSplitSide, "front_bottom_" + target.doorOtherSplitSide], ["center_rear_" + target.doorOtherSplitSide, "top_rear_" + target.doorOtherSplitSide]]
+          : target.rowIds.map((r) => [r]);
+        const group = nearestRowGroupByFraction(rowGroups, frac);
+        const keys = group.map((r) => target.weldElementId + "__" + r + "__weld");
+        const idx = cycle.indexOf(getAnswer(keys[0]).value);
+        const next = cycle[(idx + 1) % cycle.length];
+        keys.forEach((key) => setAnswer(key, { value: next }));
       }
       return;
     }
@@ -3719,6 +3790,15 @@
   // right after switching to Part 3.
   function syncPart3Controls() {
     const el3 = document.getElementById("cageViewerPart3Controls");
+    // "Hide ghost bars" has nothing left to do on Part 3 -- every bar NOT
+    // part of this car's actual configuration is already hidden outright
+    // (see applyPart3View/setIfActive), so a ghost there always means "part
+    // of the cage, just not yet checked," which is exactly the information
+    // this tab exists to show. Hiding it away would just hide work still
+    // to do, so the toggle (and the forced showGhostBars below) don't apply
+    // here.
+    const ghostBtn = document.getElementById("cageViewerGhostToggle");
+    if (ghostBtn) ghostBtn.style.display = state.activeTab === 3 ? "none" : "";
     if (!el3) return;
     el3.innerHTML = "";
     if (state.activeTab !== 3) return;
@@ -3733,7 +3813,7 @@
     syncPart3Controls();
     if (window.CageView) {
       const colors = computeCageColors();
-      window.CageView.applyState(colors, state.showGhostBars);
+      window.CageView.applyState(colors, state.activeTab === 3 ? true : state.showGhostBars);
       window.CageView.onPartClick(handleCagePartClick);
       window.CageView.onPartDoubleClick(handleCagePartDoubleClick);
       window.CageView.setDriverMirrored(getAnswer("vehicle_drive_side").value === "rhd");

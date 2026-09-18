@@ -915,8 +915,20 @@
     const mesh = meshes[file];
     return mesh ? meshAxisBounds(mesh) : null;
   }
+  // Same idea as getMeshAxisBounds, but for a CALLER-CHOSEN axis rather than
+  // the mesh's own dominant one -- needed where app.js already knows (from a
+  // hand-verified split threshold) which axis actually separates a tube's
+  // two conceptual halves, and just needs that axis's real min/max so an
+  // N-way split can span the mesh's true geometry instead of a placeholder
+  // range.
+  function getMeshBoundsForAxis(file, axis) {
+    const mesh = meshes[file];
+    if (!mesh) return null;
+    const box = new THREE.Box3().setFromObject(mesh);
+    return { min: box.min[axis], max: box.max[axis] };
+  }
 
-  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick, setDriverMirrored, getMeshAxisBounds };
+  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick, setDriverMirrored, getMeshAxisBounds, getMeshBoundsForAxis };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
