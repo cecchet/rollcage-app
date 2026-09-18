@@ -24,7 +24,11 @@
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
     showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
     showDriver: true, // UI-only: whether the driver/codriver mannequins show, or are hidden to see the cage behind them
-    part3ViewMode: null, // UI-only: null | "weld" | "junction" -- see applyPart3View()
+    // UI-only: "weld" | "junction" -- which of Part 3's own 2 3D views is
+    // showing. Always one or the other (no "off" state) so Part 3 behaves
+    // like Part 2's own automatic tubing-spec view -- switching to Part 3
+    // shows a Part-3-specific 3D view immediately, no extra click needed.
+    part3ViewMode: "weld",
     aiAnalysis: { status: "idle", suggestions: [], error: null, accepted: {} }, // UI-only, never persisted -- see renderPhotoAnalysis()
   };
 
@@ -1123,11 +1127,11 @@
       );
     }
 
-    // Part 3's own 3D view-mode toggle -- mirrors Part 2's tubing-spec
-    // double-click view (see applyTubingClassificationView), but as an
-    // explicit toggle rather than automatic-while-on-this-tab, since Part 3
-    // has two different views (welds, junction distances) plus its normal
-    // view, not just one. See applyPart3View() for exactly which bars each
+    // Part 3's own 3D view-mode switch -- mirrors Part 2's tubing-spec
+    // double-click view (see applyTubingClassificationView) in always being
+    // active while on this tab (no "off" state), since Part 3 has two
+    // different views (welds, junction distances) to choose between instead
+    // of just the one. See applyPart3View() for exactly which bars each
     // view can currently highlight.
     if (state.activeTab === 3) {
       panel.appendChild(
@@ -1136,7 +1140,7 @@
             "button",
             {
               class: "phase-tab" + (state.part3ViewMode === "weld" ? " active" : ""),
-              onclick: () => { state.part3ViewMode = state.part3ViewMode === "weld" ? null : "weld"; render(); },
+              onclick: () => { state.part3ViewMode = "weld"; render(); },
             },
             ["Weld view"]
           ),
@@ -1144,21 +1148,19 @@
             "button",
             {
               class: "phase-tab" + (state.part3ViewMode === "junction" ? " active" : ""),
-              onclick: () => { state.part3ViewMode = state.part3ViewMode === "junction" ? null : "junction"; render(); },
+              onclick: () => { state.part3ViewMode = "junction"; render(); },
             },
             ["Bar junctions view"]
           ),
         ])
       );
-      if (state.part3ViewMode) {
-        panel.appendChild(
-          el("div", { class: "element-desc" }, [
-            state.part3ViewMode === "weld"
-              ? "Double-click near a specific end/weld point of a highlighted bar (or a mounting foot) to cycle that point's own status: green = complete, red = incomplete, ghost = not yet checked. A bar with more than one weld point shows the worst of them; double-clicking closer to one end vs. the other targets that end specifically."
-              : "Bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Door bars have no junction-distance data to show here.",
-          ])
-        );
-      }
+      panel.appendChild(
+        el("div", { class: "element-desc" }, [
+          state.part3ViewMode === "weld"
+            ? "Double-click near a specific end/weld point of a highlighted bar (or a mounting foot) to cycle that point's own status: green = complete, red = incomplete, ghost = not yet checked. A bar with more than one weld point shows the worst of them; double-clicking closer to one end vs. the other targets that end specifically."
+            : "Bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Door bars have no junction-distance data to show here.",
+        ])
+      );
     }
 
     shownPhases.forEach((p) => {
