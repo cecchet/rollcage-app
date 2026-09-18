@@ -2671,6 +2671,18 @@
     const continuous = continuousDoorTubeFile(side);
     return continuous === cap + " door bar 1-  253-9.stl" ? cap + " door bar 2-  253-9.stl" : cap + " door bar 1-  253-9.stl";
   }
+  // Which of a side's 2 door-bar meshes actually spans the front_top-to-
+  // bottom_rear diagonal (vs front_bottom-to-top_rear) is a fixed fact of
+  // that mesh's own geometry, verified directly from real vertex
+  // positions -- and it's mirrored between sides: "door bar 1" is that
+  // diagonal on the left, "door bar 2" is it on the right. This is
+  // independent of continuousDoorTubeFile()'s "-1"/"-2" choice (which
+  // physical tube got welded continuous), not a restatement of it.
+  function doorTubeRunsFrontTopToBottomRear(file, side) {
+    const cap = side === "left" ? "Left" : "Right";
+    const isBar1 = file === cap + " door bar 1-  253-9.stl";
+    return side === "left" ? isBar1 : !isBar1;
+  }
   function doorBarFileTubeRow(file) {
     const side = file.indexOf("Left") === 0 || file.indexOf("Nascar left") === 0 || file.indexOf("Door bar 253-10 upper left") === 0
       ? "left"
@@ -2947,29 +2959,47 @@
       // door_9_intersection_welds' rows are named by which corner/junction
       // they're at, not by tube identity, but each row still belongs to
       // exactly one physical tube (or one HALF of the cut tube):
-      // - The continuous leg runs corner-to-corner (front-top to
-      //   rear-bottom) with no crossing joint of its own, so its 2 rows are
-      //   just its own 2 far ends.
+      // - The continuous leg runs corner-to-corner with no crossing joint
+      //   of its own, so its 2 rows are just its own 2 far ends.
       // - The cut leg's 2 halves each have their own far corner PLUS their
       //   own gusset point where they weld to the continuous leg at the
-      //   crossing -- resolved to an actual 2-way split using the SAME
-      //   verified z-threshold tubeRowSplitBand() already uses for this
-      //   mesh in Part 2 (see applyPart3View's doorOtherSplitSide
-      //   handling), not a generic bounding-box guess.
+      //   crossing -- weldSpec() below band-splits it into 4 using the
+      //   mesh's own auto-detected axis, same as every other multi-point
+      //   bar.
       if (isDoor9Intersection(doorVal)) {
+        // continuousDoorTubeFile()/otherDoorTubeFile() only say WHICH FILE
+        // was fabricated as the continuous leg (a real per-car fact, the
+        // "-1"/"-2" choice) -- they say nothing about which pair of
+        // corners that file's own mesh actually spans. The 2 meshes per
+        // side are mirror images of each other, so that's NOT the same
+        // physical file on both sides: verified directly from mesh vertex
+        // positions, on the left "door bar 1" is the one whose diagonal
+        // runs front_top-to-bottom_rear (and "door bar 2" runs
+        // front_bottom-to-top_rear); on the right it's the other way
+        // around. Rows must follow the file's REAL shape, not an assumed
+        // one, or a click on one corner ends up cycling a different row
+        // than the one that lights up.
+        const runsFrontTopToBottomRear = doorTubeRunsFrontTopToBottomRear(file, side);
         if (file === continuousDoorTubeFile(side)) {
-          return { rowIds: ["front_top_" + side, "bottom_rear_" + side], weldElementId: elementId, distElementId: null };
+          return runsFrontTopToBottomRear
+            ? { rowIds: ["front_top_" + side, "bottom_rear_" + side], weldElementId: elementId, distElementId: null }
+            : { rowIds: ["front_bottom_" + side, "top_rear_" + side], weldElementId: elementId, distElementId: null };
         }
         if (file === otherDoorTubeFile(side)) {
-          // Order matches the verified low-to-high z split in
-          // doorOtherSplitSpec (front_bottom/center_front below the
-          // crossing threshold, center_rear/top_rear above it) -- this is
-          // the SAME array both the visual band-split and the double-click
-          // hit-test key off of, so what lights up always matches what got
-          // clicked.
+          // Order runs low-to-high along the mesh's own AUTO-DETECTED axis
+          // (front-to-rear, the same axis weldSpec/bandSplitOrAggregate
+          // already picks for every other multi-point bar), not a
+          // hardcoded one -- a click's own fraction is computed the same
+          // way (see cage_view.js's meshAxisBounds), so this is what
+          // guarantees the segment that lights up is always the one that
+          // got clicked, on either mesh shape. center_front/center_rear
+          // sit in the middle either way since "front"/"rear" is
+          // inherently a front-to-rear position.
           return {
-            rowIds: ["front_bottom_" + side, "center_front_" + side, "center_rear_" + side, "top_rear_" + side],
-            weldElementId: elementId, distElementId: null, doorOtherSplitSide: side,
+            rowIds: runsFrontTopToBottomRear
+              ? ["front_top_" + side, "center_front_" + side, "center_rear_" + side, "bottom_rear_" + side]
+              : ["front_bottom_" + side, "center_front_" + side, "center_rear_" + side, "top_rear_" + side],
+            weldElementId: elementId, distElementId: null,
           };
         }
         continue;
@@ -3049,32 +3079,6 @@
   function weldSpec(file, elementId, rowIds) {
     return bandSplitOrAggregate(file, rowIds, (r) => weldCellColor(elementId, r), () => weldRowsColor(elementId, rowIds));
   }
-  // 253-9-intersection's cut leg: a real, VERIFIED z-threshold split
-  // (tubeRowSplitBand -- the exact same one already used for this mesh in
-  // Part 2's own tube classification) instead of a generic bounding-box
-  // guess, since a plain even split doesn't reliably land at the true
-  // crossing point for a diagonal tube. Lower half aggregates its own far
-  // corner (front-bottom) with its own gusset-to-continuous-leg weld;
-  // upper half does the same toward the top-rear corner.
-  function doorOtherSplitSpec(file, elementId, rowIds) {
-    // Four real weld points on one physical tube: the two outer/corner
-    // welds (front_bottom, top_rear) the driver actually looks at, plus two
-    // inner welds at the X crossing (center_front, center_rear). Each gets
-    // its own segment -- rather than aggregating the corner with its
-    // nearby crossing weld -- so e.g. top_rear can read green even when
-    // center_rear (a separate weld) is still failing. rowIds is passed in
-    // (from part3RowTargetsForFile) rather than redeclared here, so the
-    // double-click hit-test and this visual split can never disagree on
-    // which row is which segment.
-    const band = tubeRowSplitBand(file);
-    const bounds = band && window.CageView && window.CageView.getMeshBoundsForAxis
-      ? window.CageView.getMeshBoundsForAxis(file, band.axis) : null;
-    if (!bounds) return weldSpec(file, elementId, rowIds);
-    // band.min is the verified threshold between the tube's lower half
-    // (front_bottom/center_front side) and upper half (center_rear/top_rear
-    // side); rowIds above already runs low-to-high to match that direction.
-    return { axis: band.axis, min: bounds.min, max: bounds.max, colors: rowIds.map((r) => weldCellColor(elementId, r) || PART3_GHOST_HEX) };
-  }
   function distanceSpec(file, elementId, rowIds) {
     return bandSplitOrAggregate(
       file, rowIds,
@@ -3144,7 +3148,7 @@
         if (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1") return; // handled above as a band split
         const t = part3RowTargetsForFile(file);
         if (!t || !t.weldElementId) { setIfActive(file, null); return; }
-        setIfActive(file, t.doorOtherSplitSide ? doorOtherSplitSpec(file, t.weldElementId, t.rowIds) : weldSpec(file, t.weldElementId, t.rowIds));
+        setIfActive(file, weldSpec(file, t.weldElementId, t.rowIds));
       });
     } else {
       const backstayColor = distanceValueColor(getAnswer("backstay_distance_upper_laterals").value);
@@ -3672,9 +3676,9 @@
   // position along the bar (0-1, from cage_view.js's axisFraction) meant --
   // groups are assumed to run in the same order as they appear along the
   // bar, low fraction to high. Each entry is itself a list of row ids
-  // (usually just one; 2 for a group that cycles together, like
-  // doorOtherSplitSpec's 2 halves). Falls back to the first/only group when
-  // there's nothing to disambiguate (single click, or a foot with one weld).
+  // (currently always just one -- every bar's rows are independently
+  // clickable). Falls back to the first/only group when there's nothing to
+  // disambiguate (single click, or a foot with one weld).
   function nearestRowGroupByFraction(rowGroups, frac) {
     if (!rowGroups.length) return [];
     if (rowGroups.length === 1 || frac == null) return rowGroups[0];
@@ -3734,8 +3738,8 @@
       const target = part3RowTargetsForFile(file);
       if (target && target.weldElementId && target.rowIds.length) {
         // Each of a bar's listed rows (up to 4, for the 253-9-intersection
-        // cut leg -- see doorOtherSplitSpec) is now its own independently
-        // colored segment, so it needs to be its own independently
+        // cut leg) is its own independently colored segment, so it needs
+        // to be its own independently
         // clickable zone too -- matching group count to color-segment count
         // keeps "what you click is what lights up" true for all 4 points,
         // not just the 2 outer corners.
