@@ -1135,23 +1135,9 @@
     // view can currently highlight.
     if (state.activeTab === 3) {
       panel.appendChild(
-        el("div", { class: "phase-tabs part3-view-tabs" }, [
-          el(
-            "button",
-            {
-              class: "phase-tab" + (state.part3ViewMode === "weld" ? " active" : ""),
-              onclick: () => { state.part3ViewMode = "weld"; render(); },
-            },
-            ["Weld view"]
-          ),
-          el(
-            "button",
-            {
-              class: "phase-tab" + (state.part3ViewMode === "junction" ? " active" : ""),
-              onclick: () => { state.part3ViewMode = "junction"; render(); },
-            },
-            ["Bar junctions view"]
-          ),
+        el("div", { class: "radio-group part3-view-tabs" }, [
+          radioOption("part3ViewMode", "weld", "Weld view", state.part3ViewMode === "weld", () => { state.part3ViewMode = "weld"; render(); }),
+          radioOption("part3ViewMode", "junction", "Bar junctions view", state.part3ViewMode === "junction", () => { state.part3ViewMode = "junction"; render(); }),
         ])
       );
       panel.appendChild(
@@ -2963,18 +2949,28 @@
     }
     return null;
   }
-  // Files part3RowTargetsForFile() can ever resolve, gathered once for
-  // applyPart3View() to iterate -- door-bar file identity depends on the
-  // currently-selected design per side, so this recomputes on every call
-  // rather than being a fixed list.
+  // Every design-alternative bar file part3RowTargetsForFile() might need
+  // to check, gathered once for applyPart3View() to iterate. Includes
+  // files belonging to designs OTHER than the one actually picked too (not
+  // just doorSideFiles()'s active-design subset) -- setIfActive() hides
+  // whichever of these aren't part of the real, current `colors`, so a
+  // phantom bar from an unselected design/side never lingers as a ghost.
+  const ALL_DOOR_BAR_VALS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-10", "253-11", "nascar", "single-bar"];
   function part3CandidateFiles() {
     const files = ROOF_BAR_FILES.concat(BACKSTAY_DIAG_FILES, [
+      "Roof bar 253-13 left.stl", "Roof bar 253-13 right.stl",
       "Roof bar 253-14 left.stl", "Roof bar 253-14 right.stl",
+      "Roof bar single center.stl",
       "Rear diagonal 253-22 left.stl", "Rear diagonal 253-22 right.stl",
       MAIN_DIAG_TOP_RIGHT_FILE, MAIN_DIAG_TOP_LEFT_FILE,
       "253-19 left.stl", "253-19 right.stl",
     ], APILLAR_FILES, APILLAR_2PIECE_FILES);
-    ["left", "right"].forEach((side) => { files.push.apply(files, doorSideFiles(side, getAnswer("door_bars_" + side).value)); });
+    ["left", "right"].forEach((side) => {
+      ALL_DOOR_BAR_VALS.forEach((v) => {
+        const result = doorBarSideRule(v, {}, side);
+        if (result) files.push.apply(files, result.files);
+      });
+    });
     return files;
   }
   // "253-19 left/right.stl" also each carry their OWN weld-completion
@@ -3003,7 +2999,16 @@
     // (e.g. a mounting foot whose own design hasn't been picked in Part 1
     // yet still has its own independent weld answer worth showing here).
     Object.keys(colors).forEach((file) => { if (colors[file] === "hidden") view[file] = "hidden"; });
+    // A file entirely absent from `colors` isn't part of THIS car at all --
+    // e.g. a roof-bar/backstay-diagonal/windshield/door-bar file belonging
+    // to a design alternative other than the one actually picked, or
+    // "Main diagonal 2" when only "Main diagonal 1" is the active single-
+    // diagonal leg. `colors` (built from each design choice's own current
+    // value) is already the authority on what physically exists here, so
+    // these get hidden outright rather than left as a phantom ghost bar --
+    // "only the bars that exist in the cage should be displayed."
     function setIfActive(file, color) {
+      if (colors[file] === undefined) { view[file] = "hidden"; return; }
       if (colors[file] === "hidden") return; // a different mesh variant is the active one right now
       if (color) view[file] = color;
     }
@@ -3017,10 +3022,14 @@
       }
       setIfActive("253-19 left.stl", rearLowerXOwnWeldColor("253-19 left.stl"));
       setIfActive("253-19 right.stl", rearLowerXOwnWeldColor("253-19 right.stl"));
+      // setIfActive is called for EVERY candidate file, even ones with no
+      // weld target (color stays null then) -- it has to run regardless so
+      // its own "not part of this car" hiding check always gets a chance,
+      // not just for files that happen to have weld data tracked.
       part3CandidateFiles().forEach((file) => {
         if (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1") return; // handled above as a band split
         const t = part3RowTargetsForFile(file);
-        if (t && t.weldElementId) setIfActive(file, weldRowsColor(t.weldElementId, t.rowIds));
+        setIfActive(file, t && t.weldElementId ? weldRowsColor(t.weldElementId, t.rowIds) : null);
       });
     } else {
       const backstayColor = distanceValueColor(getAnswer("backstay_distance_upper_laterals").value);
@@ -3034,7 +3043,7 @@
       part3CandidateFiles().forEach((file) => {
         if (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1") return; // handled above as a band split
         const t = part3RowTargetsForFile(file);
-        if (t && t.distElementId) setIfActive(file, distanceRowsColor(t.distElementId, t.rowIds));
+        setIfActive(file, t && t.distElementId ? distanceRowsColor(t.distElementId, t.rowIds) : null);
       });
     }
     return view;
