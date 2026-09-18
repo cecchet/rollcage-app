@@ -1154,7 +1154,7 @@
         panel.appendChild(
           el("div", { class: "element-desc" }, [
             state.part3ViewMode === "weld"
-              ? "Double-click a highlighted bar in the 3D model to cycle its weld status: green = complete, red = incomplete, ghost = not yet checked. Some bars combine several weld points into one color (worst case wins) where the exact tube-to-weld-point geometry isn't verified -- door bars, and one leg of a 253-12 roof/253-21 rear diagonal."
+              ? "Double-click near a specific end/weld point of a highlighted bar (or a mounting foot) to cycle that point's own status: green = complete, red = incomplete, ghost = not yet checked. A bar with more than one weld point shows the worst of them; double-clicking closer to one end vs. the other targets that end specifically."
               : "Bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Door bars have no junction-distance data to show here.",
           ])
         );
@@ -1193,8 +1193,22 @@
     if (elm.evaluationType === "text" || elm.evaluationType === "longtext") return false;
     const answer = getAnswer(elm.id);
     if (elm.evaluationType === "numeric" && elm.fields) {
-      const extra = answer.extra || {};
-      return elm.fields.every((f) => extra[f.key] !== undefined && extra[f.key] !== "");
+      const values = answer.value || {};
+      return elm.fields.every((f) => values[f.key] !== undefined && values[f.key] !== "");
+    }
+    // A table's own top-level answer is never set directly (only its
+    // per-cell "elm.id__row.id__col.key" sub-answers are) -- so it's
+    // complete once every cell has moved off "warn" (unanswered), or the
+    // distance quick-check shortcut is on, same as tableElementStatus's own
+    // pass/fail/warn logic.
+    if (elm.evaluationType === "table") {
+      if (elm.distanceQuickCheck && getAnswer(distanceQuickCheckId(elm)).value === "yes") return true;
+      return resolveRows(elm).every((row) =>
+        elm.columns.every((col) => {
+          if (col.optional) return true;
+          return tableCellStatus(col, getAnswer(tableCellId(elm, row, col))) !== "warn";
+        })
+      );
     }
     if (elm.evaluationType === "tubing3solo") {
       const v = answer.value;
@@ -1231,11 +1245,23 @@
       return answer.value === "yes" ? "Yes" : "No";
     }
     if (elm.evaluationType === "numeric" && elm.fields) {
-      const extra = answer.extra || {};
-      return elm.fields.map((f) => f.label + ": " + extra[f.key] + (f.unit ? " " + f.unit : "")).join(" · ");
+      const values = answer.value || {};
+      return elm.fields.map((f) => f.label + ": " + values[f.key] + (f.unit ? " " + f.unit : "")).join(" · ");
     }
     if (elm.evaluationType === "numeric") {
       return answer.value + (elm.unit ? " " + elm.unit : "");
+    }
+    if (elm.evaluationType === "table") {
+      if (elm.distanceQuickCheck && getAnswer(distanceQuickCheckId(elm)).value === "yes") return "All confirmed under 100mm";
+      let pass = 0, total = 0;
+      resolveRows(elm).forEach((row) => {
+        elm.columns.forEach((col) => {
+          if (col.optional) return;
+          total++;
+          if (tableCellStatus(col, getAnswer(tableCellId(elm, row, col))) === "pass") pass++;
+        });
+      });
+      return pass + "/" + total + " compliant";
     }
     if (elm.evaluationType === "tubing3solo") {
       const v = answer.value || {};
@@ -1803,17 +1829,41 @@
 
   function renderTableElement(elm) {
     const status = tableElementStatus(elm);
-    const card = el("div", { class: "element-card state-" + status, id: "section-" + elm.id });
     const reqBadgeClass = { required: "req", recommended: "rec", conditional: "cond", exception: "exc", informational: "info" }[elm.requirement] || "info";
     // Same as renderElementCard -- Parts 1-3 are pure capture, no
     // compliance judgment shown there (that's Part 4's job).
     const showReqBadge = false;
-    card.appendChild(
-      el("div", { class: "element-head" }, [
-        el("span", { class: "element-name" }, [elm.name]),
-        showReqBadge ? el("span", { class: "badge " + reqBadgeClass }, [elm.requirement]) : null,
-      ])
-    );
+
+    if (isElementComplete(elm) && !state.expandedIds[elm.id]) {
+      const card = el("div", { class: "element-card collapsed-card state-" + status, id: "section-" + elm.id });
+      card.appendChild(
+        el(
+          "div",
+          {
+            class: "element-head collapsed-head",
+            onclick: () => { state.expandedIds[elm.id] = true; render(); },
+          },
+          [
+            el("span", { class: "element-name" }, [elm.name]),
+            el("span", { class: "collapsed-summary" }, [elementSummary(elm, getAnswer(elm.id))]),
+            showReqBadge ? el("span", { class: "badge " + reqBadgeClass }, [elm.requirement]) : null,
+          ]
+        )
+      );
+      return card;
+    }
+
+    const card = el("div", { class: "element-card state-" + status, id: "section-" + elm.id });
+    const headChildren = [
+      el("span", { class: "element-name" }, [elm.name]),
+      showReqBadge ? el("span", { class: "badge " + reqBadgeClass }, [elm.requirement]) : null,
+    ];
+    if (isElementComplete(elm)) {
+      headChildren.push(
+        el("button", { class: "btn small secondary collapse-btn", onclick: () => { state.expandedIds[elm.id] = false; render(); } }, ["Collapse"])
+      );
+    }
+    card.appendChild(el("div", { class: "element-head" }, headChildren));
     card.appendChild(el("div", { class: "element-ref" }, [elm.reference]));
     if (elm.description) card.appendChild(el("div", { class: "element-desc" }, [elm.description]));
     if (elm.diagram && window.DIAGRAMS && window.DIAGRAMS[elm.diagram]) {
@@ -1840,7 +1890,20 @@
     }
 
     const table = el("table", { class: "row-table" + (quickChecked ? " row-table-skipped" : "") });
-    table.appendChild(el("thead", {}, [el("tr", {}, [el("th", {}, ["Location"])].concat(elm.columns.map((c) => el("th", {}, [c.label]))))]));
+    table.appendChild(
+      el("thead", {}, [
+        el("tr", {}, [el("th", {}, ["Location"])].concat(
+          elm.columns.map((c) => {
+            const children = [];
+            if (c.diagram && window.DIAGRAMS && window.DIAGRAMS[c.diagram]) {
+              children.push(el("div", { class: "col-header-diagram", html: window.DIAGRAMS[c.diagram] }));
+            }
+            children.push(el("span", { class: "col-header-label" }, [c.label]));
+            return el("th", {}, children);
+          })
+        )),
+      ])
+    );
     const tbody = el("tbody");
     resolveRows(elm).forEach((row) => {
       const tr = el("tr", { id: "row-" + elm.id + "__" + row.id });
@@ -3439,7 +3502,18 @@
 
   const TUBE_SPEC_CYCLE = ["primary", "secondary", ""];
 
-  function handleCagePartDoubleClick(file) {
+  // Picks which of a bar's several weld-point rows a click at this
+  // position along the bar (0-1, from cage_view.js's axisFraction) meant --
+  // rows are assumed to run in the same order as they appear along the
+  // bar, low fraction to high. Falls back to the first/only row when there
+  // is nothing to disambiguate (single click, or a foot with one weld).
+  function nearestRowByFraction(rowIds, frac) {
+    if (!rowIds.length) return null;
+    if (rowIds.length === 1 || frac == null) return rowIds[0];
+    const idx = Math.min(rowIds.length - 1, Math.max(0, Math.floor(frac * rowIds.length)));
+    return rowIds[idx];
+  }
+  function handleCagePartDoubleClick(file, frac) {
     // Part 2 (Tubing sizes & materials): double-click cycles that bar's own
     // primary/secondary tubing spec instead of anything Part-1-related --
     // matches how a single click already jumps to the tube-classification
@@ -3482,18 +3556,20 @@
         }
         return;
       }
-      // Roof bar 2 under "253-12-1" is a band-split mesh (2 rows, no
-      // dedicated resolver entry -- see part3RowTargetsForFile) -- cycles
-      // both halves' rows together in lockstep, same as Part 2's tubing
-      // view already does for its own band-split files.
-      const target = (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1")
-        ? { rowIds: ["front_roof_right", "rear_roof_left"], weldElementId: ROOF_4_1_WELD_ID }
-        : part3RowTargetsForFile(file);
+      // Every other weld-tracked bar: part3RowTargetsForFile already lists
+      // that file's own weld points (2 for most crossing-cut bars, more for
+      // door bars/windshield/roof) -- pick whichever one the click landed
+      // nearest and cycle just that one, not the whole bar in lockstep.
+      // (Roof bar 2 under "253-12-1" is a real band-split mesh -- see
+      // tubeRowSplitBand -- but part3RowTargetsForFile already resolves it
+      // to the same 2 rows regardless of variant, so no special case is
+      // needed here any more.)
+      const target = part3RowTargetsForFile(file);
       if (target && target.weldElementId && target.rowIds.length) {
-        const keys = target.rowIds.map((r) => target.weldElementId + "__" + r + "__weld");
-        const idx = cycle.indexOf(getAnswer(keys[0]).value);
-        const next = cycle[(idx + 1) % cycle.length];
-        keys.forEach((key) => setAnswer(key, { value: next }));
+        const row = nearestRowByFraction(target.rowIds, frac);
+        const key = target.weldElementId + "__" + row + "__weld";
+        const idx = cycle.indexOf(getAnswer(key).value);
+        setAnswer(key, { value: cycle[(idx + 1) % cycle.length] });
       }
       return;
     }

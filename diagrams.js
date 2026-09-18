@@ -235,5 +235,12 @@
   // ---- 253-15 windscreen pillar reinforcement dimension A ----
   D["253-15-dimension-a"] = wrapImg("253-15_dimension_a.png");
 
+  // ---- 253-15 straightness (in side view) and bend angle (< 20 degrees) --
+  // one per column, shown small in that column's own table header (see
+  // renderTableElement's col.diagram handling) rather than as one big
+  // block above the whole table.
+  D["253-15-straight"] = wrapImg("253-15_straight_side_view.png");
+  D["253-15-bend-angle-only"] = wrapImg("253-15_bend_angle.png");
+
   window.DIAGRAMS = D;
 })();

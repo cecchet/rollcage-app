@@ -265,12 +265,11 @@
       // # sections (1 vs 2 piece) is already captured by a_pillar_reinforcement
       // in Part 1 -- not repeated here.
       description: "",
-      diagram: "253-15-bend-angle",
       evaluationType: "table",
       rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
       columns: [
-        { key: "straight", label: "Straight in side view", type: "boolean" },
-        { key: "bend_angle", label: "Bend angle (<20 degrees)", type: "number", compare: { op: "lt", value: 20 } },
+        { key: "straight", label: "Straight in side view", type: "boolean", diagram: "253-15-straight" },
+        { key: "bend_angle", label: "Bend angle (<20 degrees)", type: "number", compare: { op: "lt", value: 20 }, diagram: "253-15-bend-angle-only" },
       ],
       visuallyVerifiable: true,
       hardFail: true,

@@ -471,6 +471,21 @@
     });
 
     const raycaster = new THREE.Raycaster();
+    // Where along a bar a click landed, as a 0-1 fraction of that mesh's
+    // own bounding box along whichever of its 3 dimensions is longest (its
+    // running length, for any elongated tube). app.js uses this to tell
+    // which end of a multi-weld-point bar a double-click meant, rather than
+    // just knowing which file was clicked -- purely geometric, no per-file
+    // hand-measured axis/threshold needed (unlike the handful of verified
+    // band-split thresholds used elsewhere for rendering).
+    function axisFraction(mesh, point) {
+      const box = new THREE.Box3().setFromObject(mesh);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const axis = size.x >= size.y && size.x >= size.z ? "x" : size.y >= size.z ? "y" : "z";
+      const span = box.max[axis] - box.min[axis];
+      return span > 1e-6 ? (point[axis] - box.min[axis]) / span : 0.5;
+    }
     function pickPart(e, isDouble) {
       const cb = isDouble ? partDoubleClickCb : partClickCb;
       if (!cb) return;
@@ -485,7 +500,7 @@
       if (!hits.length) return;
       const hitMesh = hits[0].object;
       const file = Object.keys(meshes).find((f) => meshes[f] === hitMesh);
-      if (file) cb(file);
+      if (file) cb(file, axisFraction(hitMesh, hits[0].point));
     }
     renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
     renderer.domElement.addEventListener("wheel", (e) => {
