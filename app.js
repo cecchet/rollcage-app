@@ -3685,6 +3685,45 @@
     const idx = Math.min(rowGroups.length - 1, Math.max(0, Math.floor(frac * rowGroups.length)));
     return rowGroups[idx];
   }
+  // "front_top_right" -> "Right front top"; a row id with no left/right
+  // suffix (the 253-19 rows) is just spaced out and capitalized.
+  function humanizeRowLabel(rowId) {
+    const m = rowId.match(/^(.+)_(left|right)$/);
+    const words = (m ? m[1] : rowId).split("_").join(" ");
+    if (!m) return words.charAt(0).toUpperCase() + words.slice(1);
+    return (m[2] === "left" ? "Left " : "Right ") + words;
+  }
+  // What a click at (file, frac) targets in Part 3's Weld view -- shared by
+  // the double-click handler (which cycles the answer) and the hover
+  // tooltip (which only names it), so a click and the tooltip shown just
+  // before it can never disagree about which weld point is meant.
+  function resolvePart3WeldTarget(file, frac) {
+    const weldFootRow = footRowForFile(file);
+    if (weldFootRow) {
+      return { label: humanizeRowLabel(weldFootRow) + " foot", keys: ["mounting_feet_table__" + weldFootRow + "__weld"] };
+    }
+    // "253-19 left/right.stl" each carry their OWN weld answer (keyed by
+    // physical leg, not crossing position -- see rearLowerXOwnWeldColor)
+    // regardless of which is continuous.
+    if (file === "253-19 left.stl" || file === "253-19 right.stl") {
+      const v = getAnswer("rear_lower_x_present").value;
+      if (v !== "253-19-1" && v !== "253-19-2") return null;
+      const row = file === "253-19 left.stl" ? "driver_top_codriver_bottom" : "codriver_top_driver_bottom";
+      return { label: humanizeRowLabel(row), keys: ["rear_lower_x_detail__" + row + "__weld"] };
+    }
+    // Every other weld-tracked bar: part3RowTargetsForFile already lists
+    // that file's own weld points (2 for most crossing-cut bars, more for
+    // windshield/roof/253-9's cut leg) -- pick whichever one the click
+    // landed nearest, not the whole bar in lockstep. Each row is its own
+    // independently colored segment, so it's its own independently
+    // clickable zone too.
+    const target = part3RowTargetsForFile(file);
+    if (target && target.weldElementId && target.rowIds.length) {
+      const group = nearestRowGroupByFraction(target.rowIds.map((r) => [r]), frac);
+      return { label: group.map(humanizeRowLabel).join(" / "), keys: group.map((r) => target.weldElementId + "__" + r + "__weld") };
+    }
+    return null;
+  }
   function handleCagePartDoubleClick(file, frac) {
     // Part 2 (Tubing sizes & materials): double-click cycles that bar's own
     // primary/secondary tubing spec instead of anything Part-1-related --
@@ -3706,49 +3745,15 @@
     // answer (yes -> no -> not-yet-checked) instead of anything else a
     // double-click would normally do -- scoped to the same bars
     // applyPart3View() knows how to color (see its own comment for why).
+    // What exactly gets cycled is resolved by resolvePart3WeldTarget(),
+    // shared with the hover tooltip below so the two can never disagree.
     if (state.activeTab === 3 && state.part3ViewMode === "weld") {
-      const weldFootRow = footRowForFile(file);
-      const cycle = ["yes", "no", ""];
-      if (weldFootRow) {
-        const key = "mounting_feet_table__" + weldFootRow + "__weld";
-        const idx = cycle.indexOf(getAnswer(key).value);
-        setAnswer(key, { value: cycle[(idx + 1) % cycle.length] });
-        return;
-      }
-      // "253-19 left/right.stl" each carry their OWN weld answer (keyed by
-      // physical leg, not crossing position -- see rearLowerXOwnWeldColor)
-      // regardless of which is continuous.
-      if (file === "253-19 left.stl" || file === "253-19 right.stl") {
-        const v = getAnswer("rear_lower_x_present").value;
-        if (v === "253-19-1" || v === "253-19-2") {
-          const row = file === "253-19 left.stl" ? "driver_top_codriver_bottom" : "codriver_top_driver_bottom";
-          const key = "rear_lower_x_detail__" + row + "__weld";
-          const idx = cycle.indexOf(getAnswer(key).value);
-          setAnswer(key, { value: cycle[(idx + 1) % cycle.length] });
-        }
-        return;
-      }
-      // Every other weld-tracked bar: part3RowTargetsForFile already lists
-      // that file's own weld points (2 for most crossing-cut bars, more for
-      // windshield/roof) -- pick whichever one the click landed nearest and
-      // cycle just that one, not the whole bar in lockstep. (Roof bar 2
-      // under "253-12-1" is a real band-split mesh -- see tubeRowSplitBand
-      // -- but part3RowTargetsForFile already resolves it to the same 2
-      // rows regardless of variant, so no special case is needed here.)
-      const target = part3RowTargetsForFile(file);
-      if (target && target.weldElementId && target.rowIds.length) {
-        // Each of a bar's listed rows (up to 4, for the 253-9-intersection
-        // cut leg) is its own independently colored segment, so it needs
-        // to be its own independently
-        // clickable zone too -- matching group count to color-segment count
-        // keeps "what you click is what lights up" true for all 4 points,
-        // not just the 2 outer corners.
-        const rowGroups = target.rowIds.map((r) => [r]);
-        const group = nearestRowGroupByFraction(rowGroups, frac);
-        const keys = group.map((r) => target.weldElementId + "__" + r + "__weld");
-        const idx = cycle.indexOf(getAnswer(keys[0]).value);
+      const target = resolvePart3WeldTarget(file, frac);
+      if (target) {
+        const cycle = ["yes", "no", ""];
+        const idx = cycle.indexOf(getAnswer(target.keys[0]).value);
         const next = cycle[(idx + 1) % cycle.length];
-        keys.forEach((key) => setAnswer(key, { value: next }));
+        target.keys.forEach((key) => setAnswer(key, { value: next }));
       }
       return;
     }
@@ -3845,6 +3850,23 @@
       ])
     );
   }
+  // Names whichever weld point a double-click at this position would
+  // target, so the several points on one bar can be told apart before
+  // clicking -- reuses resolvePart3WeldTarget(), the exact same resolution
+  // the click itself uses, so the tooltip is never wrong about what a
+  // click would do.
+  function handleCagePartHover(file, frac, clientX, clientY) {
+    const tooltip = document.getElementById("cageViewerTooltip");
+    if (!tooltip) return;
+    const target = file && state.activeTab === 3 && state.part3ViewMode === "weld" ? resolvePart3WeldTarget(file, frac) : null;
+    if (!target) { tooltip.hidden = true; return; }
+    const container = document.getElementById("cageViewerContainer");
+    const rect = container.getBoundingClientRect();
+    tooltip.textContent = target.label;
+    tooltip.style.left = (clientX - rect.left) + "px";
+    tooltip.style.top = (clientY - rect.top) + "px";
+    tooltip.hidden = false;
+  }
   function syncCageView() {
     syncPart3Controls();
     if (window.CageView) {
@@ -3852,6 +3874,7 @@
       window.CageView.applyState(colors, state.activeTab === 3 ? true : state.showGhostBars);
       window.CageView.onPartClick(handleCagePartClick);
       window.CageView.onPartDoubleClick(handleCagePartDoubleClick);
+      window.CageView.onPartHover(handleCagePartHover);
       window.CageView.setDriverMirrored(getAnswer("vehicle_drive_side").value === "rhd");
     }
   }

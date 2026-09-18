@@ -143,6 +143,26 @@ body {
   pointer-events: none;
   z-index: 2;
 }
+/* Names the exact weld/junction point under the cursor in Part 3, so it can
+   be told apart from the others before committing to a double-click.
+   pointer-events:none so it never itself becomes the raycast target;
+   positioned by app.js from the last mousemove, offset from the cursor. */
+.cage-viewer-tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -130%);
+  background: rgba(20, 22, 26, 0.92);
+  color: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
+.cage-viewer-tooltip[hidden] { display: none; }
 
 #app {
   max-width: 900px;

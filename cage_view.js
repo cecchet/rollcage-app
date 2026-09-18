@@ -273,6 +273,7 @@
   let ready = false;
   let partClickCb = null;
   let partDoubleClickCb = null;
+  let partHoverCb = null;
 
   function colorToRGB(color) {
     const c = new THREE.Color(color);
@@ -480,22 +481,43 @@
       const span = b.max - b.min;
       return span > 1e-6 ? (point[b.axis] - b.min) / span : 0.5;
     }
-    function pickPart(e, isDouble) {
-      const cb = isDouble ? partDoubleClickCb : partClickCb;
-      if (!cb) return;
+    // Shared by click/double-click and hover below -- finds whichever
+    // visible mesh (if any) is under clientX/clientY and how far along its
+    // own axis the hit landed.
+    function raycastPart(clientX, clientY) {
       const rect = renderer.domElement.getBoundingClientRect();
       const mouse = new THREE.Vector2(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1
       );
       raycaster.setFromCamera(mouse, camera);
       const visibleMeshes = Object.values(meshes).filter((m) => m.visible);
       const hits = raycaster.intersectObjects(visibleMeshes);
-      if (!hits.length) return;
+      if (!hits.length) return null;
       const hitMesh = hits[0].object;
       const file = Object.keys(meshes).find((f) => meshes[f] === hitMesh);
-      if (file) cb(file, axisFraction(hitMesh, hits[0].point));
+      return file ? { file, frac: axisFraction(hitMesh, hits[0].point) } : null;
     }
+    function pickPart(e, isDouble) {
+      const cb = isDouble ? partDoubleClickCb : partClickCb;
+      if (!cb) return;
+      const hit = raycastPart(e.clientX, e.clientY);
+      if (hit) cb(hit.file, hit.frac);
+    }
+    // Hover: lets app.js show a tooltip naming the exact weld/junction
+    // point a click would land on, so a bar's several points can be told
+    // apart before committing to a double-click. Only fires when not
+    // dragging (rotate/pan) and the cursor is actually over the canvas --
+    // reuses the identical hit-test click uses, so the tooltip and a
+    // subsequent click always agree.
+    renderer.domElement.addEventListener("mousemove", (e) => {
+      if (dragging || !partHoverCb) return;
+      const hit = raycastPart(e.clientX, e.clientY);
+      partHoverCb(hit ? hit.file : null, hit ? hit.frac : null, e.clientX, e.clientY);
+    });
+    renderer.domElement.addEventListener("mouseleave", () => {
+      if (partHoverCb) partHoverCb(null, null, 0, 0);
+    });
     renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
     renderer.domElement.addEventListener("wheel", (e) => {
       radius = Math.max(10, Math.min(5000, radius * (e.deltaY > 0 ? 1.1 : 0.9)));
@@ -891,6 +913,7 @@
 
   function onPartClick(cb) { partClickCb = cb; }
   function onPartDoubleClick(cb) { partDoubleClickCb = cb; }
+  function onPartHover(cb) { partHoverCb = cb; }
 
   // A mesh's own bounding box, reduced to whichever single axis (x/y/z) has
   // the largest span -- the closest a plain axis-aligned box can get to
@@ -915,7 +938,7 @@
     const mesh = meshes[file];
     return mesh ? meshAxisBounds(mesh) : null;
   }
-  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick, setDriverMirrored, getMeshAxisBounds };
+  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
