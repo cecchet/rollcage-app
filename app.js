@@ -3420,11 +3420,53 @@
     flashRow(rowEl);
   }
 
+  // Same idea as jumpToTubeRow, for Part 3's weld/junction-distance tables
+  // -- a single click while already on Part 3 flashes the specific row(s)
+  // that bar owns and stays put, instead of falling through to
+  // jumpToSection's Part-1 switch. This matters even in weld VIEW: since
+  // cage_view.js's own double-click detection is 2 single clicks within a
+  // window (see pickPart's isDouble check), every double-click's first tap
+  // fires this handler too -- without it, that first click used to jump
+  // straight back to Part 1 before the second tap could ever land.
+  // Returns true if it handled the click (so the caller skips its own
+  // fallback), false if this file has no Part 3 row to jump to.
+  function jumpToWeldRow(file) {
+    const footRow = footRowForFile(file);
+    if (footRow) {
+      const rowEl = document.getElementById("row-mounting_feet_table__" + footRow);
+      if (rowEl) { scrollBelowViewer(rowEl, { center: true }); flashRow(rowEl); }
+      return true;
+    }
+    if (file === "253-19 left.stl" || file === "253-19 right.stl") {
+      const v = getAnswer("rear_lower_x_present").value;
+      if (v === "253-19-1" || v === "253-19-2") {
+        const row = file === "253-19 left.stl" ? "driver_top_codriver_bottom" : "codriver_top_driver_bottom";
+        const rowEl = document.getElementById("row-rear_lower_x_detail__" + row);
+        if (rowEl) { scrollBelowViewer(rowEl, { center: true }); flashRow(rowEl); }
+      }
+      return true;
+    }
+    const target = part3RowTargetsForFile(file);
+    if (!target) return false;
+    const elementId = (state.part3ViewMode === "junction" && target.distElementId) || target.weldElementId || target.distElementId;
+    if (!elementId) return false;
+    let first = null;
+    target.rowIds.forEach((rowId) => {
+      const rowEl = document.getElementById("row-" + elementId + "__" + rowId);
+      if (!rowEl) return;
+      if (!first) first = rowEl;
+      flashRow(rowEl);
+    });
+    if (first) scrollBelowViewer(first, { center: true });
+    return true;
+  }
+
   // Wired to CageView.onPartClick() -- lets clicking a bar in the live 3D
   // model act as the index into the checklist, instead of a separate table
   // of contents. While on Part 2, this stays on Part 2 and jumps within its
   // own tube classification table (or, for a mounting foot, its plate-size
-  // row) rather than switching to Part 1.
+  // row) rather than switching to Part 1. Same idea on Part 3 -- see
+  // jumpToWeldRow.
   // Double-clicking a bar in the 3D model toggles it on/off directly for
   // "unambiguous" parts (one ghost mesh maps to exactly one answer), or --
   // for parts shared across multiple design choices (door bars, A-pillar
@@ -3624,6 +3666,7 @@
       jumpToTubeRow(file);
       return;
     }
+    if (state.activeTab === 3 && jumpToWeldRow(file)) return;
     const footRow = footRowForFile(file);
     if (footRow) {
       jumpToFootRow(footRow);
