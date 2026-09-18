@@ -2540,6 +2540,12 @@
   // rather than hiding everything until answered.
   const HIDDEN_WHILE_TUNING_FILES = [];
 
+  // Driver/codriver mannequin meshes -- shared with applyPart3View() below,
+  // which needs to tell them apart from cage-structure bars so it can keep
+  // showing them for context while still hiding untracked structure.
+  const DRIVER_FILES = ["Driver seat.stl", "Driver.stl", "Driver wheel.stl"];
+  const CODRIVER_FILES = ["Codriver seat.stl", "Codriver.stl", "Codriver book.stl"];
+
   // Maps each STL file to the row id it represents in the "Tube
   // classification" table (tubing_bar_classification), for the Part 2
   // (Tubing sizes & materials) 3D view: every file present in the normal
@@ -3072,13 +3078,17 @@
     const mode = state.part3ViewMode;
     if (mode !== "weld" && mode !== "junction") return colors;
     const view = {};
-    // Keep "hidden" files hidden (a mesh variant genuinely not active right
-    // now, e.g. a foot design's cube/rocker alternative) -- everything else
-    // defaults to ghost (absent from `view`) unless overridden below, even
-    // if it was ghost for a totally different reason in the normal view
-    // (e.g. a mounting foot whose own design hasn't been picked in Part 1
-    // yet still has its own independent weld answer worth showing here).
-    Object.keys(colors).forEach((file) => { if (colors[file] === "hidden") view[file] = "hidden"; });
+    // Part 3 only tracks welds/junctions for a specific set of bars (feet,
+    // roof, backstays, A-pillar, main diagonal, door bars, rear lower X) --
+    // everything else defaults HIDDEN here rather than falling through to
+    // the generic ghost-bar treatment, since a structural bar Part 3 has no
+    // weld data for isn't "not yet checked", it's just not part of this
+    // view. Occupant mannequins are the one exception: they're context, not
+    // cage structure, so they keep whatever computeCageColors already gave
+    // them (including "hidden" if the driver toggle is off).
+    Object.keys(colors).forEach((file) => {
+      view[file] = DRIVER_FILES.indexOf(file) !== -1 || CODRIVER_FILES.indexOf(file) !== -1 ? colors[file] : "hidden";
+    });
     // A file entirely absent from `colors` isn't part of THIS car at all --
     // e.g. a roof-bar/backstay-diagonal/windshield/door-bar file belonging
     // to a design alternative other than the one actually picked, or
@@ -3090,7 +3100,11 @@
     function setIfActive(file, color) {
       if (colors[file] === undefined) { view[file] = "hidden"; return; }
       if (colors[file] === "hidden") return; // a different mesh variant is the active one right now
-      if (color) view[file] = color;
+      // This file IS part of the car and IS weld/junction-tracked here, so
+      // it always overrides the blanket "hidden" default above -- with its
+      // real color once answered, or explicitly `undefined` (ghost, "not
+      // yet checked") while it isn't, rather than staying hidden.
+      view[file] = color || undefined;
     }
     if (mode === "weld") {
       FOOT_LOCATIONS.forEach(({ row, plateFile }) => {
@@ -3151,8 +3165,6 @@
     // not a compliance item); the held prop (steering wheel / book) gets a
     // bright highlight since it's the thing that has to swap sides for a
     // right-hand-drive car.
-    const DRIVER_FILES = ["Driver seat.stl", "Driver.stl", "Driver wheel.stl"];
-    const CODRIVER_FILES = ["Codriver seat.stl", "Codriver.stl", "Codriver book.stl"];
     if (!state.showDriver) {
       DRIVER_FILES.concat(CODRIVER_FILES).forEach((f) => { colors[f] = "hidden"; });
     } else {
