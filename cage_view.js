@@ -471,20 +471,14 @@
     });
 
     const raycaster = new THREE.Raycaster();
-    // Where along a bar a click landed, as a 0-1 fraction of that mesh's
-    // own bounding box along whichever of its 3 dimensions is longest (its
-    // running length, for any elongated tube). app.js uses this to tell
-    // which end of a multi-weld-point bar a double-click meant, rather than
-    // just knowing which file was clicked -- purely geometric, no per-file
-    // hand-measured axis/threshold needed (unlike the handful of verified
-    // band-split thresholds used elsewhere for rendering).
+    // Where along a bar a click landed, as a 0-1 fraction of meshAxisBounds'
+    // own range. app.js uses this to tell which end/weld-point of a multi-
+    // point bar a double-click meant, rather than just knowing which file
+    // was clicked.
     function axisFraction(mesh, point) {
-      const box = new THREE.Box3().setFromObject(mesh);
-      const size = new THREE.Vector3();
-      box.getSize(size);
-      const axis = size.x >= size.y && size.x >= size.z ? "x" : size.y >= size.z ? "y" : "z";
-      const span = box.max[axis] - box.min[axis];
-      return span > 1e-6 ? (point[axis] - box.min[axis]) / span : 0.5;
+      const b = meshAxisBounds(mesh);
+      const span = b.max - b.min;
+      return span > 1e-6 ? (point[b.axis] - b.min) / span : 0.5;
     }
     function pickPart(e, isDouble) {
       const cb = isDouble ? partDoubleClickCb : partClickCb;
@@ -816,6 +810,28 @@
           const [r, g, b] = colorToRGB(spec);
           for (let i = 0; i < n; i++) { arr[i * 3] = r; arr[i * 3 + 1] = g; arr[i * 3 + 2] = b; }
           mesh.material.opacity = 1;
+        } else if (Array.isArray(spec.colors)) {
+          // N-way split: spec.min..spec.max (that mesh's own axis range --
+          // see getMeshAxisBounds) divided into spec.colors.length EQUAL
+          // segments, so each of a bar's several weld/junction points gets
+          // its own color instead of one worst-case color for the whole
+          // mesh. Segments run low-to-high along the axis in the SAME order
+          // as spec.colors, matching how app.js orders each row's color to
+          // agree with cage_view.js's own axisFraction() (used for
+          // double-click hit-testing) -- what you click is what lights up.
+          const segColors = spec.colors.map((c) => colorToRGB(c));
+          const axisIdx = spec.axis === "x" ? 0 : spec.axis === "y" ? 1 : 2;
+          const axisOffset = axisIdx === 2 ? dz : 0;
+          const span = (spec.max - spec.min) || 1;
+          for (let i = 0; i < n; i++) {
+            const v = (axisIdx === 0 ? posAttr.getX(i) : axisIdx === 1 ? posAttr.getY(i) : posAttr.getZ(i)) + axisOffset;
+            let idx = Math.floor(((v - spec.min) / span) * segColors.length);
+            if (idx < 0) idx = 0;
+            if (idx > segColors.length - 1) idx = segColors.length - 1;
+            const c = segColors[idx];
+            arr[i * 3] = c[0]; arr[i * 3 + 1] = c[1]; arr[i * 3 + 2] = c[2];
+          }
+          mesh.material.opacity = 1;
         } else {
           const inside = colorToRGB(spec.inside);
           const outside = colorToRGB(spec.outside);
@@ -876,7 +892,31 @@
   function onPartClick(cb) { partClickCb = cb; }
   function onPartDoubleClick(cb) { partDoubleClickCb = cb; }
 
-  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick, setDriverMirrored };
+  // A mesh's own bounding box, reduced to whichever single axis (x/y/z) has
+  // the largest span -- the closest a plain axis-aligned box can get to
+  // "that tube's running length" without per-file hand-measurement. Shared
+  // by axisFraction() (double-click hit-testing, inside init() above) and
+  // getMeshAxisBounds() (app.js's N-way color-split spec, below), so a
+  // click and the colors it's choosing between always agree on which
+  // direction "along the bar" means.
+  function meshAxisBounds(mesh) {
+    const box = new THREE.Box3().setFromObject(mesh);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const axis = size.x >= size.y && size.x >= size.z ? "x" : size.y >= size.z ? "y" : "z";
+    return { axis, min: box.min[axis], max: box.max[axis] };
+  }
+  // Lets app.js build a same-axis N-way color-split spec (see applyState's
+  // "colors" array handling) for a given file without duplicating the
+  // bounding-box math here -- returns null for an unknown/not-yet-loaded
+  // file rather than throwing, since app.js may call this before meshes
+  // finish loading.
+  function getMeshAxisBounds(file) {
+    const mesh = meshes[file];
+    return mesh ? meshAxisBounds(mesh) : null;
+  }
+
+  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick, setDriverMirrored, getMeshAxisBounds };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");

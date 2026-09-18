@@ -111,6 +111,10 @@ body {
   margin-bottom: 6px;
 }
 .cage-viewer-header strong { font-size: 0.85rem; }
+.cage-viewer-part3-controls { display: none; margin: -2px 0 8px; }
+.cage-viewer-part3-controls:not(:empty) { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 0.8rem; }
+.cage-viewer-part3-controls .radio-group { gap: 14px; }
+.cage-viewer-part3-controls label { font-size: 0.8rem; }
 .cage-viewer-hint {
   /* Too little room for this at floating-widget width -- the button
      titles/tooltips still cover drag/scroll/pan. */

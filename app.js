@@ -1127,23 +1127,15 @@
       );
     }
 
-    // Part 3's own 3D view-mode switch -- mirrors Part 2's tubing-spec
-    // double-click view (see applyTubingClassificationView) in always being
-    // active while on this tab (no "off" state), since Part 3 has two
-    // different views (welds, junction distances) to choose between instead
-    // of just the one. See applyPart3View() for exactly which bars each
-    // view can currently highlight.
+    // Part 3's own 3D view-mode switch lives in the sticky viewer panel now
+    // (see syncPart3Controls) so it's reachable regardless of scroll
+    // position -- this just keeps its own explanatory text here, right at
+    // the top of the tab it describes.
     if (state.activeTab === 3) {
-      panel.appendChild(
-        el("div", { class: "radio-group part3-view-tabs" }, [
-          radioOption("part3ViewMode", "weld", "Weld view", state.part3ViewMode === "weld", () => { state.part3ViewMode = "weld"; render(); }),
-          radioOption("part3ViewMode", "junction", "Bar junctions view", state.part3ViewMode === "junction", () => { state.part3ViewMode = "junction"; render(); }),
-        ])
-      );
       panel.appendChild(
         el("div", { class: "element-desc" }, [
           state.part3ViewMode === "weld"
-            ? "Double-click near a specific end/weld point of a highlighted bar (or a mounting foot) to cycle that point's own status: green = complete, red = incomplete, ghost = not yet checked. A bar with more than one weld point shows the worst of them; double-clicking closer to one end vs. the other targets that end specifically."
+            ? "Double-click near a specific end/weld point of a highlighted bar (or a mounting foot) to cycle that point's own status: green = complete, red = incomplete, ghost = not yet checked. A bar with more than one weld point gets its own color, split along its own length in the same order as its table rows."
             : "Bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Door bars have no junction-distance data to show here.",
         ])
       );
@@ -2984,10 +2976,37 @@
     const row = file === "253-19 left.stl" ? "driver_top_codriver_bottom" : file === "253-19 right.stl" ? "codriver_top_driver_bottom" : null;
     return row ? weldCellColor("rear_lower_x_detail", row) : null;
   }
-  // Matches cage_view.js's own GHOST_COLOR -- used as a band half's color
-  // when that half has no weld/distance answer yet, since a band-split spec
-  // (unlike a flat color) has no separate "ghost" state of its own.
+  // Matches cage_view.js's own GHOST_COLOR -- used as a band segment's
+  // color when that segment has no weld/distance answer yet, since a
+  // band-split spec (unlike a flat color) has no separate "ghost" state of
+  // its own.
   const PART3_GHOST_HEX = "#555a60";
+  // A bar with more than one weld/junction point gets its own color PER
+  // POINT instead of one worst-case color for the whole mesh -- cage_view.js
+  // divides that mesh's own axis range (getMeshAxisBounds, the SAME
+  // geometry its double-click hit-testing already uses) into rowIds.length
+  // equal segments, in the same low-to-high order as rowIds, so a click
+  // near one end and the color that lights up there always agree. Falls
+  // back to one aggregate color if there's only one row, or if the mesh
+  // hasn't finished loading yet (getMeshAxisBounds not available) --
+  // rather than guessing a split without real geometry to divide.
+  function bandSplitOrAggregate(file, rowIds, cellColorFn, aggregateColorFn) {
+    if (!rowIds.length) return null;
+    if (rowIds.length === 1) return cellColorFn(rowIds[0]);
+    const bounds = window.CageView && window.CageView.getMeshAxisBounds ? window.CageView.getMeshAxisBounds(file) : null;
+    if (!bounds) return aggregateColorFn();
+    return { axis: bounds.axis, min: bounds.min, max: bounds.max, colors: rowIds.map((r) => cellColorFn(r) || PART3_GHOST_HEX) };
+  }
+  function weldSpec(file, elementId, rowIds) {
+    return bandSplitOrAggregate(file, rowIds, (r) => weldCellColor(elementId, r), () => weldRowsColor(elementId, rowIds));
+  }
+  function distanceSpec(file, elementId, rowIds) {
+    return bandSplitOrAggregate(
+      file, rowIds,
+      (r) => distanceValueColor(getAnswer(elementId + "__" + r + "__distance").value),
+      () => distanceRowsColor(elementId, rowIds)
+    );
+  }
   function applyPart3View(colors) {
     const mode = state.part3ViewMode;
     if (mode !== "weld" && mode !== "junction") return colors;
@@ -3029,7 +3048,7 @@
       part3CandidateFiles().forEach((file) => {
         if (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1") return; // handled above as a band split
         const t = part3RowTargetsForFile(file);
-        setIfActive(file, t && t.weldElementId ? weldRowsColor(t.weldElementId, t.rowIds) : null);
+        setIfActive(file, t && t.weldElementId ? weldSpec(file, t.weldElementId, t.rowIds) : null);
       });
     } else {
       const backstayColor = distanceValueColor(getAnswer("backstay_distance_upper_laterals").value);
@@ -3043,7 +3062,7 @@
       part3CandidateFiles().forEach((file) => {
         if (file === "Roof bar 2.stl" && getAnswer("roof_bars").value === "253-12-1") return; // handled above as a band split
         const t = part3RowTargetsForFile(file);
-        setIfActive(file, t && t.distElementId ? distanceRowsColor(t.distElementId, t.rowIds) : null);
+        setIfActive(file, t && t.distElementId ? distanceSpec(file, t.distElementId, t.rowIds) : null);
       });
     }
     return view;
@@ -3692,7 +3711,26 @@
     if (elmId) jumpToSection(elmId);
   }
 
+  // The Weld view/Bar junctions view switch lives in the STICKY 3D viewer
+  // panel (outside #app, so render() never rebuilds it) rather than at the
+  // top of Part 3's own checklist -- that panel stays pinned while the
+  // checklist scrolls, so the switch is reachable no matter how far down a
+  // long weld table the user has scrolled, instead of only being visible
+  // right after switching to Part 3.
+  function syncPart3Controls() {
+    const el3 = document.getElementById("cageViewerPart3Controls");
+    if (!el3) return;
+    el3.innerHTML = "";
+    if (state.activeTab !== 3) return;
+    el3.appendChild(
+      el("div", { class: "radio-group" }, [
+        radioOption("part3ViewMode", "weld", "Weld view", state.part3ViewMode === "weld", () => { state.part3ViewMode = "weld"; render(); }),
+        radioOption("part3ViewMode", "junction", "Bar junctions view", state.part3ViewMode === "junction", () => { state.part3ViewMode = "junction"; render(); }),
+      ])
+    );
+  }
   function syncCageView() {
+    syncPart3Controls();
     if (window.CageView) {
       const colors = computeCageColors();
       window.CageView.applyState(colors, state.showGhostBars);
