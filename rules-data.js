@@ -589,6 +589,20 @@
       hardFail: true,
       hardFailMessage: "Fewer than the minimum mounting points, or feet not adequately reinforced.",
     },
+    {
+      id: "mounting_feet_tube_welds",
+      name: "Tube-to-foot welds",
+      category: "Welds",
+      requirement: "required",
+      reference: "2020 FIA 253 Ch.8.3.2.6",
+      description: "The weld joining each pillar's own tube to its mounting foot plate -- a separate joint from the plate-to-chassis weld tracked above.",
+      evaluationType: "table",
+      rows: MOUNTING_FEET_ROWS,
+      columns: WELD_COLUMNS,
+      visuallyVerifiable: true,
+      hardFail: true,
+      hardFailMessage: "A pillar not welded to its own mounting foot.",
+    },
   ];
 
   // -- 2.3. Tubing --

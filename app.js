@@ -3098,7 +3098,14 @@
     // view. Occupant mannequins are the one exception: they're context, not
     // cage structure, so they keep whatever computeCageColors already gave
     // them (including "hidden" if the driver toggle is off).
-    Object.keys(colors).forEach((file) => {
+    // Use the model's FULL file list, not just Object.keys(colors) -- an
+    // optional bar that's simply absent from this car (e.g. 253-25 when
+    // anti_intrusion_present isn't "yes") never gets an entry in `colors`
+    // at all (the rule just returns null), so limiting this default to
+    // colors' own keys let files like that fall through as a phantom
+    // ghost instead of hidden.
+    const allFiles = window.CageView && window.CageView.getAllFiles ? window.CageView.getAllFiles() : Object.keys(colors);
+    allFiles.forEach((file) => {
       view[file] = DRIVER_FILES.indexOf(file) !== -1 || CODRIVER_FILES.indexOf(file) !== -1 ? colors[file] : "hidden";
     });
     // A file entirely absent from `colors` isn't part of THIS car at all --
@@ -3124,17 +3131,18 @@
         [plateFile, footCubeFile(row), doublePlaneFile(row), rockerBaseFile(row), rockerFoldFile(row)].forEach((f) => setIfActive(f, color));
       });
       // The base-structure pillars themselves, not just their foot plates --
-      // "mounting_feet_table" is really each pillar's own base weld (leg to
-      // foot), so the leg should read the same status as its foot. Laterals
-      // and backstays are already separate meshes per side; the main hoop is
+      // "mounting_feet_table" is the plate-to-CHASSIS weld; the pillar's own
+      // tube-to-foot weld is a separate joint, tracked by its own
+      // "mounting_feet_tube_welds" table (same 6 rows). Laterals and
+      // backstays are already separate meshes per side; the main hoop is
       // one continuous mesh for both legs, so it gets the same low-to-high-Y
       // band split as the left/right foot meshes it's verified to align with
       // (low Y = left leg, matching "Foot main rollbar left.stl").
-      setIfActive("Front left lateral.stl", weldCellColor("mounting_feet_table", "front_left"));
-      setIfActive("Front right lateral.stl", weldCellColor("mounting_feet_table", "front_right"));
-      setIfActive("Left backstay.stl", weldCellColor("mounting_feet_table", "backstay_left"));
-      setIfActive("Right backstay.stl", weldCellColor("mounting_feet_table", "backstay_right"));
-      setIfActive("Main rollbar.stl", weldSpec("Main rollbar.stl", "mounting_feet_table", ["main_hoop_left", "main_hoop_right"]));
+      setIfActive("Front left lateral.stl", weldCellColor("mounting_feet_tube_welds", "front_left"));
+      setIfActive("Front right lateral.stl", weldCellColor("mounting_feet_tube_welds", "front_right"));
+      setIfActive("Left backstay.stl", weldCellColor("mounting_feet_tube_welds", "backstay_left"));
+      setIfActive("Right backstay.stl", weldCellColor("mounting_feet_tube_welds", "backstay_right"));
+      setIfActive("Main rollbar.stl", weldSpec("Main rollbar.stl", "mounting_feet_tube_welds", ["main_hoop_left", "main_hoop_right"]));
       if (getAnswer("roof_bars").value === "253-12-1" && colors["Roof bar 2.stl"] !== "hidden") {
         view["Roof bar 2.stl"] = { axis: "x", min: 179.52, max: 999, inside: weldRowsColor(ROOF_4_1_WELD_ID, ["rear_roof_left"]) || PART3_GHOST_HEX, outside: weldRowsColor(ROOF_4_1_WELD_ID, ["front_roof_right"]) || PART3_GHOST_HEX };
       }
@@ -3700,7 +3708,21 @@
   function resolvePart3WeldTarget(file, frac) {
     const weldFootRow = footRowForFile(file);
     if (weldFootRow) {
-      return { label: humanizeRowLabel(weldFootRow) + " foot", keys: ["mounting_feet_table__" + weldFootRow + "__weld"] };
+      return { label: humanizeRowLabel(weldFootRow) + " foot plate", keys: ["mounting_feet_table__" + weldFootRow + "__weld"] };
+    }
+    // The pillar TUBES themselves -- a separate tube-to-foot weld from the
+    // foot plate's own plate-to-chassis weld above (see
+    // mounting_feet_tube_welds). Laterals/backstays are one mesh per row;
+    // the main hoop is one mesh for both legs, so a click picks whichever
+    // half it landed nearest, same as any other band-split bar.
+    const PILLAR_TUBE_ROWS = {
+      "Front left lateral.stl": ["front_left"], "Front right lateral.stl": ["front_right"],
+      "Left backstay.stl": ["backstay_left"], "Right backstay.stl": ["backstay_right"],
+      "Main rollbar.stl": ["main_hoop_left", "main_hoop_right"],
+    };
+    if (PILLAR_TUBE_ROWS[file]) {
+      const group = nearestRowGroupByFraction(PILLAR_TUBE_ROWS[file].map((r) => [r]), frac);
+      return { label: group.map(humanizeRowLabel).join(" / ") + " tube", keys: group.map((r) => "mounting_feet_tube_welds__" + r + "__weld") };
     }
     // "253-19 left/right.stl" each carry their OWN weld answer (keyed by
     // physical leg, not crossing position -- see rearLowerXOwnWeldColor)

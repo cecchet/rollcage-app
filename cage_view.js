@@ -550,6 +550,8 @@
           transparent: true, opacity: GHOST_OPACITY,
         });
         const mesh = new THREE.Mesh(geometry, material);
+        mesh.userData.rawPositions = positions;
+        mesh.userData.geometryVariant = null;
         const dz = Z_FIXUPS[file] || 0;
         if (dz) mesh.position.z = dz;
         scene.add(mesh);
@@ -784,6 +786,96 @@
     if (ready) cb(); else onReadyCbs.push(cb);
   }
 
+  // A raw STL tube is typically just 2 end rings joined by long triangles
+  // running its full length -- fine for a 2-way split (every vertex is
+  // already at one extreme or the other, so each lands on the correct side
+  // of a midpoint threshold), but a 3+-way split needs REAL vertices in the
+  // middle to color, which a plain per-vertex recolor can't create: a long
+  // triangle with both its real vertices colored green interpolates as
+  // solid green across its whole span, even if the middle "segment" should
+  // read red. subdivideAlongAxis() slices every triangle into per-segment
+  // pieces (Sutherland-Hodgman clipping against evenly spaced cut planes
+  // along one axis, then fan-triangulating each piece) so there's real
+  // geometry at every segment boundary to color correctly.
+  function clipPolygon(poly, axisIdx, boundary, keepBelow) {
+    if (poly.length < 3) return [];
+    const out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const curr = poly[i];
+      const prev = poly[(i - 1 + poly.length) % poly.length];
+      const currIn = keepBelow ? curr[axisIdx] <= boundary : curr[axisIdx] >= boundary;
+      const prevIn = keepBelow ? prev[axisIdx] <= boundary : prev[axisIdx] >= boundary;
+      if (currIn !== prevIn) {
+        const denom = curr[axisIdx] - prev[axisIdx];
+        const t = denom !== 0 ? (boundary - prev[axisIdx]) / denom : 0;
+        out.push([
+          prev[0] + t * (curr[0] - prev[0]),
+          prev[1] + t * (curr[1] - prev[1]),
+          prev[2] + t * (curr[2] - prev[2]),
+        ]);
+      }
+      if (currIn) out.push(curr);
+    }
+    return out;
+  }
+  function subdivideAlongAxis(rawPositions, axisIdx, numSlices) {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = axisIdx; i < rawPositions.length; i += 3) {
+      if (rawPositions[i] < lo) lo = rawPositions[i];
+      if (rawPositions[i] > hi) hi = rawPositions[i];
+    }
+    const span = hi - lo || 1;
+    const boundaries = [];
+    for (let s = 1; s < numSlices; s++) boundaries.push(lo + (span * s) / numSlices);
+    const outPositions = [];
+    const triCount = rawPositions.length / 9;
+    for (let t = 0; t < triCount; t++) {
+      const base = t * 9;
+      let remaining = [
+        [rawPositions[base], rawPositions[base + 1], rawPositions[base + 2]],
+        [rawPositions[base + 3], rawPositions[base + 4], rawPositions[base + 5]],
+        [rawPositions[base + 6], rawPositions[base + 7], rawPositions[base + 8]],
+      ];
+      const pieces = [];
+      for (let b = 0; b < boundaries.length && remaining.length >= 3; b++) {
+        const below = clipPolygon(remaining, axisIdx, boundaries[b], true);
+        if (below.length >= 3) pieces.push(below);
+        remaining = clipPolygon(remaining, axisIdx, boundaries[b], false);
+      }
+      if (remaining.length >= 3) pieces.push(remaining);
+      pieces.forEach((poly) => {
+        for (let i = 1; i < poly.length - 1; i++) {
+          outPositions.push(poly[0][0], poly[0][1], poly[0][2]);
+          outPositions.push(poly[i][0], poly[i][1], poly[i][2]);
+          outPositions.push(poly[i + 1][0], poly[i + 1][1], poly[i + 1][2]);
+        }
+      });
+    }
+    return new Float32Array(outPositions);
+  }
+  // Swaps a mesh's geometry between its pristine loaded form and a
+  // subdivided one, only rebuilding when the axis/slice count actually
+  // changes (subdivision always starts fresh from the pristine positions,
+  // so repeated calls never compound). rawPositions is cached once, at
+  // load time, in loadMeshFile() below.
+  function ensureGeometryVariant(mesh, variantKey, axisIdx, numSlices) {
+    // Procedural parts (mounting-foot cubes/folds -- see addProceduralPart)
+    // never carry a multi-point weld spec, so they never need subdividing;
+    // guard rather than assume every mesh went through the STL-loading path.
+    if (!mesh.userData.rawPositions) return;
+    if ((mesh.userData.geometryVariant || null) === variantKey) return;
+    mesh.userData.geometryVariant = variantKey;
+    const positions = variantKey ? subdivideAlongAxis(mesh.userData.rawPositions, axisIdx, numSlices) : mesh.userData.rawPositions;
+    mesh.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    mesh.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(positions.length), 3));
+    // computeVertexNormals() REUSES an existing "normal" attribute in place
+    // rather than resizing it -- deleting it first forces a fresh one
+    // sized to match the new position count, instead of silently keeping
+    // the old (wrong-length) buffer and rendering garbage/black past its end.
+    mesh.geometry.deleteAttribute("normal");
+    mesh.geometry.computeVertexNormals();
+  }
+
   // fileColorMap: { "Left backstay.stl": "#2f9e57", ... } for a flat color,
   // the string "hidden" to fully hide a part, or a band split for a single
   // part colored in two zones along one axis:
@@ -807,10 +899,6 @@
       Object.keys(meshes).forEach((file) => {
         const mesh = meshes[file];
         const spec = fileColorMap[file];
-        const posAttr = mesh.geometry.attributes.position;
-        const colorAttr = mesh.geometry.attributes.color;
-        const arr = colorAttr.array;
-        const n = posAttr.count;
         const dz = Z_FIXUPS[file] || 0;
 
         if (spec === "hidden" || (!spec && !showGhostBars)) {
@@ -819,10 +907,37 @@
           // by default, which was punching holes in whatever colored bars
           // sat behind it from some viewing angles.
           mesh.visible = false;
-          colorAttr.needsUpdate = false;
           return;
         }
         mesh.visible = true;
+
+        // A 3+-way split needs real geometry at each segment boundary (see
+        // subdivideAlongAxis's own comment); anything else uses the
+        // mesh's original, pristine geometry.
+        const needsSubdivide = spec && typeof spec === "object" && Array.isArray(spec.colors) && spec.colors.length > 2;
+        const axisIdx = needsSubdivide ? (spec.axis === "x" ? 0 : spec.axis === "y" ? 1 : 2) : 0;
+        const numSlices = needsSubdivide ? spec.colors.length * 3 : 0;
+        ensureGeometryVariant(mesh, needsSubdivide ? spec.axis + ":" + numSlices : null, axisIdx, numSlices);
+
+        // A band-split mesh (multiple weld points on one bar) can sit
+        // almost exactly coincident with ANOTHER split mesh it crosses
+        // (e.g. a 253-9-intersection leg's own real crossing partner --
+        // both are band-split, the tubes' surfaces genuinely overlap by a
+        // real amount at some viewing angles, not just a z-fighting
+        // artifact). Every split mesh skips depth testing and draws in
+        // segCount order, so ties between two overlapping split meshes go
+        // to whichever has MORE points to show (a 4-point cut leg over its
+        // 2-point continuous partner) rather than whichever happened to
+        // draw last. Reset for a plain single-color mesh so this doesn't
+        // leak into unrelated depth ordering.
+        const segCount = spec && typeof spec === "object" ? (Array.isArray(spec.colors) ? spec.colors.length : ("inside" in spec ? 2 : 0)) : 0;
+        mesh.material.depthTest = segCount === 0;
+        mesh.renderOrder = segCount;
+
+        const posAttr = mesh.geometry.attributes.position;
+        const colorAttr = mesh.geometry.attributes.color;
+        const arr = colorAttr.array;
+        const n = posAttr.count;
 
         if (!spec) {
           const [r, g, b] = colorToRGB(GHOST_COLOR);
@@ -914,6 +1029,12 @@
   function onPartClick(cb) { partClickCb = cb; }
   function onPartDoubleClick(cb) { partDoubleClickCb = cb; }
   function onPartHover(cb) { partHoverCb = cb; }
+  // Every mesh file the model actually has, loaded or not -- lets app.js
+  // default EVERY part to hidden in Part 3 (not just ones some rule
+  // happened to touch), so an optional bar that's simply absent from this
+  // car can't fall through as a phantom ghost just because nothing ever
+  // wrote an entry for it into the color map.
+  function getAllFiles() { return PARTS.slice(); }
 
   // A mesh's own bounding box, reduced to whichever single axis (x/y/z) has
   // the largest span -- the closest a plain axis-aligned box can get to
@@ -938,7 +1059,7 @@
     const mesh = meshes[file];
     return mesh ? meshAxisBounds(mesh) : null;
   }
-  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds };
+  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
