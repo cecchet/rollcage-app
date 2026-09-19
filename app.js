@@ -2965,13 +2965,13 @@
       const diag1Continuous = roofVal === "253-12-1";
       if (file === "Rear diagonal 1.stl") {
         return diag1Continuous
-          ? { rowIds: ["top_rear_diag_left", "bottom_rear_diag_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID }
-          : { rowIds: ["top_rear_diag_left", "diag_crossing_1", "diag_crossing_2", "bottom_rear_diag_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID };
+          ? { rowIds: ["top_rear_diag_left", "bottom_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances" }
+          : { rowIds: ["top_rear_diag_left", "diag_crossing_top", "diag_crossing_bottom", "bottom_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances" };
       }
       if (file === "Rear diagonal 2.stl") {
         return diag1Continuous
-          ? { rowIds: ["bottom_rear_diag_left", "diag_crossing_1", "diag_crossing_2", "top_rear_diag_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID }
-          : { rowIds: ["bottom_rear_diag_left", "top_rear_diag_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID };
+          ? { rowIds: ["bottom_rear_diag_left", "diag_crossing_bottom", "diag_crossing_top", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances" }
+          : { rowIds: ["bottom_rear_diag_left", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances" };
       }
       // Roof bar 1/2.stl -- verified from real vertex positions (dominant
       // axis is also Y): 1 runs front-left to rear-right, 2 runs rear-left
@@ -2981,11 +2981,11 @@
       if (file === "Roof bar 1.stl") {
         return roof1Continuous
           ? { rowIds: ["front_roof_left", "rear_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID }
-          : { rowIds: ["front_roof_left", "roof_crossing_1", "roof_crossing_2", "rear_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID };
+          : { rowIds: ["front_roof_left", "roof_crossing_front", "roof_crossing_rear", "rear_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID };
       }
       if (file === "Roof bar 2.stl") {
         return roof1Continuous
-          ? { rowIds: ["rear_roof_left", "roof_crossing_1", "roof_crossing_2", "front_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID }
+          ? { rowIds: ["rear_roof_left", "roof_crossing_rear", "roof_crossing_front", "front_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID }
           : { rowIds: ["rear_roof_left", "front_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID };
       }
     }
@@ -3020,10 +3020,13 @@
     if (file === "253-31 windshield right.stl") return { rowIds: ["right_top", "right_bottom"], weldElementId: "windshield_reinforcement_detail", distElementId: null };
     if (file === "253-15 Left.stl") return { rowIds: ["top_left", "center_top_left", "center_lower_left", "bottom_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
     if (file === "253-15 Right.stl") return { rowIds: ["top_right", "center_top_right", "center_lower_right", "bottom_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
-    if (file === "253-15 left upper.stl") return { rowIds: ["top_left", "center_top_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
-    if (file === "253-15 left lower.stl") return { rowIds: ["center_lower_left", "bottom_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
-    if (file === "253-15 right upper.stl") return { rowIds: ["top_right", "center_top_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
-    if (file === "253-15 right lower.stl") return { rowIds: ["center_lower_right", "bottom_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    // Verified from real vertex positions (Z dominant, consistent both
+    // sides): the upper piece's low-Z end is the crossing/center point
+    // (where it meets the lower piece), not the topmost corner.
+    if (file === "253-15 left upper.stl") return { rowIds: ["center_top_left", "top_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    if (file === "253-15 left lower.stl") return { rowIds: ["bottom_left", "center_lower_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    if (file === "253-15 right upper.stl") return { rowIds: ["center_top_right", "top_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    if (file === "253-15 right lower.stl") return { rowIds: ["bottom_right", "center_lower_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
     for (const side of ["left", "right"]) {
       const doorVal = getAnswer("door_bars_" + side).value;
       const elementId = doorWeldElementId(doorVal);
@@ -3642,27 +3645,27 @@
   // can never disagree about a pillar's own weld point(s).
   const PILLAR_TUBE_POINTS = {
     "Front left lateral.stl": [
-      { elementId: "mounting_feet_tube_welds", rowId: "front_left", label: "Left lateral base (tube-to-foot)" },
-      { elementId: "lateral_main_hoop_welds", rowId: "lateral_left", label: "Left lateral top (to main rollbar)" },
+      { elementId: "mounting_feet_tube_welds", rowId: "front_left" },
+      { elementId: "lateral_main_hoop_welds", rowId: "lateral_left" },
     ],
     "Front right lateral.stl": [
-      { elementId: "mounting_feet_tube_welds", rowId: "front_right", label: "Right lateral base (tube-to-foot)" },
-      { elementId: "lateral_main_hoop_welds", rowId: "lateral_right", label: "Right lateral top (to main rollbar)" },
+      { elementId: "mounting_feet_tube_welds", rowId: "front_right" },
+      { elementId: "lateral_main_hoop_welds", rowId: "lateral_right" },
     ],
     // Verified from real vertex positions: low-X end is near the main
     // rollbar (top junction), high-X end is near the backstay's own foot
     // (bottom) -- order must run low-to-high X to match.
     "Left backstay.stl": [
-      { elementId: "backstay_main_hoop_welds", rowId: "backstay_left", label: "Left backstay top (to main rollbar)" },
-      { elementId: "mounting_feet_tube_welds", rowId: "backstay_left", label: "Left backstay base (tube-to-foot)" },
+      { elementId: "backstay_main_hoop_welds", rowId: "backstay_left" },
+      { elementId: "mounting_feet_tube_welds", rowId: "backstay_left" },
     ],
     "Right backstay.stl": [
-      { elementId: "backstay_main_hoop_welds", rowId: "backstay_right", label: "Right backstay top (to main rollbar)" },
-      { elementId: "mounting_feet_tube_welds", rowId: "backstay_right", label: "Right backstay base (tube-to-foot)" },
+      { elementId: "backstay_main_hoop_welds", rowId: "backstay_right" },
+      { elementId: "mounting_feet_tube_welds", rowId: "backstay_right" },
     ],
     "Main rollbar.stl": [
-      { elementId: "mounting_feet_tube_welds", rowId: "main_hoop_left", label: "Left main hoop tube" },
-      { elementId: "mounting_feet_tube_welds", rowId: "main_hoop_right", label: "Right main hoop tube" },
+      { elementId: "mounting_feet_tube_welds", rowId: "main_hoop_left" },
+      { elementId: "mounting_feet_tube_welds", rowId: "main_hoop_right" },
     ],
   };
   function jumpToWeldRow(file) {
@@ -3797,12 +3800,25 @@
     return rowGroups[idx];
   }
   // "front_top_right" -> "Right front top"; a row id with no left/right
-  // suffix (the 253-19 rows) is just spaced out and capitalized.
+  // suffix (the 253-19 rows) is just spaced out and capitalized. Only a
+  // fallback for when rowLabelFor() can't find a real table row (there
+  // shouldn't normally be one) -- see its own comment.
   function humanizeRowLabel(rowId) {
     const m = rowId.match(/^(.+)_(left|right)$/);
     const words = (m ? m[1] : rowId).split("_").join(" ");
     if (!m) return words.charAt(0).toUpperCase() + words.slice(1);
     return (m[2] === "left" ? "Left " : "Right ") + words;
+  }
+  // The canonical row label, straight from the checklist table itself
+  // (elementId's rows(), the exact same array the Part 1/2/3 table
+  // renders from) -- so a hover tooltip or double-click's row name is
+  // ALWAYS identical to what the table shows for that same row, never an
+  // independently-worded approximation that can drift out of sync with it.
+  function rowLabelFor(elementId, rowId) {
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    const elm = path && path.elements.find((e) => e.id === elementId);
+    const row = elm && resolveRows(elm) && resolveRows(elm).find((r) => r.id === rowId);
+    return row ? row.label : humanizeRowLabel(rowId);
   }
   // What a click at (file, frac) targets in Part 3's Weld view -- shared by
   // the double-click handler (which cycles the answer) and the hover
@@ -3811,7 +3827,7 @@
   function resolvePart3WeldTarget(file, frac) {
     const weldFootRow = footRowForFile(file);
     if (weldFootRow) {
-      return { label: humanizeRowLabel(weldFootRow) + " foot plate", keys: ["mounting_feet_table__" + weldFootRow + "__weld"] };
+      return { label: rowLabelFor("mounting_feet_table", weldFootRow), keys: ["mounting_feet_table__" + weldFootRow + "__weld"] };
     }
     // The pillar TUBES themselves -- a separate tube-to-foot weld from the
     // foot plate's own plate-to-chassis weld above (see
@@ -3824,7 +3840,7 @@
     if (PILLAR_TUBE_POINTS[file]) {
       const points = PILLAR_TUBE_POINTS[file];
       const group = nearestRowGroupByFraction(points.map((p) => [p]), frac);
-      return { label: group.map((p) => p.label).join(" / "), keys: group.map((p) => p.elementId + "__" + p.rowId + "__weld") };
+      return { label: group.map((p) => rowLabelFor(p.elementId, p.rowId)).join(" / "), keys: group.map((p) => p.elementId + "__" + p.rowId + "__weld") };
     }
     // Every other weld-tracked bar: part3RowTargetsForFile already lists
     // that file's own weld points (2 for most crossing-cut bars, more for
@@ -3835,7 +3851,7 @@
     const target = part3RowTargetsForFile(file);
     if (target && target.weldElementId && target.rowIds.length) {
       const group = nearestRowGroupByFraction(target.rowIds.map((r) => [r]), frac);
-      return { label: group.map(humanizeRowLabel).join(" / "), keys: group.map((r) => target.weldElementId + "__" + r + "__weld") };
+      return { label: group.map((r) => rowLabelFor(target.weldElementId, r)).join(" / "), keys: group.map((r) => target.weldElementId + "__" + r + "__weld") };
     }
     return null;
   }

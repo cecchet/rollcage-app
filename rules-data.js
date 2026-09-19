@@ -1143,9 +1143,9 @@
       description: "The 4 far ends (at the mounting feet and backstay junctions) plus, where the diagonals aren't both one continuous piece, the 2 crossing points of whichever leg is cut into half-bars.",
       evaluationType: "table",
       rows: [
-        { id: "foot_left", label: "Foot -- left" }, { id: "foot_right", label: "Foot -- right" },
-        { id: "backstay_left", label: "Backstay -- left" }, { id: "backstay_right", label: "Backstay -- right" },
-        { id: "top_left", label: "Crossing -- top/left" }, { id: "bottom_right", label: "Crossing -- bottom/right" },
+        { id: "foot_left", label: "253-7 main diagonal -- foot left" }, { id: "foot_right", label: "253-7 main diagonal -- foot right" },
+        { id: "backstay_left", label: "253-7 main diagonal -- backstay left" }, { id: "backstay_right", label: "253-7 main diagonal -- backstay right" },
+        { id: "top_left", label: "253-7 main diagonal -- crossing top/left" }, { id: "bottom_right", label: "253-7 main diagonal -- crossing bottom/right" },
       ],
       columns: WELD_COLUMNS,
       visuallyVerifiable: true,
@@ -1189,23 +1189,29 @@
     hardFail: true,
     hardFailMessage: "No roof reinforcement present.",
   };
-  const ROOF_4_1_WELD_ROWS = [
-    { id: "front_roof_left", label: "1. Front roof left" }, { id: "rear_roof_left", label: "2. Rear roof left" },
-    { id: "top_rear_diag_left", label: "3. Top rear diagonal left" }, { id: "bottom_rear_diag_left", label: "4. Bottom rear diagonal left" },
-    { id: "front_roof_right", label: "5. Front roof right" }, { id: "rear_roof_right", label: "6. Rear roof right" },
-    { id: "top_rear_diag_right", label: "7. Top rear diagonal right" }, { id: "bottom_rear_diag_right", label: "8. Bottom rear diagonal right" },
-    // Only whichever roof bar / rear diagonal ISN'T the continuous one
-    // (per the "-1"/"-2" choice) is actually cut into 2 half-bars meeting
-    // at the crossing -- these 2+2 crossing points are that cut leg's own,
-    // same "corners + center" shape as every other X-braced bar.
-    { id: "roof_crossing_1", label: "9. Roof crossing 1" }, { id: "roof_crossing_2", label: "10. Roof crossing 2" },
-    { id: "diag_crossing_1", label: "11. Rear diagonal crossing 1" }, { id: "diag_crossing_2", label: "12. Rear diagonal crossing 2" },
+  // 253-12 (roof bars) and 253-21 (rear diagonals) are 2 separate physical
+  // bars sharing one design choice (roof_bars' "-1"/"-2"), each in its own
+  // table. Only whichever one ISN'T the continuous leg is actually cut into
+  // 2 half-bars meeting at the crossing -- those 2 crossing points are
+  // named by where they sit (front/rear for the roof bars, top/bottom for
+  // the rear diagonals) rather than an arbitrary "1"/"2", since which
+  // physical mesh is cut (and so which position each row id lands at)
+  // flips with the "-1"/"-2" choice.
+  const ROOF_253_12_WELD_ROWS = [
+    { id: "front_roof_left", label: "1. 253-12 roof bar -- front left" }, { id: "rear_roof_left", label: "2. 253-12 roof bar -- rear left" },
+    { id: "front_roof_right", label: "3. 253-12 roof bar -- front right" }, { id: "rear_roof_right", label: "4. 253-12 roof bar -- rear right" },
+    { id: "roof_crossing_front", label: "5. 253-12 roof bar -- crossing front" }, { id: "roof_crossing_rear", label: "6. 253-12 roof bar -- crossing rear" },
+  ];
+  const REAR_DIAG_253_21_WELD_ROWS = [
+    { id: "top_rear_diag_left", label: "1. 253-21 rear diagonal -- top left" }, { id: "bottom_rear_diag_left", label: "2. 253-21 rear diagonal -- bottom left" },
+    { id: "top_rear_diag_right", label: "3. 253-21 rear diagonal -- top right" }, { id: "bottom_rear_diag_right", label: "4. 253-21 rear diagonal -- bottom right" },
+    { id: "diag_crossing_top", label: "5. 253-21 rear diagonal -- crossing top" }, { id: "diag_crossing_bottom", label: "6. 253-21 rear diagonal -- crossing bottom" },
   ];
   const ROOF_4_2_WELD_ROWS = [
-    { id: "front_roof_left", label: "1. Front roof left" }, { id: "front_roof_right", label: "2. Front roof right" },
-    { id: "center_roof_left", label: "3. Center roof left" }, { id: "center_roof_right", label: "4. Center roof right" },
-    { id: "top_rear_left", label: "5. Top rear left" }, { id: "top_rear_right", label: "6. Top rear right" },
-    { id: "bottom_rear_left", label: "7. Bottom rear left" }, { id: "bottom_rear_right", label: "8. Bottom rear right" },
+    { id: "front_roof_left", label: "1. 253-14 roof bar -- front left" }, { id: "front_roof_right", label: "2. 253-14 roof bar -- front right" },
+    { id: "center_roof_left", label: "3. 253-14 roof bar -- center left" }, { id: "center_roof_right", label: "4. 253-14 roof bar -- center right" },
+    { id: "top_rear_left", label: "5. 253-22 rear diagonal -- top left" }, { id: "top_rear_right", label: "6. 253-22 rear diagonal -- top right" },
+    { id: "bottom_rear_left", label: "7. 253-22 rear diagonal -- bottom left" }, { id: "bottom_rear_right", label: "8. 253-22 rear diagonal -- bottom right" },
   ];
   const SECTION_4_1 = [
     Object.assign({}, ROOF_BAR_DESIGN_CHOICE),
@@ -1240,14 +1246,14 @@
     },
     {
       id: "roof_4_1_distances",
-      name: "253-12/253-21: Junction distances",
+      name: "253-12: Roof bar junction distances",
       category: "Bar junction distances",
       requirement: "required",
       reference: "",
       description: "",
       showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
       evaluationType: "table",
-      rows: ROOF_4_1_WELD_ROWS,
+      rows: ROOF_253_12_WELD_ROWS,
       columns: DISTANCE_COLUMNS,
       distanceQuickCheck: true,
       visuallyVerifiable: true,
@@ -1255,14 +1261,43 @@
     },
     {
       id: "roof_4_1_measurements_welds",
-      name: "253-12/253-21: Welds",
+      name: "253-12: Roof bar welds",
       category: "Welds",
       requirement: "required",
       reference: "",
       description: "",
       showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
       evaluationType: "table",
-      rows: ROOF_4_1_WELD_ROWS,
+      rows: ROOF_253_12_WELD_ROWS,
+      columns: WELD_COLUMNS,
+      visuallyVerifiable: true,
+      hardFail: true,
+    },
+    {
+      id: "rear_diag_4_1_distances",
+      name: "253-21: Rear diagonal junction distances",
+      category: "Bar junction distances",
+      requirement: "required",
+      reference: "",
+      description: "",
+      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
+      evaluationType: "table",
+      rows: REAR_DIAG_253_21_WELD_ROWS,
+      columns: DISTANCE_COLUMNS,
+      distanceQuickCheck: true,
+      visuallyVerifiable: true,
+      hardFail: true,
+    },
+    {
+      id: "rear_diag_4_1_welds",
+      name: "253-21: Rear diagonal welds",
+      category: "Welds",
+      requirement: "required",
+      reference: "",
+      description: "",
+      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
+      evaluationType: "table",
+      rows: REAR_DIAG_253_21_WELD_ROWS,
       columns: WELD_COLUMNS,
       visuallyVerifiable: true,
       hardFail: true,
@@ -1397,7 +1432,7 @@
       if (withCenter) rows.push({ id: "center_front_" + side, label: cap(side) + " center front" }, { id: "center_rear_" + side, label: cap(side) + " center rear" });
       rows.push({ id: "top_rear_" + side, label: cap(side) + " top rear" }, { id: "bottom_rear_" + side, label: cap(side) + " bottom rear" });
     });
-    return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". " + r.label }));
+    return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". 253-9 door bar -- " + r.label }));
   }
   const DOOR_9X_SHOWIF = { any: [
     { id: "door_bars_left", in: ["253-9-intersection-1", "253-9-intersection-2"] },
@@ -1420,8 +1455,8 @@
       evaluationType: "table",
       rows: (getAnswer) => {
         const rows = [];
-        if (getAnswer("door_bars_left").extra.sill_bar === "yes") rows.push({ id: "front_left", label: "Left front" }, { id: "rear_left", label: "Left rear" });
-        if (getAnswer("door_bars_right").extra.sill_bar === "yes") rows.push({ id: "front_right", label: "Right front" }, { id: "rear_right", label: "Right rear" });
+        if (getAnswer("door_bars_left").extra.sill_bar === "yes") rows.push({ id: "front_left", label: "Sill bar -- left front" }, { id: "rear_left", label: "Sill bar -- left rear" });
+        if (getAnswer("door_bars_right").extra.sill_bar === "yes") rows.push({ id: "front_right", label: "Sill bar -- right front" }, { id: "rear_right", label: "Sill bar -- right rear" });
         return rows;
       },
       columns: WELD_COLUMNS,
@@ -1511,7 +1546,7 @@
             { id: "rear_top_" + side, label: cap + " rear top" }, { id: "rear_lower_" + side, label: cap + " rear lower" }
           );
         });
-        return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". " + r.label }));
+        return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". 253-10 door bar -- " + r.label }));
       },
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: true,
@@ -1523,8 +1558,8 @@
       requirement: "conditional", reference: "", description: "If no sill bar is used with this configuration, the bottom of the V must be secured to the chassis with a plate similar to a rear backstay mounting foot.",
       showIf: DOOR_10_SHOWIF,
       evaluationType: "table",
-      rows: (getAnswer) => door10Sides(getAnswer).map((side) => ({ id: side, label: side === "left" ? "Left" : "Right" })),
-      columns: [{ key: "plate_design", label: "Plate design (253-53 to 253-57)", type: "text" }, { key: "size", label: "Size (cm², >=60)", type: "number", compare: { op: "gte", value: 60 } }, { key: "welds", label: "Welds complete", type: "boolean" }],
+      rows: (getAnswer) => door10Sides(getAnswer).map((side) => ({ id: side, label: "253-10 rocker plate -- " + (side === "left" ? "Left" : "Right") })),
+      columns: [{ key: "plate_design", label: "Plate design (253-53 to 253-57)", type: "text" }, { key: "size", label: "Size (cm², >=60)", type: "number", compare: { op: "gte", value: 60 } }, { key: "weld", label: "Complete weld", type: "boolean" }],
       visuallyVerifiable: true, hardFail: false,
     },
   ];
@@ -1546,7 +1581,7 @@
             { id: "rear_top_" + side, label: cap + " rear top" }, { id: "rear_lower_" + side, label: cap + " rear lower" }
           );
         });
-        return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". " + r.label }));
+        return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". 253-11 door bar -- " + r.label }));
       },
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: true,
@@ -1557,8 +1592,8 @@
   // Section 6. Windshield support bar (253-15)
   // =====================================================================
   const WINDSHIELD_WELD_ROWS = [
-    { id: "top_left", label: "1. Top left" }, { id: "center_top_left", label: "2. Center top left (*)" }, { id: "center_lower_left", label: "3. Center lower left (*)" }, { id: "bottom_left", label: "4. Bottom left" },
-    { id: "top_right", label: "5. Top right" }, { id: "center_top_right", label: "6. Center top right (*)" }, { id: "center_lower_right", label: "7. Center lower right (*)" }, { id: "bottom_right", label: "8. Bottom right" },
+    { id: "top_left", label: "1. 253-15 windshield bar -- top left" }, { id: "center_top_left", label: "2. 253-15 windshield bar -- center top left" }, { id: "center_lower_left", label: "3. 253-15 windshield bar -- center lower left" }, { id: "bottom_left", label: "4. 253-15 windshield bar -- bottom left" },
+    { id: "top_right", label: "5. 253-15 windshield bar -- top right" }, { id: "center_top_right", label: "6. 253-15 windshield bar -- center top right" }, { id: "center_lower_right", label: "7. 253-15 windshield bar -- center lower right" }, { id: "bottom_right", label: "8. 253-15 windshield bar -- bottom right" },
   ];
   const SECTION_6_WINDSHIELD = [
     {
@@ -1647,12 +1682,12 @@
   }
   // Same left/right gating as sideRows, but 2 weld points per side (each
   // bar's own top and bottom ends) instead of 1.
-  function sideTopBottomRows(v) {
+  function sideTopBottomRows(v, barName) {
     const sides = v === "left" ? ["left"] : v === "right" ? ["right"] : ["left", "right"];
     const rows = [];
     sides.forEach((side) => {
       const cap = side === "left" ? "Left" : "Right";
-      rows.push({ id: side + "_top", label: cap + " -- top" }, { id: side + "_bottom", label: cap + " -- bottom" });
+      rows.push({ id: side + "_top", label: barName + " " + cap + " -- top" }, { id: side + "_bottom", label: barName + " " + cap + " -- bottom" });
     });
     return rows;
   }
@@ -1694,7 +1729,7 @@
       // Left/right (fixed mesh geometry), not driver/codriver -- which side
       // the driver sits on swaps with LHD/RHD, but the bar's own two ends
       // don't move.
-      rows: [{ id: "left", label: "Left" }, { id: "right", label: "Right" }],
+      rows: [{ id: "left", label: "253-26/27 harness bar -- left" }, { id: "right", label: "253-26/27 harness bar -- right" }],
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
@@ -1704,7 +1739,7 @@
       category: "Welds",
       requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253", description: "",
       showIf: { id: "harness_bar_present", equals: "253-28-66" },
-      evaluationType: "table", rows: [{ id: "bar", label: "253-28/66" }], columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      evaluationType: "table", rows: [{ id: "bar", label: "253-28/66 rear harness bar" }], columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1720,7 +1755,7 @@
       category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "lower_main_hoop_bar_present", equals: "yes" },
-      evaluationType: "table", rows: [{ id: "bar", label: "253-30" }], columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      evaluationType: "table", rows: [{ id: "bar", label: "253-30 lower main hoop bar" }], columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1754,8 +1789,8 @@
           ["left", "right"].forEach((side) => {
             const cap = side === "left" ? "Left" : "Right";
             rows.push(
-              { id: tubeId + "_" + side + "_front", label: tubeLabel + " " + cap + " -- front" },
-              { id: tubeId + "_" + side + "_rear", label: tubeLabel + " " + cap + " -- rear" }
+              { id: tubeId + "_" + side + "_front", label: "253-17 " + tubeLabel + " " + cap + " -- front" },
+              { id: tubeId + "_" + side + "_rear", label: "253-17 " + tubeLabel + " " + cap + " -- rear" }
             );
           });
         });
@@ -1778,7 +1813,7 @@
       requirement: "recommended", reference: "", description: "The bar's own 2 ends.",
       showIf: { id: "rear_transversal_present", equals: "yes" },
       evaluationType: "table",
-      rows: [{ id: "left", label: "Left" }, { id: "right", label: "Right" }],
+      rows: [{ id: "left", label: "253-18 rear transversal -- left" }, { id: "right", label: "253-18 rear transversal -- right" }],
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
@@ -1807,9 +1842,9 @@
       showIf: { id: "rear_lower_x_present", notEquals: "none" },
       evaluationType: "table",
       rows: [
-        { id: "top_left", label: "Top left" }, { id: "bottom_right", label: "Bottom right" },
-        { id: "bottom_left", label: "Bottom left" }, { id: "top_right", label: "Top right" },
-        { id: "center_1", label: "Crossing 1" }, { id: "center_2", label: "Crossing 2" },
+        { id: "top_left", label: "253-19 rear lower X -- top left" }, { id: "bottom_right", label: "253-19 rear lower X -- bottom right" },
+        { id: "bottom_left", label: "253-19 rear lower X -- bottom left" }, { id: "top_right", label: "253-19 rear lower X -- top right" },
+        { id: "center_1", label: "253-19 rear lower X -- crossing 1" }, { id: "center_2", label: "253-19 rear lower X -- crossing 2" },
       ],
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
@@ -1851,8 +1886,11 @@
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "anti_intrusion_present", equals: "yes" },
       evaluationType: "table",
-      rows: [{ id: "driver_top", label: "Driver Top" }, { id: "driver_bottom", label: "Driver Bottom" }, { id: "codriver_top", label: "Codriver Top" }, { id: "codriver_bottom", label: "Codriver Bottom" }],
-      columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      rows: [
+        { id: "driver_top", label: "253-25 anti-intrusion -- driver top" }, { id: "driver_bottom", label: "253-25 anti-intrusion -- driver bottom" },
+        { id: "codriver_top", label: "253-25 anti-intrusion -- codriver top" }, { id: "codriver_bottom", label: "253-25 anti-intrusion -- codriver bottom" },
+      ],
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1920,7 +1958,7 @@
       requirement: "recommended", reference: "", description: "Each bar's own top and bottom ends.",
       showIf: { id: "temple_bar_present", notEquals: "none" },
       evaluationType: "table",
-      rows: (getAnswer) => sideTopBottomRows(getAnswer("temple_bar_present").value),
+      rows: (getAnswer) => sideTopBottomRows(getAnswer("temple_bar_present").value, "253-31 temple bar"),
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
@@ -1947,7 +1985,7 @@
       requirement: "recommended", reference: "", description: "Each bar's own top and bottom ends.",
       showIf: { id: "windshield_reinforcement_present", notEquals: "none" },
       evaluationType: "table",
-      rows: (getAnswer) => sideTopBottomRows(getAnswer("windshield_reinforcement_present").value),
+      rows: (getAnswer) => sideTopBottomRows(getAnswer("windshield_reinforcement_present").value, "253-31 windshield reinforcement"),
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
