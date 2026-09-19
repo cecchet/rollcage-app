@@ -474,6 +474,15 @@
       hardFailMessage: "No transverse members present.",
     },
     {
+      id: "transverse_member_welds",
+      name: "Transverse member welds",
+      category: "Welds",
+      requirement: "recommended", reference: "", description: "",
+      showIf: { any: [{ id: "transverse_member_253_3", equals: "yes" }, { id: "transverse_members_253_1", in: ["3-bars", "halo"] }] },
+      evaluationType: "table", rows: [{ id: "bar", label: "Transverse member" }], columns: WELD_COLUMNS,
+      visuallyVerifiable: true, hardFail: false,
+    },
+    {
       id: "backstays",
       name: "Backstays present",
       category: "Base structure layout",
@@ -1372,6 +1381,26 @@
     doorBarDesignElement("left"),
     doorBarDesignElement("right"),
     {
+      id: "sill_bar_welds",
+      name: "Sill bar welds",
+      category: "Welds",
+      requirement: "required",
+      reference: "",
+      description: "The sill bar's own front and rear end welds, for whichever side(s) have the sill-bar sub-toggle on above.",
+      showIf: { any: [{ id: "door_bars_left", extra: "sill_bar", equals: "yes" }, { id: "door_bars_right", extra: "sill_bar", equals: "yes" }] },
+      evaluationType: "table",
+      rows: (getAnswer) => {
+        const rows = [];
+        if (getAnswer("door_bars_left").extra.sill_bar === "yes") rows.push({ id: "front_left", label: "Left front" }, { id: "rear_left", label: "Left rear" });
+        if (getAnswer("door_bars_right").extra.sill_bar === "yes") rows.push({ id: "front_right", label: "Right front" }, { id: "rear_right", label: "Right rear" });
+        return rows;
+      },
+      columns: WELD_COLUMNS,
+      visuallyVerifiable: true,
+      hardFail: true,
+      hardFailMessage: "Sill bar not welded at both ends.",
+    },
+    {
       id: "door_9_intersection_welds",
       name: "Welds -- intersection configuration",
       category: "Welds",
@@ -1673,7 +1702,7 @@
       showIf: { id: "rear_lateral_reinforcement_present", notEquals: "none" },
       evaluationType: "table",
       rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
-      columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1790,7 +1819,7 @@
       category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "dash_bar_present", equals: "yes" },
-      evaluationType: "table", rows: [{ id: "bar", label: "253-29" }], columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      evaluationType: "table", rows: [{ id: "bar", label: "253-29" }], columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
     // 253-31 has 2 physically distinct components (real geometry for both):
