@@ -629,6 +629,23 @@
       hardFail: true,
       hardFailMessage: "A lateral not welded to the main rollbar.",
     },
+    {
+      id: "backstay_main_hoop_welds",
+      name: "Backstay-to-main-rollbar welds",
+      category: "Welds",
+      requirement: "required",
+      reference: "2020 FIA 253 Ch.8.3.2.6",
+      description: "The weld joining each backstay's own top end to the main rollbar -- a separate joint from the backstay's base-to-foot weld tracked above.",
+      evaluationType: "table",
+      rows: [
+        { id: "backstay_left", label: "Left backstay to main rollbar" },
+        { id: "backstay_right", label: "Right backstay to main rollbar" },
+      ],
+      columns: WELD_COLUMNS,
+      visuallyVerifiable: true,
+      hardFail: true,
+      hardFailMessage: "A backstay not welded to the main rollbar.",
+    },
   ];
 
   // -- 2.3. Tubing --
@@ -1112,18 +1129,24 @@
       visuallyVerifiable: true,
       hardFail: false,
     },
-    // The continuous leg is one uncut piece, so only the OTHER (cut) leg's
-    // 2 halves each need a weld at the crossing -- same 2 positions as the
-    // gusset table above, since the gusset reinforces that same joint.
+    // Both diagonal legs' own far ends (at the mounting feet / backstay
+    // junctions) plus the non-continuous leg's own 2 halves at the crossing
+    // (same 2 positions as the gusset table above, since the gusset
+    // reinforces that same joint) -- 6 weld points total, same "corners +
+    // center" shape as the other X-braced bars (253-9/12/19/21).
     {
       id: "main_diagonal_welds",
       name: "253-7: Main rollbar diagonal welds",
       category: "Welds",
       requirement: "required",
       reference: "",
-      description: "Only the non-continuous diagonal's 2 half-bars need a weld here, where each meets the continuous leg at the crossing.",
+      description: "The 4 far ends (at the mounting feet and backstay junctions) plus, where the diagonals aren't both one continuous piece, the 2 crossing points of whichever leg is cut into half-bars.",
       evaluationType: "table",
-      rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
+      rows: [
+        { id: "foot_left", label: "Foot -- left" }, { id: "foot_right", label: "Foot -- right" },
+        { id: "backstay_left", label: "Backstay -- left" }, { id: "backstay_right", label: "Backstay -- right" },
+        { id: "top_left", label: "Crossing -- top/left" }, { id: "bottom_right", label: "Crossing -- bottom/right" },
+      ],
       columns: WELD_COLUMNS,
       visuallyVerifiable: true,
       hardFail: true,
@@ -1171,6 +1194,12 @@
     { id: "top_rear_diag_left", label: "3. Top rear diagonal left" }, { id: "bottom_rear_diag_left", label: "4. Bottom rear diagonal left" },
     { id: "front_roof_right", label: "5. Front roof right" }, { id: "rear_roof_right", label: "6. Rear roof right" },
     { id: "top_rear_diag_right", label: "7. Top rear diagonal right" }, { id: "bottom_rear_diag_right", label: "8. Bottom rear diagonal right" },
+    // Only whichever roof bar / rear diagonal ISN'T the continuous one
+    // (per the "-1"/"-2" choice) is actually cut into 2 half-bars meeting
+    // at the crossing -- these 2+2 crossing points are that cut leg's own,
+    // same "corners + center" shape as every other X-braced bar.
+    { id: "roof_crossing_1", label: "9. Roof crossing 1" }, { id: "roof_crossing_2", label: "10. Roof crossing 2" },
+    { id: "diag_crossing_1", label: "11. Rear diagonal crossing 1" }, { id: "diag_crossing_2", label: "12. Rear diagonal crossing 2" },
   ];
   const ROOF_4_2_WELD_ROWS = [
     { id: "front_roof_left", label: "1. Front roof left" }, { id: "front_roof_right", label: "2. Front roof right" },
@@ -1616,6 +1645,17 @@
     if (v === "right") return [{ id: "right", label: "Right" }];
     return [{ id: "left", label: "Left" }, { id: "right", label: "Right" }];
   }
+  // Same left/right gating as sideRows, but 2 weld points per side (each
+  // bar's own top and bottom ends) instead of 1.
+  function sideTopBottomRows(v) {
+    const sides = v === "left" ? ["left"] : v === "right" ? ["right"] : ["left", "right"];
+    const rows = [];
+    sides.forEach((side) => {
+      const cap = side === "left" ? "Left" : "Right";
+      rows.push({ id: side + "_top", label: cap + " -- top" }, { id: side + "_bottom", label: cap + " -- bottom" });
+    });
+    return rows;
+  }
 
   // =====================================================================
   // Section 7-13. Common tail -- identical across all sanctioning bodies
@@ -1648,11 +1688,14 @@
       id: "harness_bar_26_27_welds",
       name: "Harness bar (253-26/27, legacy diagram 200 / FFSA) welds",
       category: "Welds",
-      requirement: "recommended", reference: "03-ART 253 Equipement de Securite Gr. N-A-R-GT-F2000 2020", description: "Traditional harness bar secured to the main hoop. May be at a different height for driver/codriver. Minimum diameter x thickness is 38 x 2.5mm.",
+      requirement: "recommended", reference: "03-ART 253 Equipement de Securite Gr. N-A-R-GT-F2000 2020", description: "Traditional harness bar secured to the main hoop. May be at a different height left/right. Minimum diameter x thickness is 38 x 2.5mm.",
       showIf: { id: "harness_bar_present", equals: "253-26-27" },
       evaluationType: "table",
-      rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
-      columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      // Left/right (fixed mesh geometry), not driver/codriver -- which side
+      // the driver sits on swaps with LHD/RHD, but the bar's own two ends
+      // don't move.
+      rows: [{ id: "left", label: "Left" }, { id: "right", label: "Right" }],
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1698,10 +1741,26 @@
       id: "rear_lateral_reinforcement_detail",
       name: "253-17 welds",
       category: "Welds",
-      requirement: "recommended", reference: "", description: "",
+      requirement: "recommended", reference: "", description: "Each tube's own 2 ends -- front (at the door bar) and rear (at the backstay) -- so a \"both\" configuration (4 tubes) has 8 welds to check.",
       showIf: { id: "rear_lateral_reinforcement_present", notEquals: "none" },
       evaluationType: "table",
-      rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
+      rows: (getAnswer) => {
+        const v = getAnswer("rear_lateral_reinforcement_present").value;
+        const tubes = [];
+        if (v === "upper" || v === "both") tubes.push(["upper", "Upper"]);
+        if (v === "lower" || v === "both") tubes.push(["lower", "Lower"]);
+        const rows = [];
+        tubes.forEach(([tubeId, tubeLabel]) => {
+          ["left", "right"].forEach((side) => {
+            const cap = side === "left" ? "Left" : "Right";
+            rows.push(
+              { id: tubeId + "_" + side + "_front", label: tubeLabel + " " + cap + " -- front" },
+              { id: tubeId + "_" + side + "_rear", label: tubeLabel + " " + cap + " -- rear" }
+            );
+          });
+        });
+        return rows;
+      },
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
@@ -1716,11 +1775,11 @@
       id: "rear_transversal_detail",
       name: "253-18 / 253-18B welds",
       category: "Welds",
-      requirement: "recommended", reference: "", description: "",
+      requirement: "recommended", reference: "", description: "The bar's own 2 ends.",
       showIf: { id: "rear_transversal_present", equals: "yes" },
       evaluationType: "table",
-      rows: [{ id: "253-18", label: "253-18" }, { id: "253-18b", label: "253-18B" }],
-      columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      rows: [{ id: "left", label: "Left" }, { id: "right", label: "Right" }],
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1744,10 +1803,14 @@
       id: "rear_lower_x_detail",
       name: "253-19 welds",
       category: "Welds",
-      requirement: "recommended", reference: "", description: "",
+      requirement: "recommended", reference: "", description: "The 4 far corners (2 per diagonal) plus, where the diagonals aren't both one continuous piece, the 2 crossing points of whichever leg is cut into half-bars -- same \"corners + center\" shape as the other X-braced bars (253-9/12/21).",
       showIf: { id: "rear_lower_x_present", notEquals: "none" },
       evaluationType: "table",
-      rows: [{ id: "driver_top_codriver_bottom", label: "Driver top to codriver bottom" }, { id: "codriver_top_driver_bottom", label: "Codriver top to driver bottom" }],
+      rows: [
+        { id: "top_left", label: "Top left" }, { id: "bottom_right", label: "Bottom right" },
+        { id: "bottom_left", label: "Bottom left" }, { id: "top_right", label: "Top right" },
+        { id: "center_1", label: "Crossing 1" }, { id: "center_2", label: "Crossing 2" },
+      ],
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
@@ -1815,11 +1878,13 @@
     },
     {
       id: "dash_bar_detail",
-      name: "253-29 welds",
+      name: "253-29 dash bar welds",
       category: "Welds",
-      requirement: "recommended", reference: "", description: "",
+      requirement: "recommended", reference: "", description: "The bar's own 2 ends.",
       showIf: { id: "dash_bar_present", equals: "yes" },
-      evaluationType: "table", rows: [{ id: "bar", label: "253-29" }], columns: WELD_COLUMNS,
+      evaluationType: "table",
+      rows: [{ id: "left", label: "253-29 dash bar -- left" }, { id: "right", label: "253-29 dash bar -- right" }],
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
     // 253-31 has 2 physically distinct components (real geometry for both):
@@ -1852,11 +1917,11 @@
       id: "temple_bar_detail",
       name: "Temple bar (253-31) welds",
       category: "Welds",
-      requirement: "recommended", reference: "", description: "",
+      requirement: "recommended", reference: "", description: "Each bar's own top and bottom ends.",
       showIf: { id: "temple_bar_present", notEquals: "none" },
       evaluationType: "table",
-      rows: (getAnswer) => sideRows(getAnswer("temple_bar_present").value),
-      columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      rows: (getAnswer) => sideTopBottomRows(getAnswer("temple_bar_present").value),
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1879,11 +1944,11 @@
       id: "windshield_reinforcement_detail",
       name: "Windshield reinforcement (253-31) welds",
       category: "Welds",
-      requirement: "recommended", reference: "", description: "",
+      requirement: "recommended", reference: "", description: "Each bar's own top and bottom ends.",
       showIf: { id: "windshield_reinforcement_present", notEquals: "none" },
       evaluationType: "table",
-      rows: (getAnswer) => sideRows(getAnswer("windshield_reinforcement_present").value),
-      columns: [{ key: "welds", label: "Welds complete", type: "boolean" }],
+      rows: (getAnswer) => sideTopBottomRows(getAnswer("windshield_reinforcement_present").value),
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
 
