@@ -3668,22 +3668,35 @@
       { elementId: "mounting_feet_tube_welds", rowId: "main_hoop_right" },
     ],
   };
+  // Expands every card involved BEFORE looking up its rows -- a card whose
+  // element already has a definitive answer (every row set) auto-collapses
+  // (see jumpToSection's own comment), which removes its row-* DOM nodes
+  // entirely. Without this, a single click on a bar whose weld was already
+  // answered silently found nothing to scroll to: it still returned true
+  // (so the Part-1 fallback never ran), but nothing visibly happened.
+  function expandThenFindRows(elementIds, lookups) {
+    let changed = false;
+    elementIds.forEach((id) => { if (!state.expandedIds[id]) { state.expandedIds[id] = true; changed = true; } });
+    if (changed) render();
+    let first = null;
+    lookups.forEach((id) => {
+      const rowEl = document.getElementById(id);
+      if (!rowEl) return;
+      if (!first) first = rowEl;
+      flashRow(rowEl);
+    });
+    if (first) scrollBelowViewer(first, { center: true });
+    return !!first;
+  }
   function jumpToWeldRow(file) {
     const footRow = footRowForFile(file);
     if (footRow) {
-      const rowEl = document.getElementById("row-mounting_feet_table__" + footRow);
-      if (rowEl) { scrollBelowViewer(rowEl, { center: true }); flashRow(rowEl); }
+      expandThenFindRows(["mounting_feet_table"], ["row-mounting_feet_table__" + footRow]);
       return true;
     }
     if (PILLAR_TUBE_POINTS[file]) {
-      let first = null;
-      PILLAR_TUBE_POINTS[file].forEach((p) => {
-        const rowEl = document.getElementById("row-" + p.elementId + "__" + p.rowId);
-        if (!rowEl) return;
-        if (!first) first = rowEl;
-        flashRow(rowEl);
-      });
-      if (first) scrollBelowViewer(first, { center: true });
+      const points = PILLAR_TUBE_POINTS[file];
+      expandThenFindRows(points.map((p) => p.elementId), points.map((p) => "row-" + p.elementId + "__" + p.rowId));
       return true;
     }
     const target = part3RowTargetsForFile(file);
@@ -3692,14 +3705,7 @@
     const elementId = inJunction ? target.distElementId : target.weldElementId || target.distElementId;
     if (!elementId) return false;
     const rowIds = inJunction ? target.distRowIds || target.rowIds : target.rowIds;
-    let first = null;
-    rowIds.forEach((rowId) => {
-      const rowEl = document.getElementById("row-" + elementId + "__" + rowId);
-      if (!rowEl) return;
-      if (!first) first = rowEl;
-      flashRow(rowEl);
-    });
-    if (first) scrollBelowViewer(first, { center: true });
+    expandThenFindRows([elementId], rowIds.map((rowId) => "row-" + elementId + "__" + rowId));
     return true;
   }
 

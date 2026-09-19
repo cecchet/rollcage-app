@@ -576,12 +576,12 @@
 
   // -- 2.2. Mounting feet --
   const MOUNTING_FEET_ROWS = [
-    { id: "front_left", label: "Front left (min 120cm²/18.6in²)" },
-    { id: "front_right", label: "Front right (min 120cm²/18.6in²)" },
-    { id: "main_hoop_left", label: "Main hoop left (min 120cm²/18.6in²)" },
-    { id: "main_hoop_right", label: "Main hoop right (min 120cm²/18.6in²)" },
-    { id: "backstay_left", label: "Backstay left (min 60cm²/9.3in²)" },
-    { id: "backstay_right", label: "Backstay right (min 60cm²/9.3in²)" },
+    { id: "front_left", label: "Front left foot" },
+    { id: "front_right", label: "Front right foot" },
+    { id: "main_hoop_left", label: "Main hoop left foot" },
+    { id: "main_hoop_right", label: "Main hoop right foot" },
+    { id: "backstay_left", label: "Backstay left foot" },
+    { id: "backstay_right", label: "Backstay right foot" },
   ];
   const SECTION_2_2_FEET = [
     {
@@ -1198,20 +1198,20 @@
   // physical mesh is cut (and so which position each row id lands at)
   // flips with the "-1"/"-2" choice.
   const ROOF_253_12_WELD_ROWS = [
-    { id: "front_roof_left", label: "1. 253-12 roof bar -- front left" }, { id: "rear_roof_left", label: "2. 253-12 roof bar -- rear left" },
-    { id: "front_roof_right", label: "3. 253-12 roof bar -- front right" }, { id: "rear_roof_right", label: "4. 253-12 roof bar -- rear right" },
-    { id: "roof_crossing_front", label: "5. 253-12 roof bar -- crossing front" }, { id: "roof_crossing_rear", label: "6. 253-12 roof bar -- crossing rear" },
+    { id: "front_roof_left", label: "253-12 roof bar -- front left" }, { id: "rear_roof_left", label: "253-12 roof bar -- rear left" },
+    { id: "front_roof_right", label: "253-12 roof bar -- front right" }, { id: "rear_roof_right", label: "253-12 roof bar -- rear right" },
+    { id: "roof_crossing_front", label: "253-12 roof bar -- crossing front" }, { id: "roof_crossing_rear", label: "253-12 roof bar -- crossing rear" },
   ];
   const REAR_DIAG_253_21_WELD_ROWS = [
-    { id: "top_rear_diag_left", label: "1. 253-21 rear diagonal -- top left" }, { id: "bottom_rear_diag_left", label: "2. 253-21 rear diagonal -- bottom left" },
-    { id: "top_rear_diag_right", label: "3. 253-21 rear diagonal -- top right" }, { id: "bottom_rear_diag_right", label: "4. 253-21 rear diagonal -- bottom right" },
-    { id: "diag_crossing_top", label: "5. 253-21 rear diagonal -- crossing top" }, { id: "diag_crossing_bottom", label: "6. 253-21 rear diagonal -- crossing bottom" },
+    { id: "top_rear_diag_left", label: "253-21 rear diagonal -- top left" }, { id: "bottom_rear_diag_left", label: "253-21 rear diagonal -- bottom left" },
+    { id: "top_rear_diag_right", label: "253-21 rear diagonal -- top right" }, { id: "bottom_rear_diag_right", label: "253-21 rear diagonal -- bottom right" },
+    { id: "diag_crossing_top", label: "253-21 rear diagonal -- crossing top" }, { id: "diag_crossing_bottom", label: "253-21 rear diagonal -- crossing bottom" },
   ];
   const ROOF_4_2_WELD_ROWS = [
-    { id: "front_roof_left", label: "1. 253-14 roof bar -- front left" }, { id: "front_roof_right", label: "2. 253-14 roof bar -- front right" },
-    { id: "center_roof_left", label: "3. 253-14 roof bar -- center left" }, { id: "center_roof_right", label: "4. 253-14 roof bar -- center right" },
-    { id: "top_rear_left", label: "5. 253-22 rear diagonal -- top left" }, { id: "top_rear_right", label: "6. 253-22 rear diagonal -- top right" },
-    { id: "bottom_rear_left", label: "7. 253-22 rear diagonal -- bottom left" }, { id: "bottom_rear_right", label: "8. 253-22 rear diagonal -- bottom right" },
+    { id: "front_roof_left", label: "253-14 roof bar -- front left" }, { id: "front_roof_right", label: "253-14 roof bar -- front right" },
+    { id: "center_roof_left", label: "253-14 roof bar -- center left" }, { id: "center_roof_right", label: "253-14 roof bar -- center right" },
+    { id: "top_rear_left", label: "253-22 rear diagonal -- top left" }, { id: "top_rear_right", label: "253-22 rear diagonal -- top right" },
+    { id: "bottom_rear_left", label: "253-22 rear diagonal -- bottom left" }, { id: "bottom_rear_right", label: "253-22 rear diagonal -- bottom right" },
   ];
   const SECTION_4_1 = [
     Object.assign({}, ROOF_BAR_DESIGN_CHOICE),
@@ -1432,7 +1432,7 @@
       if (withCenter) rows.push({ id: "center_front_" + side, label: cap(side) + " center front" }, { id: "center_rear_" + side, label: cap(side) + " center rear" });
       rows.push({ id: "top_rear_" + side, label: cap(side) + " top rear" }, { id: "bottom_rear_" + side, label: cap(side) + " bottom rear" });
     });
-    return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". 253-9 door bar -- " + r.label }));
+    return rows.map((r) => Object.assign({}, r, { label: "253-9 door bar -- " + r.label }));
   }
   const DOOR_9X_SHOWIF = { any: [
     { id: "door_bars_left", in: ["253-9-intersection-1", "253-9-intersection-2"] },
@@ -1546,7 +1546,7 @@
             { id: "rear_top_" + side, label: cap + " rear top" }, { id: "rear_lower_" + side, label: cap + " rear lower" }
           );
         });
-        return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". 253-10 door bar -- " + r.label }));
+        return rows.map((r) => Object.assign({}, r, { label: "253-10 door bar -- " + r.label }));
       },
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: true,
@@ -1581,7 +1581,7 @@
             { id: "rear_top_" + side, label: cap + " rear top" }, { id: "rear_lower_" + side, label: cap + " rear lower" }
           );
         });
-        return rows.map((r, i) => Object.assign({}, r, { label: (i + 1) + ". 253-11 door bar -- " + r.label }));
+        return rows.map((r) => Object.assign({}, r, { label: "253-11 door bar -- " + r.label }));
       },
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: true,
@@ -1592,8 +1592,8 @@
   // Section 6. Windshield support bar (253-15)
   // =====================================================================
   const WINDSHIELD_WELD_ROWS = [
-    { id: "top_left", label: "1. 253-15 windshield bar -- top left" }, { id: "center_top_left", label: "2. 253-15 windshield bar -- center top left" }, { id: "center_lower_left", label: "3. 253-15 windshield bar -- center lower left" }, { id: "bottom_left", label: "4. 253-15 windshield bar -- bottom left" },
-    { id: "top_right", label: "5. 253-15 windshield bar -- top right" }, { id: "center_top_right", label: "6. 253-15 windshield bar -- center top right" }, { id: "center_lower_right", label: "7. 253-15 windshield bar -- center lower right" }, { id: "bottom_right", label: "8. 253-15 windshield bar -- bottom right" },
+    { id: "top_left", label: "253-15 windshield bar -- top left" }, { id: "center_top_left", label: "253-15 windshield bar -- center top left" }, { id: "center_lower_left", label: "253-15 windshield bar -- center lower left" }, { id: "bottom_left", label: "253-15 windshield bar -- bottom left" },
+    { id: "top_right", label: "253-15 windshield bar -- top right" }, { id: "center_top_right", label: "253-15 windshield bar -- center top right" }, { id: "center_lower_right", label: "253-15 windshield bar -- center lower right" }, { id: "bottom_right", label: "253-15 windshield bar -- bottom right" },
   ];
   const SECTION_6_WINDSHIELD = [
     {
