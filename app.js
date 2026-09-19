@@ -3079,6 +3079,19 @@
   function weldSpec(file, elementId, rowIds) {
     return bandSplitOrAggregate(file, rowIds, (r) => weldCellColor(elementId, r), () => weldRowsColor(elementId, rowIds));
   }
+  // Like weldSpec, but for PILLAR_TUBE_POINTS' entries, where a bar's
+  // several weld points can come from DIFFERENT tables (a lateral's own
+  // base-to-foot weld and its separate top-to-main-rollbar weld) rather
+  // than several rows of the same one.
+  function pillarTubeSpec(file) {
+    const points = PILLAR_TUBE_POINTS[file];
+    if (!points) return null;
+    return bandSplitOrAggregate(
+      file, points,
+      (p) => weldCellColor(p.elementId, p.rowId),
+      () => aggregateColor(points.map((p) => weldCellColor(p.elementId, p.rowId)))
+    );
+  }
   function distanceSpec(file, elementId, rowIds) {
     return bandSplitOrAggregate(
       file, rowIds,
@@ -3138,11 +3151,11 @@
       // one continuous mesh for both legs, so it gets the same low-to-high-Y
       // band split as the left/right foot meshes it's verified to align with
       // (low Y = left leg, matching "Foot main rollbar left.stl").
-      setIfActive("Front left lateral.stl", weldCellColor("mounting_feet_tube_welds", "front_left"));
-      setIfActive("Front right lateral.stl", weldCellColor("mounting_feet_tube_welds", "front_right"));
-      setIfActive("Left backstay.stl", weldCellColor("mounting_feet_tube_welds", "backstay_left"));
-      setIfActive("Right backstay.stl", weldCellColor("mounting_feet_tube_welds", "backstay_right"));
-      setIfActive("Main rollbar.stl", weldSpec("Main rollbar.stl", "mounting_feet_tube_welds", ["main_hoop_left", "main_hoop_right"]));
+      // A lateral additionally carries its own top-end weld to the main
+      // rollbar (lateral_main_hoop_welds) -- pillarTubeSpec band-splits
+      // across PILLAR_TUBE_POINTS' entries regardless of which table(s)
+      // they come from.
+      Object.keys(PILLAR_TUBE_POINTS).forEach((file) => setIfActive(file, pillarTubeSpec(file)));
       if (getAnswer("roof_bars").value === "253-12-1" && colors["Roof bar 2.stl"] !== "hidden") {
         view["Roof bar 2.stl"] = { axis: "x", min: 179.52, max: 999, inside: weldRowsColor(ROOF_4_1_WELD_ID, ["rear_roof_left"]) || PART3_GHOST_HEX, outside: weldRowsColor(ROOF_4_1_WELD_ID, ["front_roof_right"]) || PART3_GHOST_HEX };
       }
@@ -3566,11 +3579,41 @@
   // straight back to Part 1 before the second tap could ever land.
   // Returns true if it handled the click (so the caller skips its own
   // fallback), false if this file has no Part 3 row to jump to.
+  // The base-structure pillar tubes -- see resolvePart3WeldTarget, which
+  // shares this same map so a double-click/hover and a single-click jump
+  // can never disagree about a pillar's own weld point(s).
+  const PILLAR_TUBE_POINTS = {
+    "Front left lateral.stl": [
+      { elementId: "mounting_feet_tube_welds", rowId: "front_left", label: "Left lateral base (tube-to-foot)" },
+      { elementId: "lateral_main_hoop_welds", rowId: "lateral_left", label: "Left lateral top (to main rollbar)" },
+    ],
+    "Front right lateral.stl": [
+      { elementId: "mounting_feet_tube_welds", rowId: "front_right", label: "Right lateral base (tube-to-foot)" },
+      { elementId: "lateral_main_hoop_welds", rowId: "lateral_right", label: "Right lateral top (to main rollbar)" },
+    ],
+    "Left backstay.stl": [{ elementId: "mounting_feet_tube_welds", rowId: "backstay_left", label: "Left backstay tube" }],
+    "Right backstay.stl": [{ elementId: "mounting_feet_tube_welds", rowId: "backstay_right", label: "Right backstay tube" }],
+    "Main rollbar.stl": [
+      { elementId: "mounting_feet_tube_welds", rowId: "main_hoop_left", label: "Left main hoop tube" },
+      { elementId: "mounting_feet_tube_welds", rowId: "main_hoop_right", label: "Right main hoop tube" },
+    ],
+  };
   function jumpToWeldRow(file) {
     const footRow = footRowForFile(file);
     if (footRow) {
       const rowEl = document.getElementById("row-mounting_feet_table__" + footRow);
       if (rowEl) { scrollBelowViewer(rowEl, { center: true }); flashRow(rowEl); }
+      return true;
+    }
+    if (PILLAR_TUBE_POINTS[file]) {
+      let first = null;
+      PILLAR_TUBE_POINTS[file].forEach((p) => {
+        const rowEl = document.getElementById("row-" + p.elementId + "__" + p.rowId);
+        if (!rowEl) return;
+        if (!first) first = rowEl;
+        flashRow(rowEl);
+      });
+      if (first) scrollBelowViewer(first, { center: true });
       return true;
     }
     if (file === "253-19 left.stl" || file === "253-19 right.stl") {
@@ -3712,17 +3755,16 @@
     }
     // The pillar TUBES themselves -- a separate tube-to-foot weld from the
     // foot plate's own plate-to-chassis weld above (see
-    // mounting_feet_tube_welds). Laterals/backstays are one mesh per row;
+    // mounting_feet_tube_welds). A lateral has a SECOND weld point of its
+    // own too: its top end, where it welds to the main rollbar (253-3) --
+    // a different joint from its own base-to-foot weld, tracked by
+    // lateral_main_hoop_welds. Laterals/backstays are one mesh per pillar;
     // the main hoop is one mesh for both legs, so a click picks whichever
-    // half it landed nearest, same as any other band-split bar.
-    const PILLAR_TUBE_ROWS = {
-      "Front left lateral.stl": ["front_left"], "Front right lateral.stl": ["front_right"],
-      "Left backstay.stl": ["backstay_left"], "Right backstay.stl": ["backstay_right"],
-      "Main rollbar.stl": ["main_hoop_left", "main_hoop_right"],
-    };
-    if (PILLAR_TUBE_ROWS[file]) {
-      const group = nearestRowGroupByFraction(PILLAR_TUBE_ROWS[file].map((r) => [r]), frac);
-      return { label: group.map(humanizeRowLabel).join(" / ") + " tube", keys: group.map((r) => "mounting_feet_tube_welds__" + r + "__weld") };
+    // point it landed nearest, same as any other multi-point bar.
+    if (PILLAR_TUBE_POINTS[file]) {
+      const points = PILLAR_TUBE_POINTS[file];
+      const group = nearestRowGroupByFraction(points.map((p) => [p]), frac);
+      return { label: group.map((p) => p.label).join(" / "), keys: group.map((p) => p.elementId + "__" + p.rowId + "__weld") };
     }
     // "253-19 left/right.stl" each carry their OWN weld answer (keyed by
     // physical leg, not crossing position -- see rearLowerXOwnWeldColor)

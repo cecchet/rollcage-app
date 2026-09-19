@@ -603,6 +603,23 @@
       hardFail: true,
       hardFailMessage: "A pillar not welded to its own mounting foot.",
     },
+    {
+      id: "lateral_main_hoop_welds",
+      name: "Lateral-to-main-rollbar welds",
+      category: "Welds",
+      requirement: "required",
+      reference: "2020 FIA 253 Ch.8.3.2.6",
+      description: "The weld joining each lateral/half-rollbar's own top end to the main rollbar (253-3 layout) -- a separate joint from the lateral's base-to-foot weld tracked above.",
+      evaluationType: "table",
+      rows: [
+        { id: "lateral_left", label: "Left lateral to main rollbar" },
+        { id: "lateral_right", label: "Right lateral to main rollbar" },
+      ],
+      columns: WELD_COLUMNS,
+      visuallyVerifiable: true,
+      hardFail: true,
+      hardFailMessage: "A lateral not welded to the main rollbar.",
+    },
   ];
 
   // -- 2.3. Tubing --
