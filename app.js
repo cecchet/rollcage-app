@@ -3241,24 +3241,26 @@
       if (file === "Rear diagonal 1.stl") return { rowIds: ["top_rear_diag_left", "bottom_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["top_rear_diag_left", "bottom_rear_diag_right"] };
       if (file === "Rear diagonal 2.stl") return { rowIds: ["bottom_rear_diag_left", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["bottom_rear_diag_left", "top_rear_diag_right"] };
     }
-    // 253-14/253-22: front (253-14's own end, to transverse member) and
-    // the "V apex" (253-14's own rear end -- verified ~3mm from 253-22's
-    // own upper end, essentially the same point) share ROOF_4_2_JUNCTION_
-    // ROWS' top_rear_left/right; 253-22's own lower end measures to the
-    // backstay (bottom_rear_left/right).
-    if (file === "Roof bar 253-14 left.stl") return { rowIds: ["front_roof_left", "center_roof_left"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID, distRowIds: ["front_roof_left", "top_rear_left"] };
-    if (file === "Roof bar 253-14 right.stl") return { rowIds: ["front_roof_right", "center_roof_right"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID, distRowIds: ["front_roof_right", "top_rear_right"] };
-    if (file === "Rear diagonal 253-22 left.stl") return { rowIds: ["top_rear_left", "bottom_rear_left"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID, distRowIds: ["top_rear_left", "bottom_rear_left"] };
-    if (file === "Rear diagonal 253-22 right.stl") return { rowIds: ["top_rear_right", "bottom_rear_right"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID, distRowIds: ["top_rear_right", "bottom_rear_right"] };
+    // 253-14/253-22's junction coloring/click target is handled separately,
+    // in Junctions mode, by roof14JunctionGroups/rearDiag22JunctionGroups
+    // (via GROUPED_JUNCTION_FILES) -- each bar's rear/upper end is now
+    // shared by 2 independent measurements (the same-side V apex to its
+    // partner bar, AND the new left/right peak distance), which the
+    // single-table distElementId/distRowIds shape here can't represent.
+    if (file === "Roof bar 253-14 left.stl") return { rowIds: ["front_roof_left", "center_roof_left"], weldElementId: ROOF_4_2_WELD_ID, distElementId: null };
+    if (file === "Roof bar 253-14 right.stl") return { rowIds: ["front_roof_right", "center_roof_right"], weldElementId: ROOF_4_2_WELD_ID, distElementId: null };
+    if (file === "Rear diagonal 253-22 left.stl") return { rowIds: ["top_rear_left", "bottom_rear_left"], weldElementId: ROOF_4_2_WELD_ID, distElementId: null };
+    if (file === "Rear diagonal 253-22 right.stl") return { rowIds: ["top_rear_right", "bottom_rear_right"], weldElementId: ROOF_4_2_WELD_ID, distElementId: null };
     if (file === "Sill bar Left.stl") return { rowIds: ["front_left", "rear_left"], weldElementId: "sill_bar_welds", distElementId: null };
     if (file === "Sill bar Right.stl") return { rowIds: ["front_right", "rear_right"], weldElementId: "sill_bar_welds", distElementId: null };
     // Transverse member: straight bar, Y dominant, verified low-Y=left
     // (matches "Front left lateral.stl" sitting at the low-Y end). Its own
     // junction coloring/click target is handled separately, in Junctions
-    // mode, by transverseMemberJunctionSpec/transverseMemberJunctionGroups
-    // -- each end is shared by 253-15's own upper corner AND whichever
-    // roof bar design is active's own front end, which the single-table
-    // distElementId/distRowIds shape here can't represent.
+    // mode, by groupedJunctionSpec/transverseMemberJunctionGroups (see
+    // GROUPED_JUNCTION_FILES) -- each end is shared by 253-15's own upper
+    // corner AND whichever roof bar design is active's own front end,
+    // which the single-table distElementId/distRowIds shape here can't
+    // represent.
     if (file === "Transverse member.stl") return { rowIds: ["left", "right"], weldElementId: "transverse_member_welds", distElementId: null };
     // Dash bar spans left-to-right (Y dominant, verified) -- its own 2 ends.
     if (file === "Dash bar 253-29.stl") return { rowIds: ["left", "right"], weldElementId: "dash_bar_detail", distElementId: null };
@@ -3554,10 +3556,11 @@
         const t = part3RowTargetsForFile(file);
         setIfActive(file, t && t.distElementId ? distanceSpec(file, t.distElementId, t.distRowIds || t.rowIds) : null);
       });
-      // Runs AFTER the generic loop above (which would otherwise set this
-      // file to ghost, since part3RowTargetsForFile's own distElementId is
-      // null for it now) so this combined-group coloring has the final say.
-      setIfActive("Transverse member.stl", transverseMemberJunctionSpec("Transverse member.stl"));
+      // Runs AFTER the generic loop above (which would otherwise set these
+      // files to ghost, since part3RowTargetsForFile's own distElementId is
+      // null for all of them now) so this combined-group coloring has the
+      // final say.
+      Object.keys(GROUPED_JUNCTION_FILES).forEach((file) => setIfActive(file, groupedJunctionSpec(file, GROUPED_JUNCTION_FILES[file]())));
     }
     return view;
   }
@@ -4039,12 +4042,50 @@
     }
     return [left, right];
   }
-  // Junctions-mode coloring for the transverse member -- each end's color
-  // is the WORST of however many measurements land there (aggregateColor),
-  // since it's a real fail if EITHER the windshield-bar or roof-bar
-  // distance to this end is over 100mm, not just whichever was answered.
-  function transverseMemberJunctionSpec(file) {
-    const groups = transverseMemberJunctionGroups();
+  // 253-14's own rear end is likewise now a group of 2 independent
+  // measurements: the same-side "V apex" to 253-22 (top_rear_left/right,
+  // unchanged) AND the left/right roof-peak distance (roof_peak, ONE
+  // shared row for both sides, same "one row, multiple bars" idea as the
+  // V apex itself) -- where left 253-14 meets right 253-14 at the roof's
+  // own rear peak.
+  function roof14JunctionGroups(side) {
+    const front = [{ elementId: ROOF_4_2_DIST_ID, rowId: side === "left" ? "front_roof_left" : "front_roof_right" }];
+    const rear = [
+      { elementId: ROOF_4_2_DIST_ID, rowId: side === "left" ? "top_rear_left" : "top_rear_right" },
+      { elementId: ROOF_4_2_DIST_ID, rowId: "roof_peak" },
+    ];
+    return [front, rear];
+  }
+  // Same idea for 253-22's own upper end: the same-side V apex to 253-14
+  // (unchanged) AND the left/right rear-diagonal-peak distance
+  // (rear_diag_peak) where left 253-22 meets right 253-22.
+  function rearDiag22JunctionGroups(side) {
+    const top = [
+      { elementId: ROOF_4_2_DIST_ID, rowId: side === "left" ? "top_rear_left" : "top_rear_right" },
+      { elementId: ROOF_4_2_DIST_ID, rowId: "rear_diag_peak" },
+    ];
+    const bottom = [{ elementId: ROOF_4_2_DIST_ID, rowId: side === "left" ? "bottom_rear_left" : "bottom_rear_right" }];
+    return [top, bottom];
+  }
+  // Every file whose junction coloring/click-jump/hover needs the
+  // "combine multiple independent measurements into one band segment"
+  // treatment (groupedJunctionSpec below) rather than a flat point-per-
+  // segment list -- each entry returns [group1, group2, ...] the same
+  // shape transverseMemberJunctionGroups() does. A function per file (not
+  // a fixed array) since which measurements apply depends on the current
+  // roof_bars/backstay_diagonals/a_pillar_reinforcement answers.
+  const GROUPED_JUNCTION_FILES = {
+    "Transverse member.stl": transverseMemberJunctionGroups,
+    "Roof bar 253-14 left.stl": () => roof14JunctionGroups("left"),
+    "Roof bar 253-14 right.stl": () => roof14JunctionGroups("right"),
+    "Rear diagonal 253-22 left.stl": () => rearDiag22JunctionGroups("left"),
+    "Rear diagonal 253-22 right.stl": () => rearDiag22JunctionGroups("right"),
+  };
+  // Junctions-mode coloring for any GROUPED_JUNCTION_FILES entry -- each
+  // segment's color is the WORST of however many measurements land there
+  // (aggregateColor), since it's a real fail if EITHER measurement at
+  // that spot is over 100mm, not just whichever was answered.
+  function groupedJunctionSpec(file, groups) {
     const colorForGroup = (g) => aggregateColor(g.map((p) => distanceValueColor(getAnswer(p.elementId + "__" + p.rowId + "__distance").value)));
     return bandSplitOrAggregate(file, groups, colorForGroup, () => aggregateColor(groups.map(colorForGroup)));
   }
@@ -4128,8 +4169,8 @@
       if (footJunction) {
         return expandThenFindRows([footJunction.elementId], ["row-" + footJunction.elementId + "__" + footJunction.rowId]);
       }
-      if (file === "Transverse member.stl") {
-        const flat = [].concat.apply([], transverseMemberJunctionGroups());
+      if (GROUPED_JUNCTION_FILES[file]) {
+        const flat = [].concat.apply([], GROUPED_JUNCTION_FILES[file]());
         return expandThenFindRows(flat.map((p) => p.elementId), flat.map((p) => "row-" + p.elementId + "__" + p.rowId));
       }
       const target = part3RowTargetsForFile(file);
@@ -4291,8 +4332,8 @@
       if (footJunction) {
         return { label: rowLabelFor(footJunction.elementId, footJunction.rowId), keys: [footJunction.elementId + "__" + footJunction.rowId + "__distance"] };
       }
-      if (file === "Transverse member.stl") {
-        const group = nearestRowGroupByFraction(transverseMemberJunctionGroups(), frac);
+      if (GROUPED_JUNCTION_FILES[file]) {
+        const group = nearestRowGroupByFraction(GROUPED_JUNCTION_FILES[file](), frac);
         return { label: group.map((p) => rowLabelFor(p.elementId, p.rowId)).join(" / "), keys: group.map((p) => p.elementId + "__" + p.rowId + "__distance") };
       }
       const target = part3RowTargetsForFile(file);

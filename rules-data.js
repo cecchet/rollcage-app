@@ -1271,17 +1271,24 @@
   ];
   // Junction distances for the 253-14/253-22 pair -- structurally different
   // from the weld rows above: front (253-14's own front end, to the
-  // transverse member), the "V apex" (253-14's own REAR end and 253-22's
-  // own UPPER end -- verified from real vertex positions to sit ~3mm
-  // apart, essentially the same physical point, so ONE row drives both
-  // bars' color the same way the backstay/lateral junction does), and
-  // bottom (253-22's own lower end, to the backstay). No row for a
-  // "center"/internal crossing -- there isn't one on either bar here.
+  // transverse member), the same-side "V apex" (253-14's own REAR end and
+  // 253-22's own UPPER end -- verified from real vertex positions to sit
+  // ~3mm apart, essentially the same physical point, so ONE row drives
+  // both bars' color the same way the backstay/lateral junction does),
+  // bottom (253-22's own lower end, to the backstay), AND the 2 across-
+  // the-car peaks these bars form with their OWN mirror half: where left
+  // 253-14 meets right 253-14 at the roof's own rear peak, and separately
+  // where left 253-22 meets right 253-22 at the backstay diagonals' own
+  // upper peak -- 2 more real junctions, each its own single shared row
+  // (not per-side) since left and right meet at exactly one point. No row
+  // for a "center"/internal crossing -- there isn't one on either bar here.
   const ROOF_4_2_JUNCTION_ROWS = [
     { id: "front_roof_left", label: "253-14 roof bar -- front left (to transverse member)" },
     { id: "front_roof_right", label: "253-14 roof bar -- front right (to transverse member)" },
     { id: "top_rear_left", label: "253-14/253-22 -- left V junction" },
     { id: "top_rear_right", label: "253-14/253-22 -- right V junction" },
+    { id: "roof_peak", label: "253-14 roof bar -- rear left/right (peak)" },
+    { id: "rear_diag_peak", label: "253-22 rear diagonal -- top left/right (peak)" },
     { id: "bottom_rear_left", label: "253-22 rear diagonal -- lower left (to backstay)" },
     { id: "bottom_rear_right", label: "253-22 rear diagonal -- lower right (to backstay)" },
   ];
@@ -1388,7 +1395,7 @@
       category: "Bar junction distances",
       requirement: "required",
       reference: "",
-      description: "253-14's front ends measure to the transverse member; the \"V\" where 253-14 and 253-22 meet (without joining) is a single shared measurement; 253-22's lower ends measure to the backstay.",
+      description: "253-14's front ends measure to the transverse member; the \"V\" where 253-14 and 253-22 meet (without joining) is a single shared measurement per side; 253-22's lower ends measure to the backstay; and each bar's own left/right halves have their own peak distance where they meet across the car.",
       showIf: { id: "roof_bars", equals: "253-14" },
       evaluationType: "table",
       rows: ROOF_4_2_JUNCTION_ROWS,
