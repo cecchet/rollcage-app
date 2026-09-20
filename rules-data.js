@@ -475,11 +475,20 @@
     },
     {
       id: "transverse_member_welds",
-      name: "Transverse member welds",
+      name: "253-3 transverse member welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "",
-      showIf: { any: [{ id: "transverse_member_253_3", equals: "yes" }, { id: "transverse_members_253_1", in: ["3-bars", "halo"] }] },
-      evaluationType: "table", rows: [{ id: "bar", label: "Transverse member" }], columns: WELD_COLUMNS,
+      showIf: { any: [
+        { id: "main_structure_layout", in: ["253-1", "253-2", "253-3"] },
+        { id: "transverse_member_253_3", equals: "yes" },
+        { id: "transverse_members_253_1", in: ["3-bars", "halo"] },
+      ] },
+      evaluationType: "table",
+      rows: [
+        { id: "left", label: "253-3 transverse member -- left" },
+        { id: "right", label: "253-3 transverse member -- right" },
+      ],
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1136,7 +1145,7 @@
     // center" shape as the other X-braced bars (253-9/12/19/21).
     {
       id: "main_diagonal_welds",
-      name: "253-7: Main rollbar diagonal welds",
+      name: "253-7 main rollbar diagonal welds",
       category: "Welds",
       requirement: "required",
       reference: "",
@@ -1246,7 +1255,7 @@
     },
     {
       id: "roof_4_1_distances",
-      name: "253-12: Roof bar junction distances",
+      name: "253-12 roof bar junction distances",
       category: "Bar junction distances",
       requirement: "required",
       reference: "",
@@ -1261,7 +1270,7 @@
     },
     {
       id: "roof_4_1_measurements_welds",
-      name: "253-12: Roof bar welds",
+      name: "253-12 roof bar welds",
       category: "Welds",
       requirement: "required",
       reference: "",
@@ -1275,7 +1284,7 @@
     },
     {
       id: "rear_diag_4_1_distances",
-      name: "253-21: Rear diagonal junction distances",
+      name: "253-21 rear diagonal junction distances",
       category: "Bar junction distances",
       requirement: "required",
       reference: "",
@@ -1290,7 +1299,7 @@
     },
     {
       id: "rear_diag_4_1_welds",
-      name: "253-21: Rear diagonal welds",
+      name: "253-21 rear diagonal welds",
       category: "Welds",
       requirement: "required",
       reference: "",
@@ -1347,7 +1356,7 @@
     },
     {
       id: "roof_4_2_measurements_welds",
-      name: "253-14/253-22: Welds",
+      name: "253-14/253-22 roof bar & rear diagonal welds",
       category: "Welds",
       requirement: "required",
       reference: "",
@@ -1466,7 +1475,7 @@
     },
     {
       id: "door_9_intersection_welds",
-      name: "Welds -- intersection configuration",
+      name: "253-9 door bar welds",
       category: "Welds",
       requirement: "required", reference: "", description: "",
       showIf: DOOR_9X_SHOWIF,
@@ -1517,7 +1526,7 @@
     },
     {
       id: "door_9_2bar_welds",
-      name: "Welds -- 2-bar configurations",
+      name: "253-9 door bar welds",
       category: "Welds",
       requirement: "required", reference: "", description: "",
       showIf: DOOR_9BENT_SHOWIF,
@@ -1532,7 +1541,7 @@
   const SECTION_5_2 = [
     {
       id: "door_10_welds",
-      name: "253-10: Welds",
+      name: "253-10 door bar welds",
       category: "Welds",
       requirement: "required", reference: "", description: "",
       showIf: DOOR_10_SHOWIF,
@@ -1567,7 +1576,7 @@
   const SECTION_5_3 = [
     {
       id: "door_11_welds",
-      name: "253-11: Welds",
+      name: "253-11 door bar welds",
       category: "Welds",
       requirement: "required", reference: "", description: "",
       showIf: DOOR_11_SHOWIF,
@@ -1592,8 +1601,8 @@
   // Section 6. Windshield support bar (253-15)
   // =====================================================================
   const WINDSHIELD_WELD_ROWS = [
-    { id: "top_left", label: "253-15 windshield bar -- top left" }, { id: "center_top_left", label: "253-15 windshield bar -- center top left" }, { id: "center_lower_left", label: "253-15 windshield bar -- center lower left" }, { id: "bottom_left", label: "253-15 windshield bar -- bottom left" },
-    { id: "top_right", label: "253-15 windshield bar -- top right" }, { id: "center_top_right", label: "253-15 windshield bar -- center top right" }, { id: "center_lower_right", label: "253-15 windshield bar -- center lower right" }, { id: "bottom_right", label: "253-15 windshield bar -- bottom right" },
+    { id: "top_left", label: "253-15 windshield support bar -- top left" }, { id: "center_top_left", label: "253-15 windshield support bar -- center top left" }, { id: "center_lower_left", label: "253-15 windshield support bar -- center lower left" }, { id: "bottom_left", label: "253-15 windshield support bar -- bottom left" },
+    { id: "top_right", label: "253-15 windshield support bar -- top right" }, { id: "center_top_right", label: "253-15 windshield support bar -- center top right" }, { id: "center_lower_right", label: "253-15 windshield support bar -- center lower right" }, { id: "bottom_right", label: "253-15 windshield support bar -- bottom right" },
   ];
   const SECTION_6_WINDSHIELD = [
     {
@@ -1616,7 +1625,7 @@
     },
     {
       id: "windshield_distances",
-      name: "253-15: Junction distances",
+      name: "253-15 windshield support bar junction distances",
       category: "Bar junction distances",
       requirement: "required",
       reference: "",
@@ -1630,7 +1639,7 @@
     },
     {
       id: "windshield_welds",
-      name: "253-15: Welds",
+      name: "253-15 windshield support bar welds",
       category: "Welds",
       requirement: "required",
       reference: "",
@@ -1721,9 +1730,9 @@
     },
     {
       id: "harness_bar_26_27_welds",
-      name: "Harness bar (253-26/27, legacy diagram 200 / FFSA) welds",
+      name: "253-26/27 harness bar welds",
       category: "Welds",
-      requirement: "recommended", reference: "03-ART 253 Equipement de Securite Gr. N-A-R-GT-F2000 2020", description: "Traditional harness bar secured to the main hoop. May be at a different height left/right. Minimum diameter x thickness is 38 x 2.5mm.",
+      requirement: "recommended", reference: "03-ART 253 Equipement de Securite Gr. N-A-R-GT-F2000 2020", description: "Traditional harness bar secured to the main hoop (legacy diagram 200 / FFSA). May be at a different height left/right. Minimum diameter x thickness is 38 x 2.5mm.",
       showIf: { id: "harness_bar_present", equals: "253-26-27" },
       evaluationType: "table",
       // Left/right (fixed mesh geometry), not driver/codriver -- which side
@@ -1735,7 +1744,7 @@
     },
     {
       id: "harness_bar_28_66_welds",
-      name: "Rear harness bar (253-28/66) welds",
+      name: "253-28/66 rear harness bar welds",
       category: "Welds",
       requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253", description: "",
       showIf: { id: "harness_bar_present", equals: "253-28-66" },
@@ -1751,7 +1760,7 @@
     },
     {
       id: "lower_main_hoop_bar_detail",
-      name: "253-30 welds",
+      name: "253-30 lower main hoop bar welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "lower_main_hoop_bar_present", equals: "yes" },
@@ -1774,7 +1783,7 @@
     },
     {
       id: "rear_lateral_reinforcement_detail",
-      name: "253-17 welds",
+      name: "253-17 rear lateral reinforcement welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "Each tube's own 2 ends -- front (at the door bar) and rear (at the backstay) -- so a \"both\" configuration (4 tubes) has 8 welds to check.",
       showIf: { id: "rear_lateral_reinforcement_present", notEquals: "none" },
@@ -1808,7 +1817,7 @@
     },
     {
       id: "rear_transversal_detail",
-      name: "253-18 / 253-18B welds",
+      name: "253-18/253-18B rear transversal welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "The bar's own 2 ends.",
       showIf: { id: "rear_transversal_present", equals: "yes" },
@@ -1836,7 +1845,7 @@
     },
     {
       id: "rear_lower_x_detail",
-      name: "253-19 welds",
+      name: "253-19 rear lower X welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "The 4 far corners (2 per diagonal) plus, where the diagonals aren't both one continuous piece, the 2 crossing points of whichever leg is cut into half-bars -- same \"corners + center\" shape as the other X-braced bars (253-9/12/21).",
       showIf: { id: "rear_lower_x_present", notEquals: "none" },
@@ -1881,7 +1890,7 @@
     },
     {
       id: "anti_intrusion_detail",
-      name: "253-25 welds",
+      name: "253-25 anti-intrusion bar welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "",
       showIf: { id: "anti_intrusion_present", equals: "yes" },
@@ -1953,7 +1962,7 @@
     },
     {
       id: "temple_bar_detail",
-      name: "Temple bar (253-31) welds",
+      name: "253-31 temple bar welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "Each bar's own top and bottom ends.",
       showIf: { id: "temple_bar_present", notEquals: "none" },
@@ -1980,7 +1989,7 @@
     },
     {
       id: "windshield_reinforcement_detail",
-      name: "Windshield reinforcement (253-31) welds",
+      name: "253-31 windshield reinforcement welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "Each bar's own top and bottom ends.",
       showIf: { id: "windshield_reinforcement_present", notEquals: "none" },

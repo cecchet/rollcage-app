@@ -2995,7 +2995,9 @@
     if (file === "Rear diagonal 253-22 right.stl") return { rowIds: ["top_rear_right", "bottom_rear_right"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID };
     if (file === "Sill bar Left.stl") return { rowIds: ["front_left", "rear_left"], weldElementId: "sill_bar_welds", distElementId: null };
     if (file === "Sill bar Right.stl") return { rowIds: ["front_right", "rear_right"], weldElementId: "sill_bar_welds", distElementId: null };
-    if (file === "Transverse member.stl") return { rowIds: ["bar"], weldElementId: "transverse_member_welds", distElementId: null };
+    // Transverse member: straight bar, Y dominant, verified low-Y=left
+    // (matches "Front left lateral.stl" sitting at the low-Y end).
+    if (file === "Transverse member.stl") return { rowIds: ["left", "right"], weldElementId: "transverse_member_welds", distElementId: null };
     // Dash bar spans left-to-right (Y dominant, verified) -- its own 2 ends.
     if (file === "Dash bar 253-29.stl") return { rowIds: ["left", "right"], weldElementId: "dash_bar_detail", distElementId: null };
     // 253-17: 2 weld points per tube (front, at the door bar; rear, at the
@@ -3688,16 +3690,20 @@
     if (first) scrollBelowViewer(first, { center: true });
     return !!first;
   }
+  // Returns true only when a row was actually found and jumped to -- e.g.
+  // the transverse member is colored (and clickable) in the 3D model as
+  // soon as its base structure implies it exists, but its OWN weld table
+  // stays hidden until its separate Part 1 presence question is answered.
+  // Returning false in that case lets the caller fall through to the
+  // normal Part-1 jump instead of the click silently doing nothing.
   function jumpToWeldRow(file) {
     const footRow = footRowForFile(file);
     if (footRow) {
-      expandThenFindRows(["mounting_feet_table"], ["row-mounting_feet_table__" + footRow]);
-      return true;
+      return expandThenFindRows(["mounting_feet_table"], ["row-mounting_feet_table__" + footRow]);
     }
     if (PILLAR_TUBE_POINTS[file]) {
       const points = PILLAR_TUBE_POINTS[file];
-      expandThenFindRows(points.map((p) => p.elementId), points.map((p) => "row-" + p.elementId + "__" + p.rowId));
-      return true;
+      return expandThenFindRows(points.map((p) => p.elementId), points.map((p) => "row-" + p.elementId + "__" + p.rowId));
     }
     const target = part3RowTargetsForFile(file);
     if (!target) return false;
@@ -3705,8 +3711,7 @@
     const elementId = inJunction ? target.distElementId : target.weldElementId || target.distElementId;
     if (!elementId) return false;
     const rowIds = inJunction ? target.distRowIds || target.rowIds : target.rowIds;
-    expandThenFindRows([elementId], rowIds.map((rowId) => "row-" + elementId + "__" + rowId));
-    return true;
+    return expandThenFindRows([elementId], rowIds.map((rowId) => "row-" + elementId + "__" + rowId));
   }
 
   // Wired to CageView.onPartClick() -- lets clicking a bar in the live 3D
