@@ -1209,13 +1209,10 @@
     root.appendChild(panel);
   }
 
-  // Safety score / Vehicle description always trail the checklist -- Logbook
-  // used to as well, but now it's its own phase (LOGBOOK_PHASE), gated the
-  // same way as every other part -- see render().
-  function renderChecklist(root, path) {
-    const panel = el("div", { class: "panel" });
-    panel.appendChild(el("h2", {}, ["Rollcage design"]));
-
+  // Shared by renderChecklist (which parts have content to show) and the
+  // Part dropdown in the sticky 3D viewer panel (which parts to offer) --
+  // one computation, so the two can never disagree about what's available.
+  function computeUsedPhases(path) {
     const visible = path.elements.filter(elementVisible).filter((elm) => !RENDERED_IN_LOGBOOK_PANEL.includes(elm.id));
     const phases = { 1: [], 2: [], [INSTALLATION_PHASE]: [], [WELDS_PHASE]: [], [JUNCTIONS_PHASE]: [], [SEATS_PHASE]: [] };
     visible.forEach((elm) => phases[elementPhase(elm)].push(elm));
@@ -1224,23 +1221,21 @@
     // directly, gated on this phase in render()) so nothing ever populates
     // phases[LOGBOOK_PHASE] -- it's still always offered as a destination.
     usedPhases.push(LOGBOOK_PHASE);
+    return { phases, usedPhases };
+  }
+  // Safety score / Vehicle description always trail the checklist -- Logbook
+  // used to as well, but now it's its own phase (LOGBOOK_PHASE), gated the
+  // same way as every other part -- see render().
+  function renderChecklist(root, path) {
+    const panel = el("div", { class: "panel" });
+    panel.appendChild(el("h2", {}, ["Rollcage design"]));
+
+    const { phases, usedPhases } = computeUsedPhases(path);
     const showTabs = usedPhases.length > 1;
     if (showTabs && !usedPhases.includes(state.activeTab)) state.activeTab = usedPhases[0];
     const shownPhases = showTabs ? [state.activeTab] : usedPhases;
 
     if (shownPhases.includes(1)) renderPhotoAnalysis(root, path);
-
-    if (showTabs) {
-      panel.appendChild(
-        el(
-          "div",
-          { class: "radio-group phase-switch" },
-          usedPhases.map((p) =>
-            radioOption("phaseSwitch", String(p), PHASE_LABELS[p], state.activeTab === p, () => { state.activeTab = p; render(); })
-          )
-        )
-      );
-    }
 
     // Welds/Junctions' own 3D view-mode switch lives in the sticky viewer
     // panel now (see syncPart3Controls) so it's reachable regardless of
@@ -4171,7 +4166,33 @@
     tooltip.style.top = (clientY - rect.top) + "px";
     tooltip.hidden = false;
   }
+  // Top-level Part switcher -- lives above the 3D model in the sticky
+  // viewer panel (outside #app, so it survives render()'s teardown)
+  // instead of inside the scrolling checklist, so it's reachable no matter
+  // how far down the page the user has scrolled. A dropdown rather than
+  // the radio-group the View switch below uses -- this list can grow (it's
+  // already 7 entries) where View is a fixed, small set.
+  function syncPartDropdown() {
+    const holder = document.getElementById("cageViewerPartDropdown");
+    if (!holder) return;
+    holder.innerHTML = "";
+    if (!state.pathId || !RULES[state.vehicle.org] || !RULES[state.vehicle.org].paths[state.pathId]) return;
+    const path = RULES[state.vehicle.org].paths[state.pathId];
+    const { usedPhases } = computeUsedPhases(path);
+    if (usedPhases.length <= 1) return;
+    const select = el("select", {
+      class: "part-switch-select",
+      onchange: (e) => { state.activeTab = Number(e.target.value); render(); },
+    });
+    usedPhases.forEach((p) => {
+      const opt = el("option", { value: String(p) }, [PHASE_LABELS[p]]);
+      if (state.activeTab === p) opt.selected = true;
+      select.appendChild(opt);
+    });
+    holder.appendChild(select);
+  }
   function syncCageView() {
+    syncPartDropdown();
     syncPart3Controls();
     if (window.CageView) {
       const colors = computeCageColors();

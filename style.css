@@ -246,14 +246,18 @@ textarea { resize: vertical; min-height: 50px; }
   margin: 18px 0 4px;
 }
 
-.phase-switch {
-  gap: 8px 20px;
-  padding-bottom: 14px;
-  margin-bottom: 16px;
-  border-bottom: 2px solid var(--border);
+.cage-viewer-part-dropdown:not(:empty) { margin-bottom: 10px; }
+.part-switch-select {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
 }
-.phase-switch label { font-size: 0.9rem; font-weight: 600; color: var(--muted); }
-.phase-switch label:has(input:checked) { color: var(--accent); }
 
 .element-card {
   border: 1px solid var(--border);
