@@ -1217,8 +1217,8 @@
       // corners); "-2" is the mirror (front-right/rear-left continuous).
       { id: "253-12-1", label: "253-12: 1 continuous bar + 2 half bars", diagram: "253-12-1", outcome: "pass" },
       { id: "253-12-2", label: "253-12: 1 continuous bar + 2 half bars (other diagonal continuous)", diagram: "253-12-2", outcome: "pass" },
-      { id: "253-14", label: "253-14", diagram: "253-14", outcome: "pass" },
       { id: "253-13", label: "253-13", diagram: "253-13", note: "No front roof corner support -- known to be deficient and does not satisfy FIA 253 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
+      { id: "253-14", label: "253-14", diagram: "253-14", outcome: "pass" },
       { id: "single-center", label: "Single bar center", diagram: "roof-single-center", note: "A single center roof bar does not satisfy FIA 253-12/253-14 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
       { id: "single-front-left", label: "Single bar front left", diagram: "roof-single-front-left", note: "A single roof bar to one front corner does not satisfy FIA 253-12/253-14 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
       { id: "single-front-right", label: "Single bar front right", diagram: "roof-single-front-right", note: "A single roof bar to one front corner does not satisfy FIA 253-12/253-14 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
