@@ -1033,8 +1033,23 @@
   // default EVERY part to hidden in Part 3 (not just ones some rule
   // happened to touch), so an optional bar that's simply absent from this
   // car can't fall through as a phantom ghost just because nothing ever
-  // wrote an entry for it into the color map.
-  function getAllFiles() { return PARTS.slice(); }
+  // wrote an entry for it into the color map. Mounting feet's 4 procedural
+  // "virtual" meshes per location (cube/double-plane/rocker base/rocker
+  // fold -- see footCubeFile() etc.) aren't in PARTS at all (they're built
+  // at runtime, not loaded from cage_parts/), so without adding them here
+  // too, app.js's own "default everything hidden" pass in Part 3 never
+  // reaches them -- setIfActive then short-circuits on their raw "hidden"
+  // color (a different design is the active one) without ever writing a
+  // view entry, leaving them at their just-created default: visible and
+  // ghosted. That's why every non-selected foot design used to ghost at
+  // once in Part 3 instead of only the one actually picked.
+  function getAllFiles() {
+    const virtual = [];
+    FOOT_LOCATIONS.forEach(({ row }) => {
+      virtual.push(footCubeFile(row), doublePlaneFile(row), rockerBaseFile(row), rockerFoldFile(row));
+    });
+    return PARTS.slice().concat(virtual);
+  }
 
   // A mesh's own bounding box, reduced to whichever single axis (x/y/z) has
   // the largest span -- the closest a plain axis-aligned box can get to

@@ -4057,12 +4057,14 @@
     if (elmId) jumpToSection(elmId);
   }
 
-  // The Weld view/Bar junctions view switch lives in the STICKY 3D viewer
-  // panel (outside #app, so render() never rebuilds it) rather than at the
-  // top of Part 3's own checklist -- that panel stays pinned while the
-  // checklist scrolls, so the switch is reachable no matter how far down a
-  // long weld table the user has scrolled, instead of only being visible
-  // right after switching to Part 3.
+  // The View switch lives in the STICKY 3D viewer panel (outside #app, so
+  // render() never rebuilds it) rather than inside any one part's own
+  // checklist -- that panel stays pinned while the checklist scrolls, so
+  // it's reachable no matter how far down a long table the user has
+  // scrolled. It doubles as quick navigation between all 4 parts the 3D
+  // model has something to show for -- Design/Tube size jump straight to
+  // Part 1/2; Welds/Junctions jump to Part 3 in that view mode (Part 4 has
+  // no 3D-relevant view of its own, so it's not one of the 4 options).
   function syncPart3Controls() {
     const el3 = document.getElementById("cageViewerPart3Controls");
     // "Hide ghost bars" has nothing left to do on Part 3 -- every bar NOT
@@ -4076,11 +4078,19 @@
     if (ghostBtn) ghostBtn.style.display = state.activeTab === 3 ? "none" : "";
     if (!el3) return;
     el3.innerHTML = "";
-    if (state.activeTab !== 3) return;
+    const goToView = (tab, mode) => {
+      state.activeTab = tab;
+      if (mode) state.part3ViewMode = mode;
+      render();
+    };
+    const isActive = (tab, mode) => state.activeTab === tab && (!mode || state.part3ViewMode === mode);
     el3.appendChild(
       el("div", { class: "radio-group" }, [
-        radioOption("part3ViewMode", "weld", "Weld view", state.part3ViewMode === "weld", () => { state.part3ViewMode = "weld"; render(); }),
-        radioOption("part3ViewMode", "junction", "Bar junctions view", state.part3ViewMode === "junction", () => { state.part3ViewMode = "junction"; render(); }),
+        el("strong", { class: "cage-view-switch-label" }, ["View"]),
+        radioOption("cageViewSwitch", "design", "Design", isActive(1), () => goToView(1)),
+        radioOption("cageViewSwitch", "tubing", "Tube size", isActive(2), () => goToView(2)),
+        radioOption("cageViewSwitch", "welds", "Welds", isActive(3, "weld"), () => goToView(3, "weld")),
+        radioOption("cageViewSwitch", "junctions", "Junctions", isActive(3, "junction"), () => goToView(3, "junction")),
       ])
     );
   }
