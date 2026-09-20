@@ -2186,6 +2186,32 @@
       addRow(elmId, elm.name, tier, answer.value ? elementSummary(elm, answer) : "Not yet answered");
     });
 
+    // 253-14 (roof bar) and 253-22 (backstay diagonal, the V design) are a
+    // matched pair per FIA 253 -- 253-12 pairs with 253-21 (X-config)
+    // instead (see roof_bars/rear_diag_4_1_distances' own comments in
+    // rules-data.js). Using 253-14 with any other backstay diagonal, or
+    // 253-22 with any other roof bar, is a real design mismatch, not just
+    // an individually weak choice -- only shown once BOTH sides are
+    // actually answered, so picking 253-14 doesn't get flagged before
+    // there's even been a chance to pick the matching backstay.
+    const roofBarsElm = path.elements.find((e) => e.id === "roof_bars");
+    const backstayElm = path.elements.find((e) => e.id === "backstay_diagonals");
+    if (roofBarsElm && elementVisible(roofBarsElm) && backstayElm && elementVisible(backstayElm)) {
+      const roofVal = getAnswer("roof_bars").value;
+      const backstayVal = getAnswer("backstay_diagonals").value;
+      if (roofVal && backstayVal) {
+        const roofIs14 = roofVal === "253-14";
+        const backstayIs22 = backstayVal === "253-22";
+        if (roofIs14 || backstayIs22) {
+          const matched = roofIs14 && backstayIs22;
+          addRow(
+            "roof_backstay_pairing", "253-14 roof bar / 253-22 backstay pairing", matched ? "green" : "red",
+            matched ? "Matched" : "Mismatched -- 253-14 requires a 253-22 backstay diagonal, and vice versa"
+          );
+        }
+      }
+    }
+
     // Required gussets at 253-7 (main rollbar diagonal), 253-12 (roof bar),
     // 253-9 (door bar), and 253-15's own junctions (both the lateral-to-
     // A-pillar gusset and the A-pillar's own side/2-piece gussets) -- reads
