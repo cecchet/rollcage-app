@@ -2191,24 +2191,59 @@
     // A-pillar gusset and the A-pillar's own side/2-piece gussets) -- reads
     // the real, already-captured per-junction gusset_design table (each
     // row's own label, so this can never drift from what that table
-    // actually shows) rather than a separate generic yes/no question, and
-    // red-flags any junction that currently exists for this car's design
-    // but has no gusset design chosen yet. A missing structural gusset at
-    // one of these junctions is a real safety gap, not a minor rough edge.
+    // actually shows) rather than a separate generic yes/no question. A
+    // missing structural gusset at one of these junctions is a real safety
+    // gap, not a minor rough edge.
     const gussetDesignElm = path.elements.find((e) => e.id === "gusset_design");
     if (gussetDesignElm) {
       const gussetOptions = (gussetDesignElm.columns.find((c) => c.key === "design") || {}).options || [];
-      const REQUIRED_GUSSET_FAMILIES = [
-        (id) => id.indexOf("main_hoop_diag_") === 0,
-        (id) => id.indexOf("roof_") === 0,
+      const rows = resolveRows(gussetDesignElm);
+      const rowsById = new Map(rows.map((r) => [r.id, r]));
+      const hasGusset = (id) => !!getAnswer("gusset_design__" + id + "__design").value;
+      const optionLabel = (id) => {
+        const design = getAnswer("gusset_design__" + id + "__design").value;
+        return (gussetOptions.find((o) => o.id === design) || {}).label || design;
+      };
+      // FIA's "minimum 2 gussets" at an X-crossing (253-7, 253-12) or a
+      // 253-15 2-piece junction means 2 on OPPOSITE corners of that same
+      // crossing -- left+right, or upper+lower (front+rear for 253-12,
+      // upper-front+lower-rear or upper-rear+lower-front for 253-15's
+      // 2-piece build) -- not all 4. Only red-flags when NEITHER opposite
+      // pair is complete; the side/position tag is trimmed off the row's
+      // own label (its text after the last " - ") so the pair name reads
+      // "left/right" rather than repeating the whole junction name twice.
+      // Strips a redundant leading "left "/"right " too -- the 2-piece 253-15
+      // rows' own label already carries the side (e.g. "... - left upper
+      // front"), but addOppositePairGusset's own label is already scoped to
+      // that side, so the pair display just needs "upper front", not "left
+      // upper front" again.
+      function tag(id) { return rowsById.get(id).label.split(" - ").pop().replace(/^(left|right) /, ""); }
+      function addOppositePairGusset(anchorId, label, pairs) {
+        if (!rowsById.has(anchorId)) return;
+        const satisfied = pairs.find(([a, b]) => hasGusset(a) && hasGusset(b));
+        if (satisfied) {
+          addRow(anchorId, label, "green", tag(satisfied[0]) + "/" + tag(satisfied[1]) + " (" + optionLabel(satisfied[0]) + ")");
+        } else {
+          addRow(anchorId, label, "red", "Missing (need " + pairs.map(([a, b]) => tag(a) + "/" + tag(b)).join(" or ") + ")");
+        }
+      }
+      addOppositePairGusset("main_hoop_diag_left", "253-7: Main rollbar diagonal gusset", [["main_hoop_diag_left", "main_hoop_diag_right"], ["main_hoop_diag_upper", "main_hoop_diag_lower"]]);
+      addOppositePairGusset("roof_left", "253-12: Roof bar junction gusset", [["roof_left", "roof_right"], ["roof_front", "roof_rear"]]);
+      addOppositePairGusset("a_pillar_2pc_left_upper_front", "253-15: Windshield pillar 2-piece gusset — left", [["a_pillar_2pc_left_upper_front", "a_pillar_2pc_left_lower_rear"], ["a_pillar_2pc_left_upper_rear", "a_pillar_2pc_left_lower_front"]]);
+      addOppositePairGusset("a_pillar_2pc_right_upper_front", "253-15: Windshield pillar 2-piece gusset — right", [["a_pillar_2pc_right_upper_front", "a_pillar_2pc_right_lower_rear"], ["a_pillar_2pc_right_upper_rear", "a_pillar_2pc_right_lower_front"]]);
+      // 253-9's front/rear junctions are 2 physically distinct spots, not
+      // alternatives of each other, and 253-15's continuous-bar side
+      // gusset / the lateral-to-A-pillar gusset are each just one gusset
+      // with nothing to pair against -- every one of these still needs its
+      // own gusset individually.
+      const REQUIRED_SINGLE_GUSSETS = [
         (id) => id.indexOf("door_front_") === 0 || id.indexOf("door_rear_") === 0,
-        (id) => id === "a_pillar_left" || id === "a_pillar_right" || id.indexOf("a_pillar_side_") === 0 || id.indexOf("a_pillar_2pc_") === 0,
+        (id) => id === "a_pillar_left" || id === "a_pillar_right" || id.indexOf("a_pillar_side_") === 0,
       ];
-      resolveRows(gussetDesignElm).forEach((row) => {
-        if (!REQUIRED_GUSSET_FAMILIES.some((match) => match(row.id))) return;
+      rows.forEach((row) => {
+        if (!REQUIRED_SINGLE_GUSSETS.some((match) => match(row.id))) return;
         const design = getAnswer("gusset_design__" + row.id + "__design").value;
-        const optLabel = (gussetOptions.find((o) => o.id === design) || {}).label;
-        addRow(row.id, row.label, design ? "green" : "red", design ? optLabel || design : "Missing");
+        addRow(row.id, row.label, design ? "green" : "red", design ? optionLabel(row.id) : "Missing");
       });
     }
 
@@ -4047,8 +4082,10 @@
   // the transverse member is colored (and clickable) in the 3D model as
   // soon as its base structure implies it exists, but its OWN weld table
   // stays hidden until its separate Part 1 presence question is answered.
-  // Returning false in that case lets the caller fall through to the
-  // normal Part-1 jump instead of the click silently doing nothing.
+  // Returning false in that case just means the click does nothing --
+  // handleCagePartClick no longer falls through to a Part-1 jump for
+  // these 2 views, since a bar this can't resolve has no tooltip either
+  // (same resolution hover uses via resolvePart3WeldTarget).
   function jumpToWeldRow(file) {
     // Junctions: its own lookups first -- mounting feet, PILLAR_TUBE_POINTS,
     // and gussets have no junction-distance concept (feet/gussets aren't
@@ -4366,7 +4403,17 @@
       jumpToTubeRow(file);
       return;
     }
-    if ((state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) && jumpToWeldRow(file)) return;
+    // Welds/Installation: jumpToWeldRow is a complete resolver for these 2
+    // views on its own (it covers feet/PILLAR_TUBE_POINTS/gussets too, not
+    // just weld/junction tables) -- so a bar it can't resolve has no
+    // tooltip either (see resolvePart3WeldTarget, the same resolution
+    // hover uses) and a click on it should just do nothing, not fall
+    // through to the Part-1-oriented lookups below. Those are for the
+    // normal Design view, where every bar DOES have a Part-1 home.
+    if (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) {
+      jumpToWeldRow(file);
+      return;
+    }
     const footRow = footRowForFile(file);
     if (footRow) {
       jumpToFootRow(footRow);
@@ -4386,10 +4433,11 @@
   // checklist -- that panel stays pinned while the checklist scrolls, so
   // it's reachable no matter how far down a long table the user has
   // scrolled. It doubles as quick navigation to the 4 parts the 3D model
-  // has something to show for -- Design/Tube size jump straight to Part
-  // 1/2; Welds/Junctions jump to their own parts (Installation constraints,
-  // Seats/belts/routing, and Logbook have no 3D-relevant view of their own,
-  // so they're not among these 4 options).
+  // has something to show for -- Design/Tube size/Junctions/Welds jump
+  // straight to Parts 1/2/3/4 respectively (Seats/belts/routing and
+  // Logbook have no 3D-relevant view of their own, so they're not among
+  // these 4 options). Listed in Part-number order, not the order these
+  // views were added historically.
   function syncPart3Controls() {
     const el3 = document.getElementById("cageViewerPart3Controls");
     // "Hide ghost bars" has nothing left to do on Welds/Junctions -- every
@@ -4410,8 +4458,8 @@
         el("strong", { class: "cage-view-switch-label" }, ["View"]),
         radioOption("cageViewSwitch", "design", "Design", state.activeTab === 1, () => goToView(1)),
         radioOption("cageViewSwitch", "tubing", "Tube size", state.activeTab === 2, () => goToView(2)),
-        radioOption("cageViewSwitch", "welds", "Welds", state.activeTab === WELDS_PHASE, () => goToView(WELDS_PHASE)),
         radioOption("cageViewSwitch", "junctions", "Junctions", state.activeTab === INSTALLATION_PHASE, () => goToView(INSTALLATION_PHASE)),
+        radioOption("cageViewSwitch", "welds", "Welds", state.activeTab === WELDS_PHASE, () => goToView(WELDS_PHASE)),
       ])
     );
   }

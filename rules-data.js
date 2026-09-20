@@ -835,10 +835,10 @@
     // which pair applies.
     if (getAnswer("main_hoop_diagonals").value) {
       rows.push(
-        { id: "main_hoop_diag_left", label: "253-7: Main rollbar diagonal - left" },
-        { id: "main_hoop_diag_right", label: "253-7: Main rollbar diagonal - right" },
-        { id: "main_hoop_diag_upper", label: "253-7: Main rollbar diagonal - upper" },
-        { id: "main_hoop_diag_lower", label: "253-7: Main rollbar diagonal - lower" }
+        { id: "main_hoop_diag_left", label: "253-7: Main rollbar diagonal gusset - left" },
+        { id: "main_hoop_diag_right", label: "253-7: Main rollbar diagonal gusset - right" },
+        { id: "main_hoop_diag_upper", label: "253-7: Main rollbar diagonal gusset - upper" },
+        { id: "main_hoop_diag_lower", label: "253-7: Main rollbar diagonal gusset - lower" }
       );
     }
     // Only the 253-21 X-configuration backstay diagonal needs its own
@@ -858,10 +858,10 @@
     // gusset -- 253-14, 253-13, and the single-bar variants don't.
     if (getAnswer("roof_bars").value === "253-12-1" || getAnswer("roof_bars").value === "253-12-2") {
       rows.push(
-        { id: "roof_left", label: "253-12: Roof bar junction - left" },
-        { id: "roof_right", label: "253-12: Roof bar junction - right" },
-        { id: "roof_front", label: "253-12: Roof bar junction - front" },
-        { id: "roof_rear", label: "253-12: Roof bar junction - rear" }
+        { id: "roof_left", label: "253-12: Roof bar junction gusset - left" },
+        { id: "roof_right", label: "253-12: Roof bar junction gusset - right" },
+        { id: "roof_front", label: "253-12: Roof bar junction gusset - front" },
+        { id: "roof_rear", label: "253-12: Roof bar junction gusset - rear" }
       );
     }
     // Only the 253-9 (X-bar) designs need this gusset -- 253-10, 253-11,
@@ -875,14 +875,14 @@
     // its own rule to be worked out later.
     if (isDoor9(getAnswer("door_bars_left").value)) {
       rows.push(
-        { id: "door_front_left", label: "253-9: Door bar junction - front left" },
-        { id: "door_rear_left", label: "253-9: Door bar junction - rear left" }
+        { id: "door_front_left", label: "253-9: Door bar junction gusset - front left" },
+        { id: "door_rear_left", label: "253-9: Door bar junction gusset - rear left" }
       );
     }
     if (isDoor9(getAnswer("door_bars_right").value)) {
       rows.push(
-        { id: "door_front_right", label: "253-9: Door bar junction - front right" },
-        { id: "door_rear_right", label: "253-9: Door bar junction - rear right" }
+        { id: "door_front_right", label: "253-9: Door bar junction gusset - front right" },
+        { id: "door_rear_right", label: "253-9: Door bar junction gusset - rear right" }
       );
     }
     // Lateral-to-A-pillar gusset -- where the front lateral joins the top of
