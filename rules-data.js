@@ -1688,17 +1688,6 @@
       visuallyVerifiable: true,
       hardFail: true,
     },
-    {
-      id: "gusset_placement",
-      name: "General gusset placement",
-      category: "6. Windshield support bar (253-15)",
-      requirement: "required",
-      reference: "2020 FIA 253 Ch.8.3.2.1.5",
-      description: "Minimum 2 gussets required at: main-rollbar diagonal junctions, roof-reinforcement junctions (253-12 design only), door-bar junctions (253-9 design only), and door-bar-to-windscreen-pillar-reinforcement junctions.",
-      evaluationType: "boolean",
-      visuallyVerifiable: true,
-      hardFail: false,
-    },
   ];
 
   // Shared by the 253-31 temple bar / windshield reinforcement detail
@@ -2351,7 +2340,6 @@
         reference: "ARA RTR 2.2.2(c)(2)(a); 2020 FIA 253 Ch.8.3.2.1.4",
         description: "ARA is explicit: new cages without windscreen supports will NOT be accepted for logbooking whenever dimension A exceeds 200mm -- which is the case for essentially all cars.",
       },
-      gusset_placement: { description: "Minimum 2 gussets required at: main-rollbar diagonal junctions, roof-reinforcement junctions (253-12 design only), door-bar junctions (253-9 design only), and door-bar-to-windscreen-pillar-reinforcement junctions. Unlike NASA, ARA's RTR does not separately mandate a weld-inspection corner cut on every gusset." },
       padding_helmet: {
         reference: "ARA RTR 2.2.3",
         description: "All tubing forward of and including the main hoop in the roofline must be padded. Any other tubing which may contact the helmet while seated must also be padded.",
@@ -2368,7 +2356,6 @@
       homologation_route: { reference: "CARS NRR 12.3.2.3" },
       primary_tubing: { reference: CARS_REF, requirements: CARS_PRIMARY_REQ },
       secondary_tubing: { reference: CARS_REF, requirements: CARS_SECONDARY_REQ },
-      gusset_placement: { description: "Minimum 2 gussets required at: main-rollbar diagonal junctions, roof-reinforcement junctions (253-12 design only), door-bar junctions (253-9 design only), and door-bar-to-windscreen-pillar-reinforcement junctions. The CARS text sourced here does not separately mandate a weld-inspection corner cut." },
       padding_helmet: { reference: "CARS NRR 12.3.2.6", description: "Padding to FIA 8857-2001 type A or SFI 45.1 wherever an occupant's crash helmet could contact the cage." },
       padding_body: {
         requirement: "required",

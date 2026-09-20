@@ -2175,17 +2175,29 @@
       addRow(elmId, elm.name, tier, answer.value ? elementSummary(elm, answer) : "Not yet answered");
     });
 
-    // A-pillar (253-15) lateral gusset -- missing is a known, specific gap
-    // (orange), not as severe as a genuinely absent required bar.
+    // Required gussets at 253-7 (main rollbar diagonal), 253-12 (roof bar),
+    // 253-9 (door bar), and 253-15's own junctions (both the lateral-to-
+    // A-pillar gusset and the A-pillar's own side/2-piece gussets) -- reads
+    // the real, already-captured per-junction gusset_design table (each
+    // row's own label, so this can never drift from what that table
+    // actually shows) rather than a separate generic yes/no question, and
+    // red-flags any junction that currently exists for this car's design
+    // but has no gusset design chosen yet. A missing structural gusset at
+    // one of these junctions is a real safety gap, not a minor rough edge.
     const gussetDesignElm = path.elements.find((e) => e.id === "gusset_design");
     if (gussetDesignElm) {
       const gussetOptions = (gussetDesignElm.columns.find((c) => c.key === "design") || {}).options || [];
-      const rowsById = new Map(resolveRows(gussetDesignElm).map((r) => [r.id, r]));
-      [["a_pillar_left", "Lateral to A-pillar gusset — left"], ["a_pillar_right", "Lateral to A-pillar gusset — right"]].forEach(([row, label]) => {
-        if (!rowsById.has(row)) return;
-        const design = getAnswer("gusset_design__" + row + "__design").value;
+      const REQUIRED_GUSSET_FAMILIES = [
+        (id) => id.indexOf("main_hoop_diag_") === 0,
+        (id) => id.indexOf("roof_") === 0,
+        (id) => id.indexOf("door_front_") === 0 || id.indexOf("door_rear_") === 0,
+        (id) => id === "a_pillar_left" || id === "a_pillar_right" || id.indexOf("a_pillar_side_") === 0 || id.indexOf("a_pillar_2pc_") === 0,
+      ];
+      resolveRows(gussetDesignElm).forEach((row) => {
+        if (!REQUIRED_GUSSET_FAMILIES.some((match) => match(row.id))) return;
+        const design = getAnswer("gusset_design__" + row.id + "__design").value;
         const optLabel = (gussetOptions.find((o) => o.id === design) || {}).label;
-        addRow(row, label, design ? "green" : "orange", design ? optLabel || design : "Missing");
+        addRow(row.id, row.label, design ? "green" : "red", design ? optLabel || design : "Missing");
       });
     }
 
