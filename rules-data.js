@@ -127,7 +127,7 @@
   // ---- Shared column sets for table elements ---------------------------
   const WELD_COLUMNS = [{ key: "weld", label: "Complete weld", type: "boolean" }];
   const DISTANCE_COLUMNS = [
-    { key: "distance", label: "Distance from junction (<100mm/3.94in)", type: "number", compare: { op: "lt", value: 100 } },
+    { key: "distance", label: "Distance from junction (<100mm/3.94in)", type: "length", compare: { op: "lt", value: 100 } },
   ];
   // ---- Merge helpers -------------------------------------------------
   // Applies a per-org patch object to the shared FIA base element list.
@@ -1133,35 +1133,39 @@
   const SECTION_3_MAIN_DIAGONALS = [
     {
       id: "backstay_distance_upper_laterals",
-      name: "Rear backstays distance from upper laterals",
+      name: "Backstay-to-lateral junction distances",
       category: "Bar junction distances",
       hideNotes: true,
       requirement: "required",
       reference: "",
       description: "Rear backstays must attach less than 100mm from the upper laterals.",
-      evaluationType: "numeric",
-      unit: "mm",
-      compare: { op: "lt", value: 100 },
+      evaluationType: "table",
+      rows: [
+        { id: "left", label: "Left backstay -- to left lateral" },
+        { id: "right", label: "Right backstay -- to right lateral" },
+      ],
+      columns: DISTANCE_COLUMNS,
+      distanceQuickCheck: true,
       visuallyVerifiable: true,
       hardFail: true,
     },
     {
       id: "main_diagonal_distances",
-      name: "Main rollbar diagonal (253-7) junction distances",
+      name: "253-7 main rollbar diagonal junction distances",
       category: "Bar junction distances",
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1.1(a)",
       description: "Lower ends must join the main rollbar within 100mm of the mounting feet; upper ends must be within 100mm of the backstay junctions.",
-      evaluationType: "numeric",
-      fields: [
-        { key: "dist_left_foot", label: "Distance to left foot", unit: "mm", compare: { op: "lt", value: 100 } },
-        { key: "dist_right_foot", label: "Distance to right foot", unit: "mm", compare: { op: "lt", value: 100 } },
-        { key: "dist_left_backstay", label: "Distance to left backstay", unit: "mm", compare: { op: "lt", value: 100 } },
-        { key: "dist_right_backstay", label: "Distance to right backstay", unit: "mm", compare: { op: "lt", value: 100 } },
+      evaluationType: "table",
+      rows: [
+        { id: "foot_left", label: "253-7 main diagonal -- foot left" },
+        { id: "foot_right", label: "253-7 main diagonal -- foot right" },
+        { id: "backstay_left", label: "253-7 main diagonal -- backstay left" },
+        { id: "backstay_right", label: "253-7 main diagonal -- backstay right" },
       ],
-      hideNotes: true,
-      hidePhotos: true,
-      visuallyVerifiable: false,
+      columns: DISTANCE_COLUMNS,
+      distanceQuickCheck: true,
+      visuallyVerifiable: true,
       hardFail: true,
       hardFailMessage: "253-7 diagonal end(s) more than 100mm from the mounting foot or backstay junction.",
     },

@@ -2969,26 +2969,19 @@
     if (v === "no") return CAGE_COLOR.statusFail;
     return null;
   }
+  // v is a "length" column's {value, unit} answer now (mm or in) -- convert
+  // to mm before comparing against the fixed 100mm threshold.
   function distanceValueColor(v) {
-    if (v === "" || v === undefined || v === null) return null;
-    const num = parseFloat(v);
-    if (isNaN(num)) return null;
-    return num < 100 ? CAGE_COLOR.statusPass : CAGE_COLOR.statusFail;
+    if (!v || v.value === "" || v.value === undefined || v.value === null) return null;
+    const mm = toMM({ val: v.value, unit: v.unit || "mm" });
+    if (mm === null) return null;
+    return mm < 100 ? CAGE_COLOR.statusPass : CAGE_COLOR.statusFail;
   }
-  // Diagonal 1 (top-right to bottom-left, see MAIN_DIAG_TOP_RIGHT/LEFT_FILE
-  // above) meets the LEFT foot and the RIGHT backstay; diagonal 2 (top-left
-  // to bottom-right) meets the RIGHT foot and the LEFT backstay.
-  function mainDiagonalJunctionColor(file) {
-    const values = getAnswer("main_diagonal_distances").value || {};
-    const keys = file === MAIN_DIAG_TOP_RIGHT_FILE ? ["dist_left_foot", "dist_right_backstay"]
-      : file === MAIN_DIAG_TOP_LEFT_FILE ? ["dist_right_foot", "dist_left_backstay"]
-      : null;
-    if (!keys) return null;
-    const colors = keys.map((k) => distanceValueColor(values[k]));
-    if (colors.includes(CAGE_COLOR.statusFail)) return CAGE_COLOR.statusFail;
-    if (colors.every(Boolean)) return CAGE_COLOR.statusPass;
-    return null;
-  }
+  // Diagonal 1 (top-right to bottom-left, MAIN_DIAG_TOP_RIGHT_FILE) meets
+  // the LEFT foot and the RIGHT backstay; diagonal 2 (top-left to bottom-
+  // right, MAIN_DIAG_TOP_LEFT_FILE) meets the RIGHT foot and the LEFT
+  // backstay -- see part3RowTargetsForFile's distRowIds for these files,
+  // and PILLAR_TUBE_JUNCTION_POINTS for the matching backstay side.
   // Folds several rows' weld/distance answers down to one worst-case color
   // for a single mesh: red if any row is failing, green only once every row
   // is confirmed passing, ghost (null) otherwise -- used any time one
@@ -3053,14 +3046,17 @@
     if (mainDiagVal === "253-7-1" || mainDiagVal === "253-7-2") {
       const continuous = continuousMainDiagFile();
       if (file === MAIN_DIAG_TOP_RIGHT_FILE) {
+        // distRowIds is always just the 2 real ends -- main_diagonal_distances
+        // has no concept of the cut leg's own crossing point (that's a weld-
+        // only joint, not a distance-to-another-bar measurement).
         return file === continuous
-          ? { rowIds: ["foot_left", "backstay_right"], weldElementId: "main_diagonal_welds", distElementId: null }
-          : { rowIds: ["foot_left", "top_left", "bottom_right", "backstay_right"], weldElementId: "main_diagonal_welds", distElementId: null };
+          ? { rowIds: ["foot_left", "backstay_right"], weldElementId: "main_diagonal_welds", distElementId: "main_diagonal_distances", distRowIds: ["foot_left", "backstay_right"] }
+          : { rowIds: ["foot_left", "top_left", "bottom_right", "backstay_right"], weldElementId: "main_diagonal_welds", distElementId: "main_diagonal_distances", distRowIds: ["foot_left", "backstay_right"] };
       }
       if (file === MAIN_DIAG_TOP_LEFT_FILE) {
         return file === continuous
-          ? { rowIds: ["backstay_left", "foot_right"], weldElementId: "main_diagonal_welds", distElementId: null }
-          : { rowIds: ["backstay_left", "top_left", "bottom_right", "foot_right"], weldElementId: "main_diagonal_welds", distElementId: null };
+          ? { rowIds: ["backstay_left", "foot_right"], weldElementId: "main_diagonal_welds", distElementId: "main_diagonal_distances", distRowIds: ["backstay_left", "foot_right"] }
+          : { rowIds: ["backstay_left", "top_left", "bottom_right", "foot_right"], weldElementId: "main_diagonal_welds", distElementId: "main_diagonal_distances", distRowIds: ["backstay_left", "foot_right"] };
       }
     }
     // 253-19 left.stl spans top_left<->bottom_right, right.stl spans
@@ -3299,6 +3295,16 @@
       () => aggregateColor(points.map((p) => weldCellColor(p.elementId, p.rowId)))
     );
   }
+  // Junctions-mode equivalent of pillarTubeSpec, for PILLAR_TUBE_JUNCTION_POINTS.
+  function pillarTubeJunctionSpec(file) {
+    const points = PILLAR_TUBE_JUNCTION_POINTS[file];
+    if (!points) return null;
+    return bandSplitOrAggregate(
+      file, points,
+      (p) => distanceValueColor(getAnswer(p.elementId + "__" + p.rowId + "__distance").value),
+      () => aggregateColor(points.map((p) => distanceValueColor(getAnswer(p.elementId + "__" + p.rowId + "__distance").value)))
+    );
+  }
   function distanceSpec(file, elementId, rowIds) {
     return bandSplitOrAggregate(
       file, rowIds,
@@ -3378,11 +3384,26 @@
         setIfActive(file, weldSpec(file, t.weldElementId, t.rowIds));
       });
     } else {
-      const backstayColor = distanceValueColor(getAnswer("backstay_distance_upper_laterals").value);
-      setIfActive("Left backstay.stl", backstayColor);
-      setIfActive("Right backstay.stl", backstayColor);
-      setIfActive(MAIN_DIAG_TOP_RIGHT_FILE, mainDiagonalJunctionColor(MAIN_DIAG_TOP_RIGHT_FILE));
-      setIfActive(MAIN_DIAG_TOP_LEFT_FILE, mainDiagonalJunctionColor(MAIN_DIAG_TOP_LEFT_FILE));
+      // Laterals/backstays -- see PILLAR_TUBE_JUNCTION_POINTS. The main
+      // rollbar's own 2 feet (253-7's "lower end" junction) light up from
+      // main_diagonal_distances directly; the other 4 feet have no
+      // junction-distance concept of their own yet, so they stay hidden
+      // rather than showing a phantom ghost.
+      Object.keys(PILLAR_TUBE_JUNCTION_POINTS).forEach((file) => setIfActive(file, pillarTubeJunctionSpec(file)));
+      FOOT_LOCATIONS.forEach(({ row, plateFile }) => {
+        // Front/backstay feet have no junction-distance concept of their
+        // own yet -- "hidden" (not null/ghost) so they don't linger as a
+        // phantom "not yet checked" ghost with nothing to actually check.
+        const color = row === "main_hoop_left" ? distanceValueColor(getAnswer("main_diagonal_distances__foot_left__distance").value)
+          : row === "main_hoop_right" ? distanceValueColor(getAnswer("main_diagonal_distances__foot_right__distance").value)
+          : "hidden";
+        // Same "whichever design's mesh is actually active" fan-out as the
+        // weld branch above -- a multiplane_box/double_plane/rocker foot's
+        // real mesh isn't the flat plateFile at all, and setIfActive's own
+        // "colors[file] === hidden" check already filters down to just the
+        // one that's actually active for this foot's chosen design.
+        [plateFile, footCubeFile(row), doublePlaneFile(row), rockerBaseFile(row), rockerFoldFile(row)].forEach((f) => setIfActive(f, color));
+      });
       part3CandidateFiles().forEach((file) => {
         const t = part3RowTargetsForFile(file);
         setIfActive(file, t && t.distElementId ? distanceSpec(file, t.distElementId, t.distRowIds || t.rowIds) : null);
@@ -3809,6 +3830,34 @@
       { elementId: "mounting_feet_tube_welds", rowId: "main_hoop_right" },
     ],
   };
+  // Junctions-mode equivalent of PILLAR_TUBE_POINTS above -- a bar's weld
+  // points and its junction-DISTANCE points aren't necessarily the same
+  // locations or count (e.g. the backstay has one weld point at each end,
+  // but 2 distance checks both near its own top: one to the lateral it
+  // runs alongside, one to 253-7's own upper end), so this is tracked
+  // separately rather than reusing PILLAR_TUBE_POINTS. Both backstay
+  // entries' 2 points sit in the same general (upper) area of the tube
+  // rather than at its 2 opposite ends, unlike every other band-split bar
+  // in this app -- there's no real top-vs-bottom split to verify from
+  // geometry here, so the band-split still divides the mesh in two (same
+  // mechanism as everywhere else) but the order between these 2 is a
+  // judgment call, not a verified axis position.
+  const PILLAR_TUBE_JUNCTION_POINTS = {
+    "Front left lateral.stl": [{ elementId: "backstay_distance_upper_laterals", rowId: "left" }],
+    "Front right lateral.stl": [{ elementId: "backstay_distance_upper_laterals", rowId: "right" }],
+    // MAIN_DIAG_TOP_LEFT_FILE (backstay_left/foot_right) meets the LEFT
+    // backstay; MAIN_DIAG_TOP_RIGHT_FILE (foot_left/backstay_right) meets
+    // the RIGHT one (see mainDiagonalJunctionColor's own comment, same
+    // cross-over).
+    "Left backstay.stl": [
+      { elementId: "backstay_distance_upper_laterals", rowId: "left" },
+      { elementId: "main_diagonal_distances", rowId: "backstay_left" },
+    ],
+    "Right backstay.stl": [
+      { elementId: "backstay_distance_upper_laterals", rowId: "right" },
+      { elementId: "main_diagonal_distances", rowId: "backstay_right" },
+    ],
+  };
   // Expands every card involved BEFORE looking up its rows -- a card whose
   // element already has a definitive answer (every row set) auto-collapses
   // (see jumpToSection's own comment), which removes its row-* DOM nodes
@@ -3836,6 +3885,27 @@
   // Returning false in that case lets the caller fall through to the
   // normal Part-1 jump instead of the click silently doing nothing.
   function jumpToWeldRow(file) {
+    // Junctions: its own lookups first -- mounting feet, PILLAR_TUBE_POINTS,
+    // and gussets have no junction-distance concept (feet/gussets aren't
+    // measured against another bar; PILLAR_TUBE_JUNCTION_POINTS covers
+    // laterals/backstays instead), so falling into the weld-mode branches
+    // below with the wrong table would always find nothing and (before this
+    // fix) silently fall through to the Part-1 jump.
+    if (state.activeTab === JUNCTIONS_PHASE) {
+      const junctionPoints = PILLAR_TUBE_JUNCTION_POINTS[file];
+      if (junctionPoints) {
+        return expandThenFindRows(junctionPoints.map((p) => p.elementId), junctionPoints.map((p) => "row-" + p.elementId + "__" + p.rowId));
+      }
+      const footRow = footRowForFile(file);
+      const mainHoopFootRow = footRow === "main_hoop_left" ? "foot_left" : footRow === "main_hoop_right" ? "foot_right" : null;
+      if (mainHoopFootRow) {
+        return expandThenFindRows(["main_diagonal_distances"], ["row-main_diagonal_distances__" + mainHoopFootRow]);
+      }
+      const target = part3RowTargetsForFile(file);
+      if (!target || !target.distElementId) return false;
+      const rowIds = target.distRowIds || target.rowIds;
+      return expandThenFindRows([target.distElementId], rowIds.map((rowId) => "row-" + target.distElementId + "__" + rowId));
+    }
     const footRow = footRowForFile(file);
     if (footRow) {
       return expandThenFindRows(["mounting_feet_table"], ["row-mounting_feet_table__" + footRow]);
@@ -3849,12 +3919,8 @@
       return expandThenFindRows(["gusset_dimensions"], ["row-gusset_dimensions__" + gussetRow]);
     }
     const target = part3RowTargetsForFile(file);
-    if (!target) return false;
-    const inJunction = state.activeTab === JUNCTIONS_PHASE && target.distElementId;
-    const elementId = inJunction ? target.distElementId : target.weldElementId || target.distElementId;
-    if (!elementId) return false;
-    const rowIds = inJunction ? target.distRowIds || target.rowIds : target.rowIds;
-    return expandThenFindRows([elementId], rowIds.map((rowId) => "row-" + elementId + "__" + rowId));
+    if (!target || !target.weldElementId) return false;
+    return expandThenFindRows([target.weldElementId], target.rowIds.map((rowId) => "row-" + target.weldElementId + "__" + rowId));
   }
 
   // Wired to CageView.onPartClick() -- lets clicking a bar in the live 3D
@@ -3978,7 +4044,31 @@
   // the double-click handler (which cycles the answer) and the hover
   // tooltip (which only names it), so a click and the tooltip shown just
   // before it can never disagree about which weld point is meant.
+  // keySuffix is "__weld" (Welds view, boolean cells) or "__distance"
+  // (Junctions view, length cells) -- everything else about resolving a
+  // click/hover position to a row (or 2, for a shared multi-table pillar
+  // tube) is identical between the 2 views, just pointed at different
+  // tables/columns.
   function resolvePart3WeldTarget(file, frac) {
+    if (state.activeTab === JUNCTIONS_PHASE) {
+      const junctionPoints = PILLAR_TUBE_JUNCTION_POINTS[file];
+      if (junctionPoints) {
+        const group = nearestRowGroupByFraction(junctionPoints.map((p) => [p]), frac);
+        return { label: group.map((p) => rowLabelFor(p.elementId, p.rowId)).join(" / "), keys: group.map((p) => p.elementId + "__" + p.rowId + "__distance") };
+      }
+      const footRow = footRowForFile(file);
+      const mainHoopFootRow = footRow === "main_hoop_left" ? "foot_left" : footRow === "main_hoop_right" ? "foot_right" : null;
+      if (mainHoopFootRow) {
+        return { label: rowLabelFor("main_diagonal_distances", mainHoopFootRow), keys: ["main_diagonal_distances__" + mainHoopFootRow + "__distance"] };
+      }
+      const target = part3RowTargetsForFile(file);
+      if (target && target.distElementId) {
+        const rowIds = target.distRowIds || target.rowIds;
+        const group = nearestRowGroupByFraction(rowIds.map((r) => [r]), frac);
+        return { label: group.map((r) => rowLabelFor(target.distElementId, r)).join(" / "), keys: group.map((r) => target.distElementId + "__" + r + "__distance") };
+      }
+      return null;
+    }
     const weldFootRow = footRowForFile(file);
     if (weldFootRow) {
       return { label: rowLabelFor("mounting_feet_table", weldFootRow), keys: ["mounting_feet_table__" + weldFootRow + "__weld"] };
@@ -4157,7 +4247,7 @@
   function handleCagePartHover(file, frac, clientX, clientY) {
     const tooltip = document.getElementById("cageViewerTooltip");
     if (!tooltip) return;
-    const target = file && state.activeTab === WELDS_PHASE ? resolvePart3WeldTarget(file, frac) : null;
+    const target = file && (state.activeTab === WELDS_PHASE || state.activeTab === JUNCTIONS_PHASE) ? resolvePart3WeldTarget(file, frac) : null;
     if (!target) { tooltip.hidden = true; return; }
     const container = document.getElementById("cageViewerContainer");
     const rect = container.getBoundingClientRect();
