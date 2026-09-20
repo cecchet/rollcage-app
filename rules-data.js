@@ -129,15 +129,6 @@
   const DISTANCE_COLUMNS = [
     { key: "distance", label: "Distance from junction (<100mm/3.94in)", type: "number", compare: { op: "lt", value: 100 } },
   ];
-  // Material/diameter/thickness for every gusset is already captured once,
-  // generically, in Part 2 (gusset_material) -- not repeated per location.
-  function gussetColumns() {
-    return [
-      { key: "length", label: "Length E (2D<E<4D)", type: "text" },
-      { key: "corner_cutout", label: "Corner cutout (R<1.5D)", type: "boolean" },
-      { key: "hole", label: "Hole diameter (<D)", type: "boolean" },
-    ];
-  }
   // ---- Merge helpers -------------------------------------------------
   // Applies a per-org patch object to the shared FIA base element list.
   // A patch may set/override any plain field, patch individual options by
@@ -1125,19 +1116,6 @@
       hardFail: true,
       hardFailMessage: "253-7 diagonal end(s) more than 100mm from the mounting foot or backstay junction.",
     },
-    {
-      id: "main_diagonal_gussets",
-      name: "Main rollbar diagonal gussets",
-      category: "Gussets",
-      requirement: "required",
-      reference: "2020 FIA 253 Ch.8.3.2.1.5",
-      description: "D = outer diameter of the biggest tube joined.",
-      evaluationType: "table",
-      rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
-      columns: gussetColumns(),
-      visuallyVerifiable: true,
-      hardFail: false,
-    },
     // Both diagonal legs' own far ends (at the mounting feet / backstay
     // junctions) plus the non-continuous leg's own 2 halves at the crossing
     // (same 2 positions as the gusset table above, since the gusset
@@ -1312,34 +1290,6 @@
       hardFail: true,
     },
     {
-      id: "roof_4_1_gussets_mandatory",
-      name: "253-12/253-21: Mandatory gussets",
-      category: "4.1. Roof bars & rear diagonals -- 253-12/253-21 design",
-      requirement: "required",
-      reference: "2020 FIA 253 Ch.8.3.2.1.5",
-      description: "",
-      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
-      evaluationType: "table",
-      rows: [{ id: "front_left", label: "Front or Left" }, { id: "rear_right", label: "Rear or Right" }],
-      columns: gussetColumns(),
-      visuallyVerifiable: true,
-      hardFail: true,
-    },
-    {
-      id: "roof_4_1_gussets_optional",
-      name: "253-12/253-21: Optional gussets",
-      category: "4.1. Roof bars & rear diagonals -- 253-12/253-21 design",
-      requirement: "recommended",
-      reference: "",
-      description: "",
-      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
-      evaluationType: "table",
-      rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
-      columns: gussetColumns(),
-      visuallyVerifiable: true,
-      hardFail: false,
-    },
-    {
       id: "roof_4_2_distances",
       name: "253-14/253-22: Junction distances",
       category: "Bar junction distances",
@@ -1482,24 +1432,6 @@
       evaluationType: "table",
       rows: (getAnswer) => doorBarWeldRows(true, door9xSides(getAnswer)),
       columns: WELD_COLUMNS,
-      visuallyVerifiable: true, hardFail: true,
-    },
-    {
-      id: "door_9_intersection_gussets",
-      name: "Gussets (mandatory) -- intersection configuration",
-      category: "5.1. Door bars -- 253-9 (X bar design)",
-      requirement: "required", reference: "", description: "",
-      showIf: DOOR_9X_SHOWIF,
-      evaluationType: "table",
-      rows: (getAnswer) => {
-        const rows = [];
-        door9xSides(getAnswer).forEach((side) => {
-          const cap = side === "left" ? "Left" : "Right";
-          rows.push({ id: side + "_gusset_1", label: cap + ": Top or Left" }, { id: side + "_gusset_2", label: cap + ": Bottom or Right" });
-        });
-        return rows;
-      },
-      columns: gussetColumns(),
       visuallyVerifiable: true, hardFail: true,
     },
     {
@@ -1647,23 +1579,6 @@
       evaluationType: "table",
       rows: WINDSHIELD_WELD_ROWS,
       columns: WELD_COLUMNS,
-      visuallyVerifiable: true,
-      hardFail: true,
-    },
-    {
-      id: "windshield_gussets",
-      name: "Gussets (mandatory)",
-      category: "6. Windshield support bar (253-15)",
-      requirement: "required",
-      reference: "",
-      description: "Gusset 1 has no intersection; gusset 2/3 apply where the bar meets another member.",
-      evaluationType: "table",
-      rows: [
-        { id: "driver_top_left_1", label: "Driver: Top or Left (gusset 1)" }, { id: "codriver_top_left_1", label: "Codriver: Top or Left (gusset 1)" },
-        { id: "driver_top_left_23", label: "Driver: Top or Left (gusset 2/3)" }, { id: "driver_bottom_right_23", label: "Driver: Bottom or Right (gusset 2/3)" },
-        { id: "codriver_top_left_23", label: "Codriver: Top or Left (gusset 2/3)" }, { id: "codriver_bottom_right_23", label: "Codriver: Bottom or Right (gusset 2/3)" },
-      ],
-      columns: gussetColumns(),
       visuallyVerifiable: true,
       hardFail: true,
     },
@@ -1871,17 +1786,6 @@
       visuallyVerifiable: true, hardFail: false,
     },
     {
-      id: "rear_lower_x_gussets",
-      name: "253-19 gussets",
-      category: "Optional bars",
-      requirement: "recommended", reference: "", description: "",
-      showIf: { id: "rear_lower_x_present", notEquals: "none" },
-      evaluationType: "table",
-      rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
-      columns: gussetColumns(),
-      visuallyVerifiable: true, hardFail: false,
-    },
-    {
       id: "anti_intrusion_present",
       name: "Anti-intrusion bars (253-25) present",
       category: "Optional bars",
@@ -2057,15 +1961,25 @@
       category: "Gussets",
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1",
-      description: "One row per gusset location confirmed present in Part 1.",
+      description: "One row per gusset location confirmed present in Part 1. D = outer diameter of the biggest tube joined. H = diameter of the hole (if present). R = radius of the corner cutout (if present). E = length of the gusset.",
+      diagram: "gusset-dims",
       evaluationType: "table",
       rows: (getAnswer) => gussetJunctionRows(getAnswer),
       columns: [
         { key: "length", label: "Gusset length (mm)", type: "number" },
-        { key: "corner_cutout", label: "Corner cutout for weld inspection", type: "boolean" },
-        { key: "hole_diameter", label: "Hole diameter (mm, if any)", type: "number", optional: true },
+        { key: "corner_cutout", label: "Corner cutout", type: "radio", options: [
+          { id: "under", label: "R<1.5D" },
+          { id: "over", label: "R>1.5D" },
+          { id: "none", label: "None" },
+        ] },
+        { key: "hole_diameter", label: "Hole diameter (<D)", type: "radio", options: [
+          { id: "under", label: "H<D" },
+          { id: "over", label: "H>D" },
+          { id: "none", label: "None" },
+        ] },
+        { key: "weld", label: "Complete weld", type: "boolean" },
       ],
-      visuallyVerifiable: false,
+      visuallyVerifiable: true,
       hardFail: true,
     },
 

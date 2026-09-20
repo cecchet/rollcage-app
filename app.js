@@ -3229,6 +3229,11 @@
       // across PILLAR_TUBE_POINTS' entries regardless of which table(s)
       // they come from.
       Object.keys(PILLAR_TUBE_POINTS).forEach((file) => setIfActive(file, pillarTubeSpec(file)));
+      // Gussets -- "Gusset dimensions" (Part 3) has its own "weld" column
+      // now, keyed by the same row ids GUSSET_LOCATIONS already maps to
+      // mesh files for Part 1's design table, so no separate lookup table
+      // is needed here.
+      GUSSET_LOCATIONS.forEach(({ row, file }) => setIfActive(file, weldCellColor("gusset_dimensions", row)));
       // setIfActive is called for EVERY candidate file, even ones with no
       // weld target (color stays null then) -- it has to run regardless so
       // its own "not part of this car" hiding check always gets a chance,
@@ -3705,6 +3710,10 @@
       const points = PILLAR_TUBE_POINTS[file];
       return expandThenFindRows(points.map((p) => p.elementId), points.map((p) => "row-" + p.elementId + "__" + p.rowId));
     }
+    const gussetRow = gussetRowForFile(file);
+    if (gussetRow) {
+      return expandThenFindRows(["gusset_dimensions"], ["row-gusset_dimensions__" + gussetRow]);
+    }
     const target = part3RowTargetsForFile(file);
     if (!target) return false;
     const inJunction = state.part3ViewMode === "junction" && target.distElementId;
@@ -3852,6 +3861,13 @@
       const points = PILLAR_TUBE_POINTS[file];
       const group = nearestRowGroupByFraction(points.map((p) => [p]), frac);
       return { label: group.map((p) => rowLabelFor(p.elementId, p.rowId)).join(" / "), keys: group.map((p) => p.elementId + "__" + p.rowId + "__weld") };
+    }
+    // Gussets: same "Gusset dimensions" table (Part 3) whose rows already
+    // mirror GUSSET_LOCATIONS 1:1, one mesh per row, so no band-split/
+    // nearest-fraction logic is needed here -- just its own "weld" cell.
+    const gussetRow = gussetRowForFile(file);
+    if (gussetRow) {
+      return { label: rowLabelFor("gusset_dimensions", gussetRow), keys: ["gusset_dimensions__" + gussetRow + "__weld"] };
     }
     // Every other weld-tracked bar: part3RowTargetsForFile already lists
     // that file's own weld points (2 for most crossing-cut bars, more for

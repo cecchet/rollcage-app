@@ -181,6 +181,26 @@
     `<path d="M45,20 L45,35 L60,20 Z" ${HI}/><path d="M95,20 L95,35 L80,20 Z" ${HI}/>`
   );
 
+  // ---- Gusset dimensions (D/E/R/H callouts, Part 3) -- an original
+  // simplified pictogram of a generic 2-tube gusset junction, not traced
+  // from any FIA drawing. D = outer diameter of the larger tube (shown at
+  // its open end); E = the gusset plate's own length along each tube (2
+  // dimension lines, one per leg); R = the corner-cutout radius at the
+  // inside corner; H = the optional inspection hole through the plate.
+  D["gusset-dims"] = wrap(
+    `<path d="M35,28 L122,28" ${CTX}/><ellipse cx="122" cy="28" rx="4" ry="11" ${CTX}/>` +
+    `<path d="M35,28 L14,90" ${CTX}/>` +
+    `<path d="M88,28 L23,58" ${HI}/>` +
+    `<path d="M40,28 Q31,28 29,37" ${HI}/>` +
+    `<path d="M35,20 L88,20" ${CTX}/><path d="M27,32 L14,82" ${CTX}/>` +
+    `<circle cx="48" cy="42" r="4" ${CTX}/>` +
+    `<text x="127" y="16" font-size="10" fill="currentColor">D</text>` +
+    `<text x="58" y="15" font-size="10" fill="currentColor">E</text>` +
+    `<text x="6" y="60" font-size="10" fill="currentColor">E</text>` +
+    `<text x="32" y="24" font-size="10" fill="currentColor">R</text>` +
+    `<text x="56" y="44" font-size="10" fill="currentColor">H</text>`
+  );
+
   // ---- Main hoop leaning angle (+/-10 degrees from vertical) ----
   D["lean-angle"] = wrapImg("main_hoop_angle.jpg");
 
