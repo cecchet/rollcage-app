@@ -1589,6 +1589,19 @@
     { id: "top_left", label: "253-15 windshield support bar -- top left" }, { id: "center_top_left", label: "253-15 windshield support bar -- center top left" }, { id: "center_lower_left", label: "253-15 windshield support bar -- center lower left" }, { id: "bottom_left", label: "253-15 windshield support bar -- bottom left" },
     { id: "top_right", label: "253-15 windshield support bar -- top right" }, { id: "center_top_right", label: "253-15 windshield support bar -- center top right" }, { id: "center_lower_right", label: "253-15 windshield support bar -- center lower right" }, { id: "bottom_right", label: "253-15 windshield support bar -- bottom right" },
   ];
+  // Junction distances only apply at the 2 ends where 253-15 actually
+  // meets ANOTHER bar -- the top end at the transverse member, the bottom
+  // end at the front cage foot (see a_pillar_dimension_a's own description:
+  // "running from the front cage foot... to... the transverse windshield
+  // bar"). The center crossing point (1-piece vs 2-piece build) is a weld
+  // joint, not a distance-to-another-bar measurement, so it's not repeated
+  // here the way WINDSHIELD_WELD_ROWS needs it.
+  const WINDSHIELD_JUNCTION_ROWS = [
+    { id: "top_left", label: "253-15 windshield support bar -- top left (to transverse member)" },
+    { id: "bottom_left", label: "253-15 windshield support bar -- bottom left (to front foot)" },
+    { id: "top_right", label: "253-15 windshield support bar -- top right (to transverse member)" },
+    { id: "bottom_right", label: "253-15 windshield support bar -- bottom right (to front foot)" },
+  ];
   const SECTION_6_WINDSHIELD = [
     {
       id: "a_pillar_reinforcement",
@@ -1616,7 +1629,7 @@
       reference: "",
       description: "",
       evaluationType: "table",
-      rows: WINDSHIELD_WELD_ROWS,
+      rows: WINDSHIELD_JUNCTION_ROWS,
       columns: DISTANCE_COLUMNS,
       distanceQuickCheck: true,
       visuallyVerifiable: true,

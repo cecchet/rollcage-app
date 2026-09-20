@@ -3126,8 +3126,11 @@
     if (file === "Sill bar Left.stl") return { rowIds: ["front_left", "rear_left"], weldElementId: "sill_bar_welds", distElementId: null };
     if (file === "Sill bar Right.stl") return { rowIds: ["front_right", "rear_right"], weldElementId: "sill_bar_welds", distElementId: null };
     // Transverse member: straight bar, Y dominant, verified low-Y=left
-    // (matches "Front left lateral.stl" sitting at the low-Y end).
-    if (file === "Transverse member.stl") return { rowIds: ["left", "right"], weldElementId: "transverse_member_welds", distElementId: null };
+    // (matches "Front left lateral.stl" sitting at the low-Y end). Its own
+    // 2 ends are also where 253-15's upper corners measure their distance
+    // to it (windshield_distances' top_left/top_right, reused here so a
+    // click/hover on either bar always drives the same one value).
+    if (file === "Transverse member.stl") return { rowIds: ["left", "right"], weldElementId: "transverse_member_welds", distElementId: WINDSHIELD_DIST_ID, distRowIds: ["top_left", "top_right"] };
     // Dash bar spans left-to-right (Y dominant, verified) -- its own 2 ends.
     if (file === "Dash bar 253-29.stl") return { rowIds: ["left", "right"], weldElementId: "dash_bar_detail", distElementId: null };
     // 253-17: 2 weld points per tube (front, at the door bar; rear, at the
@@ -3150,15 +3153,19 @@
     if (file === "253-31 temple bar right.stl") return { rowIds: ["right_top", "right_bottom"], weldElementId: "temple_bar_detail", distElementId: null };
     if (file === "253-31 windshield left.stl") return { rowIds: ["left_bottom", "left_top"], weldElementId: "windshield_reinforcement_detail", distElementId: null };
     if (file === "253-31 windshield right.stl") return { rowIds: ["right_top", "right_bottom"], weldElementId: "windshield_reinforcement_detail", distElementId: null };
-    if (file === "253-15 Left.stl") return { rowIds: ["top_left", "center_top_left", "center_lower_left", "bottom_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
-    if (file === "253-15 Right.stl") return { rowIds: ["top_right", "center_top_right", "center_lower_right", "bottom_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    // distRowIds is always just the 2 real junctions (top = transverse
+    // member, bottom = front foot) -- windshield_distances has no concept
+    // of the 1-piece/2-piece build's own center crossing point (that's a
+    // weld-only joint, not a distance-to-another-bar measurement).
+    if (file === "253-15 Left.stl") return { rowIds: ["top_left", "center_top_left", "center_lower_left", "bottom_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID, distRowIds: ["top_left", "bottom_left"] };
+    if (file === "253-15 Right.stl") return { rowIds: ["top_right", "center_top_right", "center_lower_right", "bottom_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID, distRowIds: ["top_right", "bottom_right"] };
     // Verified from real vertex positions (Z dominant, consistent both
     // sides): the upper piece's low-Z end is the crossing/center point
     // (where it meets the lower piece), not the topmost corner.
-    if (file === "253-15 left upper.stl") return { rowIds: ["center_top_left", "top_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
-    if (file === "253-15 left lower.stl") return { rowIds: ["bottom_left", "center_lower_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
-    if (file === "253-15 right upper.stl") return { rowIds: ["center_top_right", "top_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
-    if (file === "253-15 right lower.stl") return { rowIds: ["bottom_right", "center_lower_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID };
+    if (file === "253-15 left upper.stl") return { rowIds: ["center_top_left", "top_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID, distRowIds: ["top_left"] };
+    if (file === "253-15 left lower.stl") return { rowIds: ["bottom_left", "center_lower_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID, distRowIds: ["bottom_left"] };
+    if (file === "253-15 right upper.stl") return { rowIds: ["center_top_right", "top_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID, distRowIds: ["top_right"] };
+    if (file === "253-15 right lower.stl") return { rowIds: ["bottom_right", "center_lower_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID, distRowIds: ["bottom_right"] };
     for (const side of ["left", "right"]) {
       const doorVal = getAnswer("door_bars_" + side).value;
       const elementId = doorWeldElementId(doorVal);
@@ -3386,16 +3393,16 @@
     } else {
       // Laterals/backstays -- see PILLAR_TUBE_JUNCTION_POINTS. The main
       // rollbar's own 2 feet (253-7's "lower end" junction) light up from
-      // main_diagonal_distances directly; the other 4 feet have no
-      // junction-distance concept of their own yet, so they stay hidden
-      // rather than showing a phantom ghost.
+      // main_diagonal_distances; the front feet (253-15's "to front foot"
+      // junction) light up from windshield_distances. The 2 backstay feet
+      // have no junction-distance concept of their own yet, so they stay
+      // hidden rather than showing a phantom ghost.
       Object.keys(PILLAR_TUBE_JUNCTION_POINTS).forEach((file) => setIfActive(file, pillarTubeJunctionSpec(file)));
       FOOT_LOCATIONS.forEach(({ row, plateFile }) => {
-        // Front/backstay feet have no junction-distance concept of their
-        // own yet -- "hidden" (not null/ghost) so they don't linger as a
-        // phantom "not yet checked" ghost with nothing to actually check.
         const color = row === "main_hoop_left" ? distanceValueColor(getAnswer("main_diagonal_distances__foot_left__distance").value)
           : row === "main_hoop_right" ? distanceValueColor(getAnswer("main_diagonal_distances__foot_right__distance").value)
+          : row === "front_left" ? distanceValueColor(getAnswer("windshield_distances__bottom_left__distance").value)
+          : row === "front_right" ? distanceValueColor(getAnswer("windshield_distances__bottom_right__distance").value)
           : "hidden";
         // Same "whichever design's mesh is actually active" fan-out as the
         // weld branch above -- a multiplane_box/double_plane/rocker foot's
@@ -3858,6 +3865,17 @@
       { elementId: "main_diagonal_distances", rowId: "backstay_right" },
     ],
   };
+  // Junctions-mode equivalent of FOOT_LOCATIONS' own row->design mapping --
+  // which of the 6 named feet has a junction-distance concept at all, and
+  // which table/row drives it (253-7's lower ends meet the main hoop's own
+  // 2 feet; 253-15's lower ends meet the front feet). The 2 backstay feet
+  // have no junction-distance concept yet.
+  const FOOT_JUNCTION_TARGETS = {
+    main_hoop_left: { elementId: "main_diagonal_distances", rowId: "foot_left" },
+    main_hoop_right: { elementId: "main_diagonal_distances", rowId: "foot_right" },
+    front_left: { elementId: "windshield_distances", rowId: "bottom_left" },
+    front_right: { elementId: "windshield_distances", rowId: "bottom_right" },
+  };
   // Expands every card involved BEFORE looking up its rows -- a card whose
   // element already has a definitive answer (every row set) auto-collapses
   // (see jumpToSection's own comment), which removes its row-* DOM nodes
@@ -3896,10 +3914,9 @@
       if (junctionPoints) {
         return expandThenFindRows(junctionPoints.map((p) => p.elementId), junctionPoints.map((p) => "row-" + p.elementId + "__" + p.rowId));
       }
-      const footRow = footRowForFile(file);
-      const mainHoopFootRow = footRow === "main_hoop_left" ? "foot_left" : footRow === "main_hoop_right" ? "foot_right" : null;
-      if (mainHoopFootRow) {
-        return expandThenFindRows(["main_diagonal_distances"], ["row-main_diagonal_distances__" + mainHoopFootRow]);
+      const footJunction = FOOT_JUNCTION_TARGETS[footRowForFile(file)];
+      if (footJunction) {
+        return expandThenFindRows([footJunction.elementId], ["row-" + footJunction.elementId + "__" + footJunction.rowId]);
       }
       const target = part3RowTargetsForFile(file);
       if (!target || !target.distElementId) return false;
@@ -4056,10 +4073,9 @@
         const group = nearestRowGroupByFraction(junctionPoints.map((p) => [p]), frac);
         return { label: group.map((p) => rowLabelFor(p.elementId, p.rowId)).join(" / "), keys: group.map((p) => p.elementId + "__" + p.rowId + "__distance") };
       }
-      const footRow = footRowForFile(file);
-      const mainHoopFootRow = footRow === "main_hoop_left" ? "foot_left" : footRow === "main_hoop_right" ? "foot_right" : null;
-      if (mainHoopFootRow) {
-        return { label: rowLabelFor("main_diagonal_distances", mainHoopFootRow), keys: ["main_diagonal_distances__" + mainHoopFootRow + "__distance"] };
+      const footJunction = FOOT_JUNCTION_TARGETS[footRowForFile(file)];
+      if (footJunction) {
+        return { label: rowLabelFor(footJunction.elementId, footJunction.rowId), keys: [footJunction.elementId + "__" + footJunction.rowId + "__distance"] };
       }
       const target = part3RowTargetsForFile(file);
       if (target && target.distElementId) {
