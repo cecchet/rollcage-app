@@ -1012,25 +1012,29 @@
     "mounting_feet_design",
     "gusset_design",
   ]);
-  // Old "Part 3" (Measurements, angles & welds) split into 3 separate
-  // phases -- it had grown into one long scroll mixing 3 genuinely
-  // different activities (checking clearances, checking welds, checking
-  // junction distances). Named constants instead of bare numbers at every
-  // call site since these 3 (plus Logbook) are new/renumbered and every
-  // reference has to agree.
+  // Old "Part 3" (Measurements, angles & welds) split into separate phases
+  // -- it had grown into one long scroll mixing genuinely different
+  // activities (checking clearances, checking welds, checking junction
+  // distances). Named constants instead of bare numbers at every call site
+  // since these are new/renumbered and every reference has to agree.
+  // Junction distances are themselves a kind of installation constraint
+  // (how close two bars land to each other once installed, same as the
+  // dimension A/B/C/H/E/R1/R2 checks already here) -- they render at the
+  // END of this same phase (see computeUsedPhases' own sort) rather than
+  // getting their own Part number, and this phase's own 3D view is the
+  // junction-distance coloring/click-jump behavior for that reason (see
+  // applyPart3View's `mode`), not a distinct "Junctions" phase anymore.
   const INSTALLATION_PHASE = 3;
   const WELDS_PHASE = 4;
-  const JUNCTIONS_PHASE = 5;
-  const SEATS_PHASE = 6;
-  const LOGBOOK_PHASE = 7;
+  const SEATS_PHASE = 5;
+  const LOGBOOK_PHASE = 6;
   const PHASE_LABELS = {
     1: "Part 1 — Structure & design choices",
     2: "Part 2 — Tubing sizes & materials",
     [INSTALLATION_PHASE]: "Part 3 — Installation constraints",
     [WELDS_PHASE]: "Part 4 — Welds",
-    [JUNCTIONS_PHASE]: "Part 5 — Junctions",
-    [SEATS_PHASE]: "Part 6 — Seats, belts & routing",
-    [LOGBOOK_PHASE]: "Part 7 — Logbook",
+    [SEATS_PHASE]: "Part 5 — Seats, belts & routing",
+    [LOGBOOK_PHASE]: "Part 6 — Logbook",
   };
   // Padding and sections 9-11 of the source document (seat mounting, belt
   // anchoring, routing of lines) are a distinct later stage of the
@@ -1062,10 +1066,10 @@
     // phase that view is shown in.
     if (elm.id === "gusset_dimensions") return WELDS_PHASE;
     if (elm.category === "Welds") return WELDS_PHASE;
-    if (elm.category === "Bar junction distances") return JUNCTIONS_PHASE;
     // Everything else that used to fall into the old catch-all Part 3 --
-    // installation clearances, plus angle/bend/straightness/compliance
-    // checks that aren't a weld or a junction distance -- lands here.
+    // installation clearances, junction distances (sorted to the end of
+    // this phase, see computeUsedPhases), plus angle/bend/straightness/
+    // compliance checks that aren't a weld -- lands here.
     return INSTALLATION_PHASE;
   }
 
@@ -1214,9 +1218,14 @@
   // one computation, so the two can never disagree about what's available.
   function computeUsedPhases(path) {
     const visible = path.elements.filter(elementVisible).filter((elm) => !RENDERED_IN_LOGBOOK_PANEL.includes(elm.id));
-    const phases = { 1: [], 2: [], [INSTALLATION_PHASE]: [], [WELDS_PHASE]: [], [JUNCTIONS_PHASE]: [], [SEATS_PHASE]: [] };
+    const phases = { 1: [], 2: [], [INSTALLATION_PHASE]: [], [WELDS_PHASE]: [], [SEATS_PHASE]: [] };
     visible.forEach((elm) => phases[elementPhase(elm)].push(elm));
-    const usedPhases = [1, 2, INSTALLATION_PHASE, WELDS_PHASE, JUNCTIONS_PHASE, SEATS_PHASE].filter((p) => phases[p].length);
+    // Junction distances render at the END of Installation constraints,
+    // after everything else in that same phase -- a stable sort so it only
+    // moves that one category, leaving every other element's relative
+    // order exactly as elementPhase/the source document already gave it.
+    phases[INSTALLATION_PHASE].sort((a, b) => (a.category === "Bar junction distances" ? 1 : 0) - (b.category === "Bar junction distances" ? 1 : 0));
+    const usedPhases = [1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE].filter((p) => phases[p].length);
     // Logbook isn't element-driven (renderResults reads path/answers
     // directly, gated on this phase in render()) so nothing ever populates
     // phases[LOGBOOK_PHASE] -- it's still always offered as a destination.
@@ -1228,18 +1237,20 @@
   // same way as every other part -- see render().
   function renderChecklist(root, path) {
     const panel = el("div", { class: "panel" });
-    panel.appendChild(el("h2", {}, ["Rollcage design"]));
 
     const { phases, usedPhases } = computeUsedPhases(path);
     const showTabs = usedPhases.length > 1;
     if (showTabs && !usedPhases.includes(state.activeTab)) state.activeTab = usedPhases[0];
     const shownPhases = showTabs ? [state.activeTab] : usedPhases;
+    // The current Part's own name, not a generic static title -- so the
+    // heading always agrees with the Part dropdown/View switch above it.
+    panel.appendChild(el("h2", {}, [PHASE_LABELS[shownPhases[0]] || "Rollcage design"]));
 
     if (shownPhases.includes(1)) renderPhotoAnalysis(root, path);
 
-    // Welds/Junctions' own 3D view-mode switch lives in the sticky viewer
-    // panel now (see syncPart3Controls) so it's reachable regardless of
-    // scroll position -- this just keeps its own explanatory text here,
+    // Welds/Installation's own 3D view-mode switch lives in the sticky
+    // viewer panel now (see syncPart3Controls) so it's reachable regardless
+    // of scroll position -- this just keeps its own explanatory text here,
     // right at the top of the part it describes.
     if (state.activeTab === WELDS_PHASE) {
       panel.appendChild(
@@ -1247,10 +1258,10 @@
           "Double-click near a specific end/weld point of a highlighted bar (or a mounting foot) to cycle that point's own status: green = complete, red = incomplete, ghost = not yet checked. A bar with more than one weld point gets its own color, split along its own length in the same order as its table rows.",
         ])
       );
-    } else if (state.activeTab === JUNCTIONS_PHASE) {
+    } else if (state.activeTab === INSTALLATION_PHASE) {
       panel.appendChild(
         el("div", { class: "element-desc" }, [
-          "Bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Door bars have no junction-distance data to show here.",
+          "Junction distances (at the end of this part): bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Door bars have no junction-distance data to show here.",
         ])
       );
     }
@@ -3380,7 +3391,7 @@
     );
   }
   function applyPart3View(colors) {
-    const mode = state.activeTab === WELDS_PHASE ? "weld" : state.activeTab === JUNCTIONS_PHASE ? "junction" : null;
+    const mode = state.activeTab === WELDS_PHASE ? "weld" : state.activeTab === INSTALLATION_PHASE ? "junction" : null;
     if (mode !== "weld" && mode !== "junction") return colors;
     const view = {};
     // Part 3 only tracks welds/junctions for a specific set of bars (feet,
@@ -3763,7 +3774,7 @@
 
     CAGE_FILE_OWNER = owner;
     if (state.activeTab === 2) return applyTubingClassificationView(colors);
-    if (state.activeTab === WELDS_PHASE || state.activeTab === JUNCTIONS_PHASE) return applyPart3View(colors);
+    if (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) return applyPart3View(colors);
     return colors;
   }
 
@@ -4045,7 +4056,7 @@
     // laterals/backstays instead), so falling into the weld-mode branches
     // below with the wrong table would always find nothing and (before this
     // fix) silently fall through to the Part-1 jump.
-    if (state.activeTab === JUNCTIONS_PHASE) {
+    if (state.activeTab === INSTALLATION_PHASE) {
       const junctionPoints = (resolveJunctionPoints(file) || []).filter((p) => !p.ghost);
       if (junctionPoints.length) {
         return expandThenFindRows(junctionPoints.map((p) => p.elementId), junctionPoints.map((p) => "row-" + p.elementId + "__" + p.rowId));
@@ -4207,7 +4218,7 @@
   // tube) is identical between the 2 views, just pointed at different
   // tables/columns.
   function resolvePart3WeldTarget(file, frac) {
-    if (state.activeTab === JUNCTIONS_PHASE) {
+    if (state.activeTab === INSTALLATION_PHASE) {
       const junctionPoints = (resolveJunctionPoints(file) || []).filter((p) => !p.ghost);
       if (junctionPoints.length) {
         const group = nearestRowGroupByFraction(junctionPoints.map((p) => [p]), frac);
@@ -4303,7 +4314,7 @@
     // yes/no answers) -- falling through to the design-default-fill logic
     // below would wrongly jump to Part 1, since that logic is keyed off
     // Part-1 design-choice elements with no Junctions-mode equivalent.
-    if (state.activeTab === JUNCTIONS_PHASE) return;
+    if (state.activeTab === INSTALLATION_PHASE) return;
     const footRow = footRowForFile(file);
     if (footRow) {
       const cycle = FRONT_FOOT_ROWS.has(footRow) ? FRONT_FOOT_DESIGN_CYCLE : REAR_FOOT_DESIGN_CYCLE;
@@ -4355,7 +4366,7 @@
       jumpToTubeRow(file);
       return;
     }
-    if ((state.activeTab === WELDS_PHASE || state.activeTab === JUNCTIONS_PHASE) && jumpToWeldRow(file)) return;
+    if ((state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) && jumpToWeldRow(file)) return;
     const footRow = footRowForFile(file);
     if (footRow) {
       jumpToFootRow(footRow);
@@ -4388,7 +4399,7 @@
     // information these parts exist to show. Hiding it away would just
     // hide work still to do, so the toggle (and the forced showGhostBars
     // below) don't apply here.
-    const onWeldOrJunction = state.activeTab === WELDS_PHASE || state.activeTab === JUNCTIONS_PHASE;
+    const onWeldOrJunction = state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE;
     const ghostBtn = document.getElementById("cageViewerGhostToggle");
     if (ghostBtn) ghostBtn.style.display = onWeldOrJunction ? "none" : "";
     if (!el3) return;
@@ -4400,7 +4411,7 @@
         radioOption("cageViewSwitch", "design", "Design", state.activeTab === 1, () => goToView(1)),
         radioOption("cageViewSwitch", "tubing", "Tube size", state.activeTab === 2, () => goToView(2)),
         radioOption("cageViewSwitch", "welds", "Welds", state.activeTab === WELDS_PHASE, () => goToView(WELDS_PHASE)),
-        radioOption("cageViewSwitch", "junctions", "Junctions", state.activeTab === JUNCTIONS_PHASE, () => goToView(JUNCTIONS_PHASE)),
+        radioOption("cageViewSwitch", "junctions", "Junctions", state.activeTab === INSTALLATION_PHASE, () => goToView(INSTALLATION_PHASE)),
       ])
     );
   }
@@ -4412,7 +4423,7 @@
   function handleCagePartHover(file, frac, clientX, clientY) {
     const tooltip = document.getElementById("cageViewerTooltip");
     if (!tooltip) return;
-    const target = file && (state.activeTab === WELDS_PHASE || state.activeTab === JUNCTIONS_PHASE) ? resolvePart3WeldTarget(file, frac) : null;
+    const target = file && (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) ? resolvePart3WeldTarget(file, frac) : null;
     if (!target) { tooltip.hidden = true; return; }
     const container = document.getElementById("cageViewerContainer");
     const rect = container.getBoundingClientRect();
@@ -4451,7 +4462,7 @@
     syncPart3Controls();
     if (window.CageView) {
       const colors = computeCageColors();
-      window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === JUNCTIONS_PHASE) ? true : state.showGhostBars);
+      window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) ? true : state.showGhostBars);
       window.CageView.onPartClick(handleCagePartClick);
       window.CageView.onPartDoubleClick(handleCagePartDoubleClick);
       window.CageView.onPartHover(handleCagePartHover);
