@@ -331,6 +331,7 @@ textarea { resize: vertical; min-height: 50px; }
   font-size: 0.88rem;
   color: var(--muted);
   margin: 6px 0 10px;
+  white-space: pre-line;
 }
 
 .answer-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }

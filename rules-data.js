@@ -1810,11 +1810,24 @@
       requirement: "recommended", reference: "", description: "The 4 far corners (2 per diagonal) plus, where the diagonals aren't both one continuous piece, the 2 crossing points of whichever leg is cut into half-bars -- same \"corners + center\" shape as the other X-braced bars (253-9/12/21).",
       showIf: { id: "rear_lower_x_present", notEquals: "none" },
       evaluationType: "table",
-      rows: [
-        { id: "top_left", label: "253-19 rear lower X -- top left" }, { id: "bottom_right", label: "253-19 rear lower X -- bottom right" },
-        { id: "bottom_left", label: "253-19 rear lower X -- bottom left" }, { id: "top_right", label: "253-19 rear lower X -- top right" },
-        { id: "center_1", label: "253-19 rear lower X -- crossing 1" }, { id: "center_2", label: "253-19 rear lower X -- crossing 2" },
-      ],
+      // center_1/center_2 are the 2 crossing-point weld ends of whichever
+      // leg is cut into half-bars -- WHICH physical id ends up "upper" vs
+      // "lower" flips depending on which leg that is (verified from real
+      // vertex positions: on "253-19 left.stl" -- top_left<->bottom_right
+      // -- low-Y/center_1 side sits high-Z (upper); on "253-19 right.stl"
+      // -- bottom_left<->top_right -- low-Y/center_1 side sits low-Z
+      // (lower), the opposite). So the label has to be picked per the
+      // current "-1"/"-2" choice rather than a fixed id->word mapping.
+      rows: (getAnswer) => {
+        const leftContinuous = getAnswer("rear_lower_x_present").value === "253-19-1";
+        const center1Label = "253-19 rear lower X -- crossing " + (leftContinuous ? "lower" : "upper");
+        const center2Label = "253-19 rear lower X -- crossing " + (leftContinuous ? "upper" : "lower");
+        return [
+          { id: "top_left", label: "253-19 rear lower X -- top left" }, { id: "bottom_right", label: "253-19 rear lower X -- bottom right" },
+          { id: "bottom_left", label: "253-19 rear lower X -- bottom left" }, { id: "top_right", label: "253-19 rear lower X -- top right" },
+          { id: "center_1", label: center1Label }, { id: "center_2", label: center2Label },
+        ];
+      },
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
@@ -2005,24 +2018,39 @@
       name: "Gusset dimensions",
       category: "Gussets",
       requirement: "required",
-      reference: "2020 FIA 253 Ch.8.3.2.1",
-      description: "One row per gusset location confirmed present in Part 1. D = outer diameter of the biggest tube joined. H = diameter of the hole (if present). R = radius of the corner cutout (if present). E = length of the gusset.",
+      reference: "2020 FIA 253 Ch.8.3.2.1 (diagram 253-34)",
+      description: "One row per gusset location confirmed present in Part 1.\nD = outer diameter of the biggest tube joined.\nH = diameter of the hole (if present).\nR = radius of the corner cutout (if present).\nE = length of the gusset.",
       diagram: "gusset-dims",
       evaluationType: "table",
-      rows: (getAnswer) => gussetJunctionRows(getAnswer),
+      // Only gussets actually confirmed as taco/single-plate in Part 1's
+      // "Gusset design" table -- one marked "None" there (or not yet
+      // answered) has no plate to dimension, so it shouldn't show up here
+      // as a row to fill in. GUSSET_DESIGN_OPTIONS' "None" is id "", same
+      // as an unanswered cell's default value, so this can't tell the two
+      // apart -- treating them the same (both hidden) matches how every
+      // other Part-3-depends-on-Part-1 table in this app already behaves
+      // (e.g. mounting feet stay ghosted until their own design is picked).
+      rows: (getAnswer) => gussetJunctionRows(getAnswer).filter((r) => getAnswer("gusset_design__" + r.id + "__design").value !== ""),
       // Closure into gussetRowTubeRowIds, same way `rows` closes into
       // gussetJunctionRows -- app.js has no direct access to this file's
       // private helpers, so anything it needs to call has to be handed out
       // this way rather than as a bare function name.
       tubeRowIdsForRow: (getAnswer, rowId) => gussetRowTubeRowIds(rowId, getAnswer),
       columns: [
-        { key: "length", label: "Gusset length", type: "length", showDiameterHint: true },
-        { key: "corner_cutout", label: "Corner cutout", type: "radio", options: [
+        // showDiameterHint/diameterMultiples: app.js computes each row's D
+        // from the actual tube(s) joined (see gussetRowDiameterMM) and
+        // shows the resulting threshold value(s) under the cell -- e.g.
+        // length's [2, 4] renders "2D = x / 4D = y". All 3 hints in a row
+        // share the SAME unit, taken from that row's own "length" cell
+        // (its unit selector), so switching mm/in there updates every
+        // hint in the row at once instead of each column tracking its own.
+        { key: "length", label: "Gusset length", type: "length", showDiameterHint: true, diameterMultiples: [2, 4] },
+        { key: "corner_cutout", label: "Corner cutout", type: "radio", showDiameterHint: true, diameterMultiples: [1.5], options: [
           { id: "under", label: "R<1.5D" },
           { id: "over", label: "R>1.5D" },
           { id: "none", label: "None" },
         ] },
-        { key: "hole_diameter", label: "Hole diameter (<D)", type: "radio", options: [
+        { key: "hole_diameter", label: "Hole diameter (<D)", type: "radio", showDiameterHint: true, diameterMultiples: [1], options: [
           { id: "under", label: "H<D" },
           { id: "over", label: "H>D" },
           { id: "none", label: "None" },

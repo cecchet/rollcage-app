@@ -256,6 +256,33 @@
     });
     return maxMM;
   }
+  // Every diameter hint in a gusset_dimensions row (length's 2D/4D, corner
+  // cutout's 1.5D, hole diameter's D) shares ONE unit -- the row's own
+  // "length" cell's unit selector -- rather than each column tracking its
+  // own, so switching mm/in there updates every hint in the row at once.
+  function gussetRowLengthUnit(elm, row) {
+    const lengthCol = elm.columns.find((c) => c.key === "length");
+    if (!lengthCol) return "mm";
+    const v = getAnswer(tableCellId(elm, row, lengthCol)).value;
+    return (v && v.unit) || "mm";
+  }
+  // Shared by every showDiameterHint column (see rules-data.js) -- renders
+  // "<multiple>D = <value> <unit>" for each of col.diameterMultiples,
+  // joined with " / " (e.g. length's [2, 4] -> "2D = x / 4D = y"; corner
+  // cutout's [1.5] -> "1.5D = x"). Returns null when D isn't known yet, so
+  // callers can skip appending anything.
+  function renderDiameterHint(elm, col, row) {
+    if (!col.showDiameterHint || !row) return null;
+    const dMM = gussetRowDiameterMM(row.id);
+    if (dMM === null) return null;
+    const unit = gussetRowLengthUnit(elm, row);
+    const perUnit = unit === "in" ? 1 / 25.4 : 1;
+    const fmt = (n) => (unit === "in" ? n.toFixed(2) : n.toFixed(1));
+    const text = (col.diameterMultiples || [1])
+      .map((m) => (m === 1 ? "D" : m + "D") + " = " + fmt(m * dMM * perUnit) + " " + unit)
+      .join(" / ");
+    return el("div", { class: "cell-hint" }, [text]);
+  }
 
   // Legacy single-dropdown tubing sub-item (still used by untouched
   // grandfathered paths).
@@ -1717,7 +1744,7 @@
   }
 
   // ---- Table elements (named rows x columns) --------------------------
-  function renderTableCellInput(col, cellId, cellAnswer, row) {
+  function renderTableCellInput(col, cellId, cellAnswer, row, elm) {
     if (col.type === "boolean") {
       return el("div", { class: "cell-answer-row" }, [
         el("button", { class: "answer-btn small " + (cellAnswer.value === "yes" ? "active yes" : ""), onclick: () => setAnswer(cellId, { value: "yes" }) }, ["Yes"]),
@@ -1754,20 +1781,8 @@
         unitSelect.appendChild(o);
       });
       const children = [el("div", { class: "cell-answer-row" }, [numInput, unitSelect])];
-      // 2D/4D hint (see col.showDiameterHint, only set on gusset length):
-      // shows the two threshold values in the SAME unit currently selected
-      // so the entered length can be eyeballed against them directly,
-      // rather than the user having to convert D themselves.
-      if (col.showDiameterHint && row) {
-        const dMM = gussetRowDiameterMM(row.id);
-        if (dMM !== null) {
-          const perUnit = unit === "in" ? 1 / 25.4 : 1;
-          const fmt = (n) => (unit === "in" ? n.toFixed(2) : n.toFixed(1));
-          children.push(el("div", { class: "cell-hint" }, [
-            "2D = " + fmt(2 * dMM * perUnit) + " " + unit + " / 4D = " + fmt(4 * dMM * perUnit) + " " + unit,
-          ]));
-        }
-      }
+      const hint = renderDiameterHint(elm, col, row);
+      if (hint) children.push(hint);
       return el("div", {}, children);
     }
     if (col.type === "select") {
@@ -1850,7 +1865,7 @@
       const options = row && row.restrictOptionIds
         ? (col.options || []).filter((o) => o.id === "" || row.restrictOptionIds.includes(o.id))
         : (col.options || []);
-      return el(
+      const buttons = el(
         "div",
         { class: "cell-answer-row" },
         options.map((opt) => {
@@ -1867,6 +1882,8 @@
           );
         })
       );
+      const hint = renderDiameterHint(elm, col, row);
+      return hint ? el("div", {}, [buttons, hint]) : buttons;
     }
     return el("input", { type: "text", class: "cell-text", value: cellAnswer.value || "", onchange: (e) => setAnswer(cellId, { value: e.target.value }) });
   }
@@ -1957,7 +1974,7 @@
         const cellAnswer = getAnswer(cellId);
         const cellStatus = tableCellStatus(col, cellAnswer);
         const td = el("td", { class: "state-" + cellStatus });
-        td.appendChild(renderTableCellInput(col, cellId, cellAnswer, row));
+        td.appendChild(renderTableCellInput(col, cellId, cellAnswer, row, elm));
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
