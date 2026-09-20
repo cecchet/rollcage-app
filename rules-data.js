@@ -929,6 +929,17 @@
     return rows;
   }
 
+  // 253-15's own taco gussets (the side gusset on a continuous build, and
+  // all 8 of the 2-piece build's) have no corner-cutout/hole feature at
+  // all, unlike the bigger structural taco gussets elsewhere (253-7/
+  // 253-12/253-9 crossings) -- used by gusset_dimensions' own rows() to
+  // mark those 2 columns not applicable for these specific locations.
+  const GUSSETS_WITHOUT_CORNER_HOLE = new Set([
+    "a_pillar_side_left", "a_pillar_side_right",
+    "a_pillar_2pc_left_upper_front", "a_pillar_2pc_left_upper_rear", "a_pillar_2pc_left_lower_front", "a_pillar_2pc_left_lower_rear",
+    "a_pillar_2pc_right_upper_front", "a_pillar_2pc_right_upper_rear", "a_pillar_2pc_right_lower_front", "a_pillar_2pc_right_lower_rear",
+  ]);
+
   // Maps a gusset_dimensions row to the tubing_bar_classification row id(s)
   // of the tube(s) it actually joins -- reuses the exact same design-
   // branching functions tubing_bar_classification's own rows are built
@@ -2075,7 +2086,21 @@
       // apart -- treating them the same (both hidden) matches how every
       // other Part-3-depends-on-Part-1 table in this app already behaves
       // (e.g. mounting feet stay ghosted until their own design is picked).
-      rows: (getAnswer) => gussetJunctionRows(getAnswer).filter((r) => getAnswer("gusset_design__" + r.id + "__design").value !== ""),
+      // Corner cutout / hole diameter are taco-specific features (a wrap-
+      // around sleeve can have an inspection hole and a corner relief; a
+      // flat plate has neither) -- a single-plate row marks both columns
+      // not applicable, and so do 253-15's own taco gussets (side +
+      // 2-piece), which don't carry either feature on this build even
+      // though they ARE taco.
+      rows: (getAnswer) => gussetJunctionRows(getAnswer)
+        .filter((r) => getAnswer("gusset_design__" + r.id + "__design").value !== "")
+        .map((r) => {
+          const design = getAnswer("gusset_design__" + r.id + "__design").value;
+          if (design === "single_plate" || GUSSETS_WITHOUT_CORNER_HOLE.has(r.id)) {
+            return Object.assign({}, r, { notApplicableColumns: ["corner_cutout", "hole_diameter"] });
+          }
+          return r;
+        }),
       // Closure into gussetRowTubeRowIds, same way `rows` closes into
       // gussetJunctionRows -- app.js has no direct access to this file's
       // private helpers, so anything it needs to call has to be handed out

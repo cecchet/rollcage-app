@@ -467,6 +467,7 @@ textarea { resize: vertical; min-height: 50px; }
 .area-xy-sep, .area-computed { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
 .row-table .length-unit-select { width: auto; min-width: 52px; flex: 0 0 auto; }
 .cell-hint { font-size: 0.72rem; color: var(--muted); margin-top: 3px; white-space: nowrap; }
+.cell-not-applicable { color: var(--muted); text-align: center; }
 
 .photo-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
 .photo-thumb { position: relative; width: 64px; height: 64px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }

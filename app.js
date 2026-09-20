@@ -364,6 +364,11 @@
     return compareOk(v, compare);
   }
   function tableCellStatus(col, answer, row, elm) {
+    // A row can mark specific columns as not applicable to it at all (e.g.
+    // a single-plate gusset has no corner-cutout/hole-diameter concept) --
+    // treated as satisfied rather than blank, so it never blocks the
+    // card's own completion status.
+    if (row && row.notApplicableColumns && row.notApplicableColumns.includes(col.key)) return "pass";
     if (col.type === "boolean" || col.type === "compliance") {
       if (answer.value === "yes") return "pass";
       if (answer.value === "no") return "fail";
@@ -1930,8 +1935,13 @@
       // it (e.g. A-pillar/253-15 gussets can only ever be a taco, never a
       // single plate) via row.restrictOptionIds -- the "clear" option (id
       // "") is always kept regardless, so there's still a way to unanswer
-      // the row.
-      const options = row && row.restrictOptionIds
+      // the row. Scoped to the "design" column specifically -- these same
+      // row objects are reused (via gussetJunctionRows) for the gusset_
+      // dimensions table's corner_cutout/hole_diameter columns too, whose
+      // option ids ("under"/"over"/"none") never match a design's own
+      // ("taco"/"single_plate"), so applying this filter there left NO
+      // options at all for every restricted row.
+      const options = row && row.restrictOptionIds && col.key === "design"
         ? (col.options || []).filter((o) => o.id === "" || row.restrictOptionIds.includes(o.id))
         : (col.options || []);
       const buttons = el(
@@ -2064,6 +2074,10 @@
       const tr = el("tr", { id: "row-" + elm.id + "__" + row.id });
       tr.appendChild(el("td", { class: "row-table-label" }, [row.label]));
       elm.columns.forEach((col) => {
+        if (row.notApplicableColumns && row.notApplicableColumns.includes(col.key)) {
+          tr.appendChild(el("td", { class: "state-pass cell-not-applicable" }, ["N/A"]));
+          return;
+        }
         const cellId = tableCellId(elm, row, col);
         const cellAnswer = getAnswer(cellId);
         const cellStatus = tableCellStatus(col, cellAnswer, row, elm);
