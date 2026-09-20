@@ -342,7 +342,33 @@
   // depending on another answer -- those declare rows as a function taking
   // getAnswer instead, resolved fresh on every render/status computation.
   function resolveRows(elm) { return typeof elm.rows === "function" ? elm.rows(getAnswer) : elm.rows; }
-  function tableCellStatus(col, answer) {
+  // A row can carry its own `compare` (e.g. installation_constraints' A/B/
+  // C/R1/R2 each have a different threshold), taking priority over the
+  // column's -- most "number"/"length" columns only ever set compare on
+  // the column since every row shares the same threshold (e.g.
+  // DISTANCE_COLUMNS' <100mm), but this lets a single shared row-table
+  // definition mix rows with different (or no) thresholds instead of
+  // needing a separate column/element per threshold.
+  // {op: "ltFractionOfRow", fraction, ofRow} is the one relative case
+  // (installation_constraints' "E (<0.5 H)") -- reads another row's OWN
+  // current value in the same table/column rather than a fixed number.
+  // Returns true/false, or null when there's nothing to judge yet (the
+  // dependency it needs isn't answered), which callers treat as "warn"
+  // rather than guessing pass or fail.
+  function resolveCompare(v, compare, elm, col) {
+    if (!compare) return true;
+    if (compare.op === "ltFractionOfRow") {
+      if (!elm) return null;
+      const otherAnswer = getAnswer(tableCellId(elm, { id: compare.ofRow }, col));
+      const otherV = otherAnswer.value;
+      const otherMM = col.type === "length" ? toMM({ val: otherV && otherV.value, unit: (otherV && otherV.unit) || "mm" })
+        : (otherV === "" || otherV == null ? null : parseFloat(otherV));
+      if (otherMM === null || otherMM === undefined || isNaN(otherMM)) return null;
+      return v < compare.fraction * otherMM;
+    }
+    return compareOk(v, compare);
+  }
+  function tableCellStatus(col, answer, row, elm) {
     if (col.type === "boolean" || col.type === "compliance") {
       if (answer.value === "yes") return "pass";
       if (answer.value === "no") return "fail";
@@ -352,16 +378,27 @@
       if (answer.value === "" || answer.value == null) return "warn";
       const v = parseFloat(answer.value);
       if (isNaN(v)) return "warn";
-      return compareOk(v, col.compare) ? "pass" : "fail";
+      const ok = resolveCompare(v, row && row.compare !== undefined ? row.compare : col.compare, elm, col);
+      return ok === null ? "warn" : ok ? "pass" : "fail";
     }
     if (col.type === "tubing3") {
       return tubing3Status(col, answer);
     }
     if (col.type === "area" || col.type === "length") {
       // Just needs an entry -- Part 2 captures the size, Part 4 is where
-      // it's actually judged against the FIA minimum for that location.
+      // it's actually judged against the FIA minimum for that location --
+      // UNLESS this row/column carries its own compare (installation
+      // constraints), in which case it's judged right here instead.
       const v = answer.value;
-      return v && v.value !== "" && v.value != null ? "pass" : "warn";
+      const hasValue = v && v.value !== "" && v.value != null;
+      if (!hasValue) return "warn";
+      const compareSpec = row && row.compare !== undefined ? row.compare : col.compare;
+      if (col.type === "length" && compareSpec) {
+        const mm = toMM({ val: v.value, unit: v.unit || "mm" });
+        const ok = mm === null ? null : resolveCompare(mm, compareSpec, elm, col);
+        return ok === null ? "warn" : ok ? "pass" : "fail";
+      }
+      return "pass";
     }
     // text/select: just needs an entry, no automatic pass/fail judgement
     return answer.value ? "pass" : "warn";
@@ -379,7 +416,7 @@
       elm.columns.forEach((col) => {
         if (col.optional) return;
         const cellAnswer = getAnswer(tableCellId(elm, row, col));
-        const s = tableCellStatus(col, cellAnswer);
+        const s = tableCellStatus(col, cellAnswer, row, elm);
         if (s === "fail") worst = "fail";
         else if (s === "warn" && worst !== "fail") worst = "warn";
       });
@@ -1243,7 +1280,7 @@
       return resolveRows(elm).every((row) =>
         elm.columns.every((col) => {
           if (col.optional) return true;
-          return tableCellStatus(col, getAnswer(tableCellId(elm, row, col))) !== "warn";
+          return tableCellStatus(col, getAnswer(tableCellId(elm, row, col)), row, elm) !== "warn";
         })
       );
     }
@@ -1295,7 +1332,7 @@
         elm.columns.forEach((col) => {
           if (col.optional) return;
           total++;
-          if (tableCellStatus(col, getAnswer(tableCellId(elm, row, col))) === "pass") pass++;
+          if (tableCellStatus(col, getAnswer(tableCellId(elm, row, col)), row, elm) === "pass") pass++;
         });
       });
       return pass + "/" + total + " compliant";
@@ -1972,7 +2009,7 @@
       elm.columns.forEach((col) => {
         const cellId = tableCellId(elm, row, col);
         const cellAnswer = getAnswer(cellId);
-        const cellStatus = tableCellStatus(col, cellAnswer);
+        const cellStatus = tableCellStatus(col, cellAnswer, row, elm);
         const td = el("td", { class: "state-" + cellStatus });
         td.appendChild(renderTableCellInput(col, cellId, cellAnswer, row, elm));
         tr.appendChild(td);
