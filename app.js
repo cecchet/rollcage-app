@@ -3090,39 +3090,62 @@
     // top-right. Only whichever one ISN'T the continuous leg (matching
     // roof_bars' own "-1"/"-2" choice, which mirrors both the roof bars
     // and rear diagonals together) also gets the 2 crossing points, in
-    // the middle, low-to-high Y order.
+    // the middle, low-to-high Y order. distRowIds is always just the 2
+    // real ends -- also verified from real vertex positions: e.g. "Rear
+    // diagonal 1.stl"'s low-Y end (top_rear_diag_left) sits ~3mm from the
+    // LEFT backstay's own top vertex, its high-Y end (bottom_rear_diag_
+    // right) sits ~9mm from the RIGHT backstay's own bottom vertex -- the
+    // cut leg's own crossing point has no distance-to-another-bar concept.
+    const backstayDiagVal = getAnswer("backstay_diagonals").value;
     if (roofVal === "253-12-1" || roofVal === "253-12-2") {
       const diag1Continuous = roofVal === "253-12-1";
       if (file === "Rear diagonal 1.stl") {
         return diag1Continuous
-          ? { rowIds: ["top_rear_diag_left", "bottom_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances" }
-          : { rowIds: ["top_rear_diag_left", "diag_crossing_top", "diag_crossing_bottom", "bottom_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances" };
+          ? { rowIds: ["top_rear_diag_left", "bottom_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["top_rear_diag_left", "bottom_rear_diag_right"] }
+          : { rowIds: ["top_rear_diag_left", "diag_crossing_top", "diag_crossing_bottom", "bottom_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["top_rear_diag_left", "bottom_rear_diag_right"] };
       }
       if (file === "Rear diagonal 2.stl") {
         return diag1Continuous
-          ? { rowIds: ["bottom_rear_diag_left", "diag_crossing_bottom", "diag_crossing_top", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances" }
-          : { rowIds: ["bottom_rear_diag_left", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances" };
+          ? { rowIds: ["bottom_rear_diag_left", "diag_crossing_bottom", "diag_crossing_top", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["bottom_rear_diag_left", "top_rear_diag_right"] }
+          : { rowIds: ["bottom_rear_diag_left", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["bottom_rear_diag_left", "top_rear_diag_right"] };
       }
       // Roof bar 1/2.stl -- verified from real vertex positions (dominant
       // axis is also Y): 1 runs front-left to rear-right, 2 runs rear-left
       // to front-right. Same continuous/cut split as the rear diagonals
-      // above (roof_bars' "-1" keeps Roof bar 1 continuous).
+      // above (roof_bars' "-1" keeps Roof bar 1 continuous). distRowIds is
+      // always just the 2 real junctions (front = transverse member,
+      // verified ~1mm apart; rear = backstay, verified ~3mm apart) -- the
+      // cut leg's own crossing point has no distance concept either.
       const roof1Continuous = roofVal === "253-12-1";
       if (file === "Roof bar 1.stl") {
         return roof1Continuous
-          ? { rowIds: ["front_roof_left", "rear_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID }
-          : { rowIds: ["front_roof_left", "roof_crossing_front", "roof_crossing_rear", "rear_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID };
+          ? { rowIds: ["front_roof_left", "rear_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID, distRowIds: ["front_roof_left", "rear_roof_right"] }
+          : { rowIds: ["front_roof_left", "roof_crossing_front", "roof_crossing_rear", "rear_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID, distRowIds: ["front_roof_left", "rear_roof_right"] };
       }
       if (file === "Roof bar 2.stl") {
         return roof1Continuous
-          ? { rowIds: ["rear_roof_left", "roof_crossing_rear", "roof_crossing_front", "front_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID }
-          : { rowIds: ["rear_roof_left", "front_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID };
+          ? { rowIds: ["rear_roof_left", "roof_crossing_rear", "roof_crossing_front", "front_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID, distRowIds: ["rear_roof_left", "front_roof_right"] }
+          : { rowIds: ["rear_roof_left", "front_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID, distRowIds: ["rear_roof_left", "front_roof_right"] };
       }
+    } else if (backstayDiagVal === "253-20" || backstayDiagVal === "253-20-right") {
+      // A single diagonal (either side) is never cut -- same shape as the
+      // continuous 253-21 leg above, just not paired with a roof_bars
+      // choice, so it's not covered by the branch above. rear_diag_4_1_
+      // welds' showIf now also covers this case, so it does have a weld
+      // table -- just only 2 of its 4 rows are physically relevant to a
+      // single diagonal (the other 2 belong to the other side's leg).
+      if (file === "Rear diagonal 1.stl") return { rowIds: ["top_rear_diag_left", "bottom_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["top_rear_diag_left", "bottom_rear_diag_right"] };
+      if (file === "Rear diagonal 2.stl") return { rowIds: ["bottom_rear_diag_left", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["bottom_rear_diag_left", "top_rear_diag_right"] };
     }
-    if (file === "Roof bar 253-14 left.stl") return { rowIds: ["front_roof_left", "center_roof_left"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID };
-    if (file === "Roof bar 253-14 right.stl") return { rowIds: ["front_roof_right", "center_roof_right"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID };
-    if (file === "Rear diagonal 253-22 left.stl") return { rowIds: ["top_rear_left", "bottom_rear_left"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID };
-    if (file === "Rear diagonal 253-22 right.stl") return { rowIds: ["top_rear_right", "bottom_rear_right"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID };
+    // 253-14/253-22: front (253-14's own end, to transverse member) and
+    // the "V apex" (253-14's own rear end -- verified ~3mm from 253-22's
+    // own upper end, essentially the same point) share ROOF_4_2_JUNCTION_
+    // ROWS' top_rear_left/right; 253-22's own lower end measures to the
+    // backstay (bottom_rear_left/right).
+    if (file === "Roof bar 253-14 left.stl") return { rowIds: ["front_roof_left", "center_roof_left"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID, distRowIds: ["front_roof_left", "top_rear_left"] };
+    if (file === "Roof bar 253-14 right.stl") return { rowIds: ["front_roof_right", "center_roof_right"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID, distRowIds: ["front_roof_right", "top_rear_right"] };
+    if (file === "Rear diagonal 253-22 left.stl") return { rowIds: ["top_rear_left", "bottom_rear_left"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID, distRowIds: ["top_rear_left", "bottom_rear_left"] };
+    if (file === "Rear diagonal 253-22 right.stl") return { rowIds: ["top_rear_right", "bottom_rear_right"], weldElementId: ROOF_4_2_WELD_ID, distElementId: ROOF_4_2_DIST_ID, distRowIds: ["top_rear_right", "bottom_rear_right"] };
     if (file === "Sill bar Left.stl") return { rowIds: ["front_left", "rear_left"], weldElementId: "sill_bar_welds", distElementId: null };
     if (file === "Sill bar Right.stl") return { rowIds: ["front_right", "rear_right"], weldElementId: "sill_bar_welds", distElementId: null };
     // Transverse member: straight bar, Y dominant, verified low-Y=left
@@ -3304,7 +3327,7 @@
   }
   // Junctions-mode equivalent of pillarTubeSpec, for PILLAR_TUBE_JUNCTION_POINTS.
   function pillarTubeJunctionSpec(file) {
-    const points = PILLAR_TUBE_JUNCTION_POINTS[file];
+    const points = resolveJunctionPoints(file);
     if (!points) return null;
     return bandSplitOrAggregate(
       file, points,
@@ -3839,32 +3862,56 @@
   };
   // Junctions-mode equivalent of PILLAR_TUBE_POINTS above -- a bar's weld
   // points and its junction-DISTANCE points aren't necessarily the same
-  // locations or count (e.g. the backstay has one weld point at each end,
-  // but 2 distance checks both near its own top: one to the lateral it
-  // runs alongside, one to 253-7's own upper end), so this is tracked
-  // separately rather than reusing PILLAR_TUBE_POINTS. Both backstay
-  // entries' 2 points sit in the same general (upper) area of the tube
-  // rather than at its 2 opposite ends, unlike every other band-split bar
-  // in this app -- there's no real top-vs-bottom split to verify from
-  // geometry here, so the band-split still divides the mesh in two (same
-  // mechanism as everywhere else) but the order between these 2 is a
-  // judgment call, not a verified axis position.
+  // locations or count, so this is tracked separately rather than reusing
+  // PILLAR_TUBE_POINTS. A backstay's own point list depends on which roof
+  // bar / backstay diagonal designs are actually picked (up to 5: lateral,
+  // 253-7, roof bar rear, backstay diagonal upper, backstay diagonal
+  // lower/253-22 lower -- verified via real vertex positions that these
+  // really do cluster into an upper group near the main rollbar and a
+  // lower group near the foot, in backstayJunctionPoints() below), so its
+  // entry is a function of the current answers instead of a fixed list --
+  // resolveJunctionPoints() calls it with getAnswer the same way
+  // resolveRows() already does for a table's own rows.
+  function backstayJunctionPoints(side) {
+    const points = [
+      { elementId: "backstay_distance_upper_laterals", rowId: side },
+      { elementId: "main_diagonal_distances", rowId: "backstay_" + side },
+    ];
+    const roofVal = getAnswer("roof_bars").value;
+    if (roofVal === "253-12-1" || roofVal === "253-12-2") {
+      points.push({ elementId: "roof_4_1_distances", rowId: "rear_roof_" + side });
+    }
+    // "Rear diagonal 1.stl" (253-20, or one leg of 253-21) contributes an
+    // upper point on the left, a lower point on the right; "Rear diagonal
+    // 2.stl" (253-20-right, or the other 253-21 leg) is the mirror --
+    // verified via real vertex positions, see rear_diag_4_1_distances'
+    // own comment in rules-data.js.
+    const backstayDiagVal = getAnswer("backstay_diagonals").value;
+    if (backstayDiagVal === "253-20" || backstayDiagVal === "253-21-1" || backstayDiagVal === "253-21-2") {
+      points.push({ elementId: "rear_diag_4_1_distances", rowId: side === "left" ? "top_rear_diag_left" : "bottom_rear_diag_right" });
+    }
+    if (backstayDiagVal === "253-20-right" || backstayDiagVal === "253-21-1" || backstayDiagVal === "253-21-2") {
+      points.push({ elementId: "rear_diag_4_1_distances", rowId: side === "left" ? "bottom_rear_diag_left" : "top_rear_diag_right" });
+    }
+    if (roofVal === "253-14" && backstayDiagVal === "253-22") {
+      points.push({ elementId: "roof_4_2_distances", rowId: side === "left" ? "bottom_rear_left" : "bottom_rear_right" });
+    }
+    return points;
+  }
   const PILLAR_TUBE_JUNCTION_POINTS = {
     "Front left lateral.stl": [{ elementId: "backstay_distance_upper_laterals", rowId: "left" }],
     "Front right lateral.stl": [{ elementId: "backstay_distance_upper_laterals", rowId: "right" }],
-    // MAIN_DIAG_TOP_LEFT_FILE (backstay_left/foot_right) meets the LEFT
-    // backstay; MAIN_DIAG_TOP_RIGHT_FILE (foot_left/backstay_right) meets
-    // the RIGHT one (see mainDiagonalJunctionColor's own comment, same
-    // cross-over).
-    "Left backstay.stl": [
-      { elementId: "backstay_distance_upper_laterals", rowId: "left" },
-      { elementId: "main_diagonal_distances", rowId: "backstay_left" },
-    ],
-    "Right backstay.stl": [
-      { elementId: "backstay_distance_upper_laterals", rowId: "right" },
-      { elementId: "main_diagonal_distances", rowId: "backstay_right" },
-    ],
+    "Left backstay.stl": () => backstayJunctionPoints("left"),
+    "Right backstay.stl": () => backstayJunctionPoints("right"),
   };
+  // A PILLAR_TUBE_JUNCTION_POINTS entry can be a static array or a function
+  // (see backstayJunctionPoints) -- same "static or dynamic" convention
+  // resolveRows() already uses for a table's own rows.
+  function resolveJunctionPoints(file) {
+    const entry = PILLAR_TUBE_JUNCTION_POINTS[file];
+    if (!entry) return null;
+    return typeof entry === "function" ? entry() : entry;
+  }
   // Junctions-mode equivalent of FOOT_LOCATIONS' own row->design mapping --
   // which of the 6 named feet has a junction-distance concept at all, and
   // which table/row drives it (253-7's lower ends meet the main hoop's own
@@ -3910,7 +3957,7 @@
     // below with the wrong table would always find nothing and (before this
     // fix) silently fall through to the Part-1 jump.
     if (state.activeTab === JUNCTIONS_PHASE) {
-      const junctionPoints = PILLAR_TUBE_JUNCTION_POINTS[file];
+      const junctionPoints = resolveJunctionPoints(file);
       if (junctionPoints) {
         return expandThenFindRows(junctionPoints.map((p) => p.elementId), junctionPoints.map((p) => "row-" + p.elementId + "__" + p.rowId));
       }
@@ -4068,7 +4115,7 @@
   // tables/columns.
   function resolvePart3WeldTarget(file, frac) {
     if (state.activeTab === JUNCTIONS_PHASE) {
-      const junctionPoints = PILLAR_TUBE_JUNCTION_POINTS[file];
+      const junctionPoints = resolveJunctionPoints(file);
       if (junctionPoints) {
         const group = nearestRowGroupByFraction(junctionPoints.map((p) => [p]), frac);
         return { label: group.map((p) => rowLabelFor(p.elementId, p.rowId)).join(" / "), keys: group.map((p) => p.elementId + "__" + p.rowId + "__distance") };

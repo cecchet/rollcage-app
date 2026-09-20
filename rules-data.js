@@ -1247,11 +1247,43 @@
     { id: "top_rear_diag_right", label: "253-21 rear diagonal -- top right" }, { id: "bottom_rear_diag_right", label: "253-21 rear diagonal -- bottom right" },
     { id: "diag_crossing_top", label: "253-21 rear diagonal -- crossing top" }, { id: "diag_crossing_bottom", label: "253-21 rear diagonal -- crossing bottom" },
   ];
+  // 253-20/253-21's own junction distances -- "the respective backstay"'s
+  // upper end (near the main rollbar) for the diagonal's own top corner,
+  // its lower end (near the foot) for the bottom corner. Verified from real
+  // vertex positions: e.g. "Rear diagonal 1.stl"'s low-Y end (top_rear_
+  // diag_left) sits ~3mm from the left backstay's own top vertex; its
+  // high-Y end (bottom_rear_diag_right) sits ~9mm from the right backstay's
+  // own bottom vertex -- same for "Rear diagonal 2.stl" mirrored. Shown
+  // for 253-20 (either side) and 253-21 (both) -- not 253-22, which has
+  // its own separate table below (it measures against 253-14, not just the
+  // backstay).
+  const BACKSTAY_DIAGONAL_JUNCTION_ROWS = [
+    { id: "top_rear_diag_left", label: "253-20/21 backstay diagonal -- upper left (to left backstay)" },
+    { id: "bottom_rear_diag_left", label: "253-20/21 backstay diagonal -- lower left (to left backstay)" },
+    { id: "top_rear_diag_right", label: "253-20/21 backstay diagonal -- upper right (to right backstay)" },
+    { id: "bottom_rear_diag_right", label: "253-20/21 backstay diagonal -- lower right (to right backstay)" },
+  ];
   const ROOF_4_2_WELD_ROWS = [
     { id: "front_roof_left", label: "253-14 roof bar -- front left" }, { id: "front_roof_right", label: "253-14 roof bar -- front right" },
     { id: "center_roof_left", label: "253-14 roof bar -- center left" }, { id: "center_roof_right", label: "253-14 roof bar -- center right" },
     { id: "top_rear_left", label: "253-22 rear diagonal -- top left" }, { id: "top_rear_right", label: "253-22 rear diagonal -- top right" },
     { id: "bottom_rear_left", label: "253-22 rear diagonal -- bottom left" }, { id: "bottom_rear_right", label: "253-22 rear diagonal -- bottom right" },
+  ];
+  // Junction distances for the 253-14/253-22 pair -- structurally different
+  // from the weld rows above: front (253-14's own front end, to the
+  // transverse member), the "V apex" (253-14's own REAR end and 253-22's
+  // own UPPER end -- verified from real vertex positions to sit ~3mm
+  // apart, essentially the same physical point, so ONE row drives both
+  // bars' color the same way the backstay/lateral junction does), and
+  // bottom (253-22's own lower end, to the backstay). No row for a
+  // "center"/internal crossing -- there isn't one on either bar here.
+  const ROOF_4_2_JUNCTION_ROWS = [
+    { id: "front_roof_left", label: "253-14 roof bar -- front left (to transverse member)" },
+    { id: "front_roof_right", label: "253-14 roof bar -- front right (to transverse member)" },
+    { id: "top_rear_left", label: "253-14/253-22 -- left V junction" },
+    { id: "top_rear_right", label: "253-14/253-22 -- right V junction" },
+    { id: "bottom_rear_left", label: "253-22 rear diagonal -- lower left (to backstay)" },
+    { id: "bottom_rear_right", label: "253-22 rear diagonal -- lower right (to backstay)" },
   ];
   const SECTION_4_1 = [
     Object.assign({}, ROOF_BAR_DESIGN_CHOICE),
@@ -1290,10 +1322,15 @@
       category: "Bar junction distances",
       requirement: "required",
       reference: "",
-      description: "",
+      description: "Front ends measure to the transverse member; rear ends measure to the backstay.",
       showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
       evaluationType: "table",
-      rows: ROOF_253_12_WELD_ROWS,
+      rows: [
+        { id: "front_roof_left", label: "253-12 roof bar -- front left (to transverse member)" },
+        { id: "front_roof_right", label: "253-12 roof bar -- front right (to transverse member)" },
+        { id: "rear_roof_left", label: "253-12 roof bar -- rear left (to backstay)" },
+        { id: "rear_roof_right", label: "253-12 roof bar -- rear right (to backstay)" },
+      ],
       columns: DISTANCE_COLUMNS,
       distanceQuickCheck: true,
       visuallyVerifiable: true,
@@ -1315,14 +1352,17 @@
     },
     {
       id: "rear_diag_4_1_distances",
-      name: "253-21 rear diagonal junction distances",
+      name: "253-20/21 backstay diagonal junction distances",
       category: "Bar junction distances",
       requirement: "required",
       reference: "",
-      description: "",
-      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
+      description: "Each end measures to the respective backstay's own upper or lower end.",
+      // 253-21 (X, both legs) always pairs with roof_bars=253-12; 253-20/
+      // 253-20-right (a single diagonal, either side) is independent of
+      // the roof bar choice -- shown for either.
+      showIf: { any: [{ id: "roof_bars", in: ["253-12-1", "253-12-2"] }, { id: "backstay_diagonals", in: ["253-20", "253-20-right"] }] },
       evaluationType: "table",
-      rows: REAR_DIAG_253_21_WELD_ROWS,
+      rows: BACKSTAY_DIAGONAL_JUNCTION_ROWS,
       columns: DISTANCE_COLUMNS,
       distanceQuickCheck: true,
       visuallyVerifiable: true,
@@ -1335,7 +1375,7 @@
       requirement: "required",
       reference: "",
       description: "",
-      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
+      showIf: { any: [{ id: "roof_bars", in: ["253-12-1", "253-12-2"] }, { id: "backstay_diagonals", in: ["253-20", "253-20-right"] }] },
       evaluationType: "table",
       rows: REAR_DIAG_253_21_WELD_ROWS,
       columns: WELD_COLUMNS,
@@ -1344,14 +1384,14 @@
     },
     {
       id: "roof_4_2_distances",
-      name: "253-14/253-22: Junction distances",
+      name: "253-14/253-22 roof bar & rear diagonal junction distances",
       category: "Bar junction distances",
       requirement: "required",
       reference: "",
-      description: "",
+      description: "253-14's front ends measure to the transverse member; the \"V\" where 253-14 and 253-22 meet (without joining) is a single shared measurement; 253-22's lower ends measure to the backstay.",
       showIf: { id: "roof_bars", equals: "253-14" },
       evaluationType: "table",
-      rows: ROOF_4_2_WELD_ROWS,
+      rows: ROOF_4_2_JUNCTION_ROWS,
       columns: DISTANCE_COLUMNS,
       distanceQuickCheck: true,
       visuallyVerifiable: true,
