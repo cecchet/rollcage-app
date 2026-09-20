@@ -1893,18 +1893,6 @@
       visuallyVerifiable: true, hardFail: false,
     },
     {
-      id: "rear_lower_x_distances",
-      name: "253-19: Junction distances",
-      category: "Bar junction distances",
-      requirement: "recommended", reference: "", description: "Only the non-continuous diagonal's 2 half-bars need a distance measured here, where each meets the continuous leg at the crossing.",
-      showIf: { id: "rear_lower_x_present", notEquals: "none" },
-      evaluationType: "table",
-      rows: [{ id: "top_left", label: "Top or Left" }, { id: "bottom_right", label: "Bottom or Right" }],
-      columns: DISTANCE_COLUMNS,
-      distanceQuickCheck: true,
-      visuallyVerifiable: true, hardFail: false,
-    },
-    {
       id: "anti_intrusion_present",
       name: "Anti-intrusion bars (253-25) present",
       category: "Optional bars",

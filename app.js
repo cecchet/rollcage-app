@@ -2000,7 +2000,32 @@
             el("input", {
               type: "checkbox",
               checked: quickChecked,
-              onchange: (e) => setAnswer(quickId, { value: e.target.checked ? "yes" : "" }),
+              // Rather than a separate bypass flag the 3D-model coloring
+              // would also need to know about, checking this writes 0mm
+              // into every row's own distance field -- the SAME value the
+              // live cage view already reads per row, so the model updates
+              // for free with no special-casing. Confirms first if any row
+              // already has its own entered value, so a real measurement
+              // (possibly a fail, e.g. over 100mm) is never silently wiped.
+              onchange: (e) => {
+                const checked = e.target.checked;
+                if (checked) {
+                  const distCol = elm.columns.find((c) => c.type === "length");
+                  const rows = resolveRows(elm);
+                  if (distCol && rows.length) {
+                    const hasExisting = rows.some((row) => {
+                      const v = getAnswer(tableCellId(elm, row, distCol)).value;
+                      return v && v.value !== "" && v.value !== undefined && v.value !== null;
+                    });
+                    if (hasExisting && !confirm("This will overwrite the junction distances already entered below with 0mm. Continue?")) {
+                      e.target.checked = false;
+                      return;
+                    }
+                    rows.forEach((row) => setAnswer(tableCellId(elm, row, distCol), { value: { value: "0", unit: "mm" } }));
+                  }
+                }
+                setAnswer(quickId, { value: checked ? "yes" : "" });
+              },
             }),
             "All junctions below confirmed under 100mm (skip entering each one individually)",
           ]),
@@ -2775,9 +2800,6 @@
   function continuousRearLowerXFile() {
     return getAnswer("rear_lower_x_present").value === "253-19-2" ? "253-19 right.stl" : "253-19 left.stl";
   }
-  function otherRearLowerXFile() {
-    return continuousRearLowerXFile() === "253-19 left.stl" ? "253-19 right.stl" : "253-19 left.stl";
-  }
   function rearLowerXFileTubeRow(file) {
     const v = getAnswer("rear_lower_x_present").value;
     if (v !== "253-19-1" && v !== "253-19-2") return null;
@@ -3063,24 +3085,22 @@
     // bottom_left<->top_right (verified from real vertex positions, same
     // corner-naming convention as the door/roof/253-7 X-braced bars).
     // Whichever ISN'T the continuous leg (per the "-1"/"-2" choice) also
-    // gets the 2 crossing points in the middle. The junction-distance
-    // table (rear_lower_x_distances) wasn't part of this fix and still
-    // uses its own older 2-row shape, so distRowIds carries its rows
-    // separately from the weld table's now-6-row rowIds.
+    // gets the 2 crossing points in the middle. 253-19 is an optional bar
+    // with no junction-distance requirement of its own (per FIA 253), so
+    // it's Welds-only -- no distElementId here.
     const rearLowerXVal = getAnswer("rear_lower_x_present").value;
     if (rearLowerXVal === "253-19-1" || rearLowerXVal === "253-19-2") {
       const leftContinuous = rearLowerXVal === "253-19-1";
-      const distRowIds = file === otherRearLowerXFile() ? ["top_left", "bottom_right"] : null;
       if (file === "253-19 left.stl") {
         return {
           rowIds: leftContinuous ? ["top_left", "bottom_right"] : ["top_left", "center_1", "center_2", "bottom_right"],
-          weldElementId: "rear_lower_x_detail", distElementId: distRowIds ? "rear_lower_x_distances" : null, distRowIds,
+          weldElementId: "rear_lower_x_detail", distElementId: null,
         };
       }
       if (file === "253-19 right.stl") {
         return {
           rowIds: leftContinuous ? ["bottom_left", "center_1", "center_2", "top_right"] : ["bottom_left", "top_right"],
-          weldElementId: "rear_lower_x_detail", distElementId: distRowIds ? "rear_lower_x_distances" : null, distRowIds,
+          weldElementId: "rear_lower_x_detail", distElementId: null,
         };
       }
     }
@@ -3150,10 +3170,12 @@
     if (file === "Sill bar Right.stl") return { rowIds: ["front_right", "rear_right"], weldElementId: "sill_bar_welds", distElementId: null };
     // Transverse member: straight bar, Y dominant, verified low-Y=left
     // (matches "Front left lateral.stl" sitting at the low-Y end). Its own
-    // 2 ends are also where 253-15's upper corners measure their distance
-    // to it (windshield_distances' top_left/top_right, reused here so a
-    // click/hover on either bar always drives the same one value).
-    if (file === "Transverse member.stl") return { rowIds: ["left", "right"], weldElementId: "transverse_member_welds", distElementId: WINDSHIELD_DIST_ID, distRowIds: ["top_left", "top_right"] };
+    // junction coloring/click target is handled separately, in Junctions
+    // mode, by transverseMemberJunctionSpec/transverseMemberJunctionGroups
+    // -- each end is shared by 253-15's own upper corner AND whichever
+    // roof bar design is active's own front end, which the single-table
+    // distElementId/distRowIds shape here can't represent.
+    if (file === "Transverse member.stl") return { rowIds: ["left", "right"], weldElementId: "transverse_member_welds", distElementId: null };
     // Dash bar spans left-to-right (Y dominant, verified) -- its own 2 ends.
     if (file === "Dash bar 253-29.stl") return { rowIds: ["left", "right"], weldElementId: "dash_bar_detail", distElementId: null };
     // 253-17: 2 weld points per tube (front, at the door bar; rear, at the
@@ -3329,10 +3351,13 @@
   function pillarTubeJunctionSpec(file) {
     const points = resolveJunctionPoints(file);
     if (!points) return null;
+    const colorFor = (p) => (p.ghost ? null : distanceValueColor(getAnswer(p.elementId + "__" + p.rowId + "__distance").value));
     return bandSplitOrAggregate(
-      file, points,
-      (p) => distanceValueColor(getAnswer(p.elementId + "__" + p.rowId + "__distance").value),
-      () => aggregateColor(points.map((p) => distanceValueColor(getAnswer(p.elementId + "__" + p.rowId + "__distance").value)))
+      file, points, colorFor,
+      // Ghost placeholders exist only to shape the band split -- they
+      // carry no real answer, so they're excluded here rather than
+      // permanently forcing the whole-mesh fallback color to gray.
+      () => aggregateColor(points.filter((p) => !p.ghost).map(colorFor))
     );
   }
   function distanceSpec(file, elementId, rowIds) {
@@ -3362,7 +3387,14 @@
     // ghost instead of hidden.
     const allFiles = window.CageView && window.CageView.getAllFiles ? window.CageView.getAllFiles() : Object.keys(colors);
     allFiles.forEach((file) => {
-      view[file] = DRIVER_FILES.indexOf(file) !== -1 || CODRIVER_FILES.indexOf(file) !== -1 ? colors[file] : "hidden";
+      if (DRIVER_FILES.indexOf(file) !== -1 || CODRIVER_FILES.indexOf(file) !== -1) { view[file] = colors[file]; return; }
+      // Junctions mode shows the WHOLE cage as ghost context by default
+      // (a distance-from-junction check reads oddly with only some bars
+      // floating on screen), unlike Welds mode's narrower "hide anything
+      // untracked here" default just below -- still hidden if the file
+      // isn't even part of THIS car's current design (colors[file] itself
+      // undefined/hidden), same check setIfActive uses for every other bar.
+      view[file] = mode === "junction" && colors[file] !== undefined && colors[file] !== "hidden" ? undefined : "hidden";
     });
     // A file entirely absent from `colors` isn't part of THIS car at all --
     // e.g. a roof-bar/backstay-diagonal/windshield/door-bar file belonging
@@ -3438,6 +3470,10 @@
         const t = part3RowTargetsForFile(file);
         setIfActive(file, t && t.distElementId ? distanceSpec(file, t.distElementId, t.distRowIds || t.rowIds) : null);
       });
+      // Runs AFTER the generic loop above (which would otherwise set this
+      // file to ghost, since part3RowTargetsForFile's own distElementId is
+      // null for it now) so this combined-group coloring has the final say.
+      setIfActive("Transverse member.stl", transverseMemberJunctionSpec("Transverse member.stl"));
     }
     return view;
   }
@@ -3898,9 +3934,50 @@
     }
     return points;
   }
+  // The transverse member's own 2 ends are each a shared junction: 253-15's
+  // own upper corner (windshield_distances' top_left/top_right, always)
+  // PLUS whichever roof bar design is active's own front end (roof_4_1_
+  // distances or roof_4_2_distances' front_roof_left/right) -- two
+  // genuinely independent measurements that happen to land at the same
+  // physical spot, unlike a plain PILLAR_TUBE_JUNCTION_POINTS entry where
+  // each point is its own separate band segment. Returns [leftGroup,
+  // rightGroup] rather than a flat point list so callers can choose
+  // whether to treat each end as one combined (worst-of) color/target or
+  // list its members separately.
+  function transverseMemberJunctionGroups() {
+    const roofVal = getAnswer("roof_bars").value;
+    const roofDistId = roofVal === "253-12-1" || roofVal === "253-12-2" ? ROOF_4_1_DIST_ID : roofVal === "253-14" ? ROOF_4_2_DIST_ID : null;
+    const left = [{ elementId: WINDSHIELD_DIST_ID, rowId: "top_left" }];
+    const right = [{ elementId: WINDSHIELD_DIST_ID, rowId: "top_right" }];
+    if (roofDistId) {
+      left.push({ elementId: roofDistId, rowId: "front_roof_left" });
+      right.push({ elementId: roofDistId, rowId: "front_roof_right" });
+    }
+    return [left, right];
+  }
+  // Junctions-mode coloring for the transverse member -- each end's color
+  // is the WORST of however many measurements land there (aggregateColor),
+  // since it's a real fail if EITHER the windshield-bar or roof-bar
+  // distance to this end is over 100mm, not just whichever was answered.
+  function transverseMemberJunctionSpec(file) {
+    const groups = transverseMemberJunctionGroups();
+    const colorForGroup = (g) => aggregateColor(g.map((p) => distanceValueColor(getAnswer(p.elementId + "__" + p.rowId + "__distance").value)));
+    return bandSplitOrAggregate(file, groups, colorForGroup, () => aggregateColor(groups.map(colorForGroup)));
+  }
+  // A lateral has only one real junction (its own top, to the backstay) --
+  // a lone point would band-split to nothing and just color the WHOLE
+  // mesh solid (see bandSplitOrAggregate), which reads as if the entire
+  // lateral were the junction. A leading `{ ghost: true }` placeholder
+  // gives it 2 segments instead, low-to-high axis order matching
+  // PILLAR_TUBE_POINTS' own [foot, top] order for this same file, so only
+  // the top half (near the actual junction) ever colors -- the bottom
+  // half has no distance concept and always reads as ghost gray. Click/
+  // hover resolution filters ghost points back out (see resolveJunctionPoints
+  // callers below) so clicking anywhere on the bar still targets the one
+  // real point, rather than doing nothing on the bottom half.
   const PILLAR_TUBE_JUNCTION_POINTS = {
-    "Front left lateral.stl": [{ elementId: "backstay_distance_upper_laterals", rowId: "left" }],
-    "Front right lateral.stl": [{ elementId: "backstay_distance_upper_laterals", rowId: "right" }],
+    "Front left lateral.stl": [{ ghost: true }, { elementId: "backstay_distance_upper_laterals", rowId: "left" }],
+    "Front right lateral.stl": [{ ghost: true }, { elementId: "backstay_distance_upper_laterals", rowId: "right" }],
     "Left backstay.stl": () => backstayJunctionPoints("left"),
     "Right backstay.stl": () => backstayJunctionPoints("right"),
   };
@@ -3957,13 +4034,17 @@
     // below with the wrong table would always find nothing and (before this
     // fix) silently fall through to the Part-1 jump.
     if (state.activeTab === JUNCTIONS_PHASE) {
-      const junctionPoints = resolveJunctionPoints(file);
-      if (junctionPoints) {
+      const junctionPoints = (resolveJunctionPoints(file) || []).filter((p) => !p.ghost);
+      if (junctionPoints.length) {
         return expandThenFindRows(junctionPoints.map((p) => p.elementId), junctionPoints.map((p) => "row-" + p.elementId + "__" + p.rowId));
       }
       const footJunction = FOOT_JUNCTION_TARGETS[footRowForFile(file)];
       if (footJunction) {
         return expandThenFindRows([footJunction.elementId], ["row-" + footJunction.elementId + "__" + footJunction.rowId]);
+      }
+      if (file === "Transverse member.stl") {
+        const flat = [].concat.apply([], transverseMemberJunctionGroups());
+        return expandThenFindRows(flat.map((p) => p.elementId), flat.map((p) => "row-" + p.elementId + "__" + p.rowId));
       }
       const target = part3RowTargetsForFile(file);
       if (!target || !target.distElementId) return false;
@@ -4115,14 +4196,18 @@
   // tables/columns.
   function resolvePart3WeldTarget(file, frac) {
     if (state.activeTab === JUNCTIONS_PHASE) {
-      const junctionPoints = resolveJunctionPoints(file);
-      if (junctionPoints) {
+      const junctionPoints = (resolveJunctionPoints(file) || []).filter((p) => !p.ghost);
+      if (junctionPoints.length) {
         const group = nearestRowGroupByFraction(junctionPoints.map((p) => [p]), frac);
         return { label: group.map((p) => rowLabelFor(p.elementId, p.rowId)).join(" / "), keys: group.map((p) => p.elementId + "__" + p.rowId + "__distance") };
       }
       const footJunction = FOOT_JUNCTION_TARGETS[footRowForFile(file)];
       if (footJunction) {
         return { label: rowLabelFor(footJunction.elementId, footJunction.rowId), keys: [footJunction.elementId + "__" + footJunction.rowId + "__distance"] };
+      }
+      if (file === "Transverse member.stl") {
+        const group = nearestRowGroupByFraction(transverseMemberJunctionGroups(), frac);
+        return { label: group.map((p) => rowLabelFor(p.elementId, p.rowId)).join(" / "), keys: group.map((p) => p.elementId + "__" + p.rowId + "__distance") };
       }
       const target = part3RowTargetsForFile(file);
       if (target && target.distElementId) {
@@ -4202,6 +4287,11 @@
       }
       return;
     }
+    // Junctions: nothing here to toggle/cycle (these are measurements, not
+    // yes/no answers) -- falling through to the design-default-fill logic
+    // below would wrongly jump to Part 1, since that logic is keyed off
+    // Part-1 design-choice elements with no Junctions-mode equivalent.
+    if (state.activeTab === JUNCTIONS_PHASE) return;
     const footRow = footRowForFile(file);
     if (footRow) {
       const cycle = FRONT_FOOT_ROWS.has(footRow) ? FRONT_FOOT_DESIGN_CYCLE : REAR_FOOT_DESIGN_CYCLE;
