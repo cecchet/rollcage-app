@@ -86,22 +86,23 @@ body {
 .cage-viewer-row {
   position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
-  width: auto;
-  max-width: none;
-  max-height: none;
   z-index: 20;
+  /* Match #app's own box model exactly (max-width:900px, margin:0 auto,
+     20px side padding) rather than guessing a fixed inner width (the old
+     max-width:860px on .cage-viewer-panel below only lined up with #app's
+     .panel children once the viewport was wide enough for #app's own
+     max-width to actually kick in -- below 900px #app has no side margin
+     of its own to subtract, so its panels render narrower than 860px and
+     this one, still stuck at 860px, ends up wider than the rest of the
+     page). Deriving both from the same formula keeps them equal at every
+     width instead of matching at only one. */
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 20px;
 }
 .cage-viewer-panel {
   padding: 10px 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  /* #app below is also max-width:900px, but that includes its own 20px
-     side padding (border-box) -- its .panel children actually render at
-     860px. Match that here so this panel's edges line up with the rest of
-     the page instead of sitting 40px wider. */
-  max-width: 860px;
-  margin: 0 auto;
 }
 .cage-viewer-header {
   display: flex;
