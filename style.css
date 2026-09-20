@@ -246,25 +246,14 @@ textarea { resize: vertical; min-height: 50px; }
   margin: 18px 0 4px;
 }
 
-.phase-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 2px solid var(--border);
+.phase-switch {
+  gap: 8px 20px;
+  padding-bottom: 14px;
   margin-bottom: 16px;
+  border-bottom: 2px solid var(--border);
 }
-.phase-tab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-  padding: 8px 14px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--muted);
-  cursor: pointer;
-}
-.phase-tab:hover { color: var(--ink); }
-.phase-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.phase-switch label { font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.phase-switch label:has(input:checked) { color: var(--accent); }
 
 .element-card {
   border: 1px solid var(--border);

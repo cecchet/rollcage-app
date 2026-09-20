@@ -20,15 +20,10 @@
     resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
-    activeTab: 1, // UI-only: which phase (Part 1/2/3) tab is currently shown
+    activeTab: 1, // UI-only: which phase (Part 1-7) tab is currently shown -- see PHASE_LABELS
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
     showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
     showDriver: true, // UI-only: whether the driver/codriver mannequins show, or are hidden to see the cage behind them
-    // UI-only: "weld" | "junction" -- which of Part 3's own 2 3D views is
-    // showing. Always one or the other (no "off" state) so Part 3 behaves
-    // like Part 2's own automatic tubing-spec view -- switching to Part 3
-    // shows a Part-3-specific 3D view immediately, no extra click needed.
-    part3ViewMode: "weld",
     aiAnalysis: { status: "idle", suggestions: [], error: null, accepted: {} }, // UI-only, never persisted -- see renderPhotoAnalysis()
   };
 
@@ -1017,16 +1012,31 @@
     "mounting_feet_design",
     "gusset_design",
   ]);
+  // Old "Part 3" (Measurements, angles & welds) split into 3 separate
+  // phases -- it had grown into one long scroll mixing 3 genuinely
+  // different activities (checking clearances, checking welds, checking
+  // junction distances). Named constants instead of bare numbers at every
+  // call site since these 3 (plus Logbook) are new/renumbered and every
+  // reference has to agree.
+  const INSTALLATION_PHASE = 3;
+  const WELDS_PHASE = 4;
+  const JUNCTIONS_PHASE = 5;
+  const SEATS_PHASE = 6;
+  const LOGBOOK_PHASE = 7;
   const PHASE_LABELS = {
     1: "Part 1 — Structure & design choices",
     2: "Part 2 — Tubing sizes & materials",
-    3: "Part 3 — Measurements, angles & welds",
-    4: "Part 4 — Seats, belts & routing",
+    [INSTALLATION_PHASE]: "Part 3 — Installation constraints",
+    [WELDS_PHASE]: "Part 4 — Welds",
+    [JUNCTIONS_PHASE]: "Part 5 — Junctions",
+    [SEATS_PHASE]: "Part 6 — Seats, belts & routing",
+    [LOGBOOK_PHASE]: "Part 7 — Logbook",
   };
   // Padding and sections 9-11 of the source document (seat mounting, belt
   // anchoring, routing of lines) are a distinct later stage of the
   // inspection -- occupant safety equipment rather than the cage structure
-  // itself -- so they get their own phase instead of piling into Part 3.
+  // itself -- so they get their own phase instead of piling into everything
+  // else.
   const PHASE_4_CATEGORIES = new Set(["Padding", "9. Seat mounting points", "10. Belt anchoring points", "11. Routing of lines"]);
   function isTubingSizingTable(elm) {
     if (elm.evaluationType === "tubing3solo") return true;
@@ -1042,8 +1052,21 @@
   function elementPhase(elm) {
     if (PHASE_1_DESIGN_CHOICE_IDS.has(elm.id)) return 1;
     if (isTubingSizingTable(elm)) return 2;
-    if (PHASE_4_CATEGORIES.has(elm.category)) return 4;
-    return 3;
+    if (PHASE_4_CATEGORIES.has(elm.category)) return SEATS_PHASE;
+    // gusset_dimensions carries its own "Complete weld" column now (see
+    // rules-data.js) alongside its D/H/R/E dimensions, so it belongs with
+    // the other weld tables even though its own category is "Gussets", not
+    // "Welds" -- the 3D model's weld-view coloring/click-to-jump for
+    // gussets only works while this element's own rows are on screen (see
+    // GUSSET_LOCATIONS/gussetRowForFile), so it has to live in the same
+    // phase that view is shown in.
+    if (elm.id === "gusset_dimensions") return WELDS_PHASE;
+    if (elm.category === "Welds") return WELDS_PHASE;
+    if (elm.category === "Bar junction distances") return JUNCTIONS_PHASE;
+    // Everything else that used to fall into the old catch-all Part 3 --
+    // installation clearances, plus angle/bend/straightness/compliance
+    // checks that aren't a weld or a junction distance -- lands here.
+    return INSTALLATION_PHASE;
   }
 
   // ---- AI photo analysis (Part 1 pre-fill) -------------------------------
@@ -1186,16 +1209,21 @@
     root.appendChild(panel);
   }
 
-  // Safety score / Logbook / Vehicle description always trail the checklist
-  // now (no more "Part 4" tab to move them behind) -- see render().
+  // Safety score / Vehicle description always trail the checklist -- Logbook
+  // used to as well, but now it's its own phase (LOGBOOK_PHASE), gated the
+  // same way as every other part -- see render().
   function renderChecklist(root, path) {
     const panel = el("div", { class: "panel" });
     panel.appendChild(el("h2", {}, ["Rollcage design"]));
 
     const visible = path.elements.filter(elementVisible).filter((elm) => !RENDERED_IN_LOGBOOK_PANEL.includes(elm.id));
-    const phases = { 1: [], 2: [], 3: [], 4: [] };
+    const phases = { 1: [], 2: [], [INSTALLATION_PHASE]: [], [WELDS_PHASE]: [], [JUNCTIONS_PHASE]: [], [SEATS_PHASE]: [] };
     visible.forEach((elm) => phases[elementPhase(elm)].push(elm));
-    const usedPhases = [1, 2, 3, 4].filter((p) => phases[p].length);
+    const usedPhases = [1, 2, INSTALLATION_PHASE, WELDS_PHASE, JUNCTIONS_PHASE, SEATS_PHASE].filter((p) => phases[p].length);
+    // Logbook isn't element-driven (renderResults reads path/answers
+    // directly, gated on this phase in render()) so nothing ever populates
+    // phases[LOGBOOK_PHASE] -- it's still always offered as a destination.
+    usedPhases.push(LOGBOOK_PHASE);
     const showTabs = usedPhases.length > 1;
     if (showTabs && !usedPhases.includes(state.activeTab)) state.activeTab = usedPhases[0];
     const shownPhases = showTabs ? [state.activeTab] : usedPhases;
@@ -1206,36 +1234,34 @@
       panel.appendChild(
         el(
           "div",
-          { class: "phase-tabs" },
+          { class: "radio-group phase-switch" },
           usedPhases.map((p) =>
-            el(
-              "button",
-              {
-                class: "phase-tab" + (state.activeTab === p ? " active" : ""),
-                onclick: () => { state.activeTab = p; render(); },
-              },
-              [PHASE_LABELS[p]]
-            )
+            radioOption("phaseSwitch", String(p), PHASE_LABELS[p], state.activeTab === p, () => { state.activeTab = p; render(); })
           )
         )
       );
     }
 
-    // Part 3's own 3D view-mode switch lives in the sticky viewer panel now
-    // (see syncPart3Controls) so it's reachable regardless of scroll
-    // position -- this just keeps its own explanatory text here, right at
-    // the top of the tab it describes.
-    if (state.activeTab === 3) {
+    // Welds/Junctions' own 3D view-mode switch lives in the sticky viewer
+    // panel now (see syncPart3Controls) so it's reachable regardless of
+    // scroll position -- this just keeps its own explanatory text here,
+    // right at the top of the part it describes.
+    if (state.activeTab === WELDS_PHASE) {
       panel.appendChild(
         el("div", { class: "element-desc" }, [
-          state.part3ViewMode === "weld"
-            ? "Double-click near a specific end/weld point of a highlighted bar (or a mounting foot) to cycle that point's own status: green = complete, red = incomplete, ghost = not yet checked. A bar with more than one weld point gets its own color, split along its own length in the same order as its table rows."
-            : "Bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Door bars have no junction-distance data to show here.",
+          "Double-click near a specific end/weld point of a highlighted bar (or a mounting foot) to cycle that point's own status: green = complete, red = incomplete, ghost = not yet checked. A bar with more than one weld point gets its own color, split along its own length in the same order as its table rows.",
+        ])
+      );
+    } else if (state.activeTab === JUNCTIONS_PHASE) {
+      panel.appendChild(
+        el("div", { class: "element-desc" }, [
+          "Bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Door bars have no junction-distance data to show here.",
         ])
       );
     }
 
     shownPhases.forEach((p) => {
+      if (!phases[p]) return; // Logbook -- rendered separately by renderResults, see render()
       const byCategory = {};
       phases[p].forEach((elm) => {
         byCategory[elm.category] = byCategory[elm.category] || [];
@@ -3286,7 +3312,7 @@
     );
   }
   function applyPart3View(colors) {
-    const mode = state.part3ViewMode;
+    const mode = state.activeTab === WELDS_PHASE ? "weld" : state.activeTab === JUNCTIONS_PHASE ? "junction" : null;
     if (mode !== "weld" && mode !== "junction") return colors;
     const view = {};
     // Part 3 only tracks welds/junctions for a specific set of bars (feet,
@@ -3643,7 +3669,7 @@
 
     CAGE_FILE_OWNER = owner;
     if (state.activeTab === 2) return applyTubingClassificationView(colors);
-    if (state.activeTab === 3) return applyPart3View(colors);
+    if (state.activeTab === WELDS_PHASE || state.activeTab === JUNCTIONS_PHASE) return applyPart3View(colors);
     return colors;
   }
 
@@ -3829,7 +3855,7 @@
     }
     const target = part3RowTargetsForFile(file);
     if (!target) return false;
-    const inJunction = state.part3ViewMode === "junction" && target.distElementId;
+    const inJunction = state.activeTab === JUNCTIONS_PHASE && target.distElementId;
     const elementId = inJunction ? target.distElementId : target.weldElementId || target.distElementId;
     if (!elementId) return false;
     const rowIds = inJunction ? target.distRowIds || target.rowIds : target.rowIds;
@@ -4012,13 +4038,13 @@
       rowIds.forEach((rowId) => setAnswer("tubing_bar_classification__" + rowId + "__spec", { value: next }));
       return;
     }
-    // Part 3 Weld view: double-click cycles that bar's own weld-completion
+    // Welds part: double-click cycles that bar's own weld-completion
     // answer (yes -> no -> not-yet-checked) instead of anything else a
     // double-click would normally do -- scoped to the same bars
     // applyPart3View() knows how to color (see its own comment for why).
     // What exactly gets cycled is resolved by resolvePart3WeldTarget(),
     // shared with the hover tooltip below so the two can never disagree.
-    if (state.activeTab === 3 && state.part3ViewMode === "weld") {
+    if (state.activeTab === WELDS_PHASE) {
       const target = resolvePart3WeldTarget(file, frac);
       if (target) {
         const cycle = ["yes", "no", ""];
@@ -4079,7 +4105,7 @@
       jumpToTubeRow(file);
       return;
     }
-    if (state.activeTab === 3 && jumpToWeldRow(file)) return;
+    if ((state.activeTab === WELDS_PHASE || state.activeTab === JUNCTIONS_PHASE) && jumpToWeldRow(file)) return;
     const footRow = footRowForFile(file);
     if (footRow) {
       jumpToFootRow(footRow);
@@ -4098,36 +4124,33 @@
   // render() never rebuilds it) rather than inside any one part's own
   // checklist -- that panel stays pinned while the checklist scrolls, so
   // it's reachable no matter how far down a long table the user has
-  // scrolled. It doubles as quick navigation between all 4 parts the 3D
-  // model has something to show for -- Design/Tube size jump straight to
-  // Part 1/2; Welds/Junctions jump to Part 3 in that view mode (Part 4 has
-  // no 3D-relevant view of its own, so it's not one of the 4 options).
+  // scrolled. It doubles as quick navigation to the 4 parts the 3D model
+  // has something to show for -- Design/Tube size jump straight to Part
+  // 1/2; Welds/Junctions jump to their own parts (Installation constraints,
+  // Seats/belts/routing, and Logbook have no 3D-relevant view of their own,
+  // so they're not among these 4 options).
   function syncPart3Controls() {
     const el3 = document.getElementById("cageViewerPart3Controls");
-    // "Hide ghost bars" has nothing left to do on Part 3 -- every bar NOT
-    // part of this car's actual configuration is already hidden outright
-    // (see applyPart3View/setIfActive), so a ghost there always means "part
-    // of the cage, just not yet checked," which is exactly the information
-    // this tab exists to show. Hiding it away would just hide work still
-    // to do, so the toggle (and the forced showGhostBars below) don't apply
-    // here.
+    // "Hide ghost bars" has nothing left to do on Welds/Junctions -- every
+    // bar NOT part of this car's actual configuration is already hidden
+    // outright (see applyPart3View/setIfActive), so a ghost there always
+    // means "part of the cage, just not yet checked," which is exactly the
+    // information these parts exist to show. Hiding it away would just
+    // hide work still to do, so the toggle (and the forced showGhostBars
+    // below) don't apply here.
+    const onWeldOrJunction = state.activeTab === WELDS_PHASE || state.activeTab === JUNCTIONS_PHASE;
     const ghostBtn = document.getElementById("cageViewerGhostToggle");
-    if (ghostBtn) ghostBtn.style.display = state.activeTab === 3 ? "none" : "";
+    if (ghostBtn) ghostBtn.style.display = onWeldOrJunction ? "none" : "";
     if (!el3) return;
     el3.innerHTML = "";
-    const goToView = (tab, mode) => {
-      state.activeTab = tab;
-      if (mode) state.part3ViewMode = mode;
-      render();
-    };
-    const isActive = (tab, mode) => state.activeTab === tab && (!mode || state.part3ViewMode === mode);
+    const goToView = (tab) => { state.activeTab = tab; render(); };
     el3.appendChild(
       el("div", { class: "radio-group" }, [
         el("strong", { class: "cage-view-switch-label" }, ["View"]),
-        radioOption("cageViewSwitch", "design", "Design", isActive(1), () => goToView(1)),
-        radioOption("cageViewSwitch", "tubing", "Tube size", isActive(2), () => goToView(2)),
-        radioOption("cageViewSwitch", "welds", "Welds", isActive(3, "weld"), () => goToView(3, "weld")),
-        radioOption("cageViewSwitch", "junctions", "Junctions", isActive(3, "junction"), () => goToView(3, "junction")),
+        radioOption("cageViewSwitch", "design", "Design", state.activeTab === 1, () => goToView(1)),
+        radioOption("cageViewSwitch", "tubing", "Tube size", state.activeTab === 2, () => goToView(2)),
+        radioOption("cageViewSwitch", "welds", "Welds", state.activeTab === WELDS_PHASE, () => goToView(WELDS_PHASE)),
+        radioOption("cageViewSwitch", "junctions", "Junctions", state.activeTab === JUNCTIONS_PHASE, () => goToView(JUNCTIONS_PHASE)),
       ])
     );
   }
@@ -4139,7 +4162,7 @@
   function handleCagePartHover(file, frac, clientX, clientY) {
     const tooltip = document.getElementById("cageViewerTooltip");
     if (!tooltip) return;
-    const target = file && state.activeTab === 3 && state.part3ViewMode === "weld" ? resolvePart3WeldTarget(file, frac) : null;
+    const target = file && state.activeTab === WELDS_PHASE ? resolvePart3WeldTarget(file, frac) : null;
     if (!target) { tooltip.hidden = true; return; }
     const container = document.getElementById("cageViewerContainer");
     const rect = container.getBoundingClientRect();
@@ -4152,7 +4175,7 @@
     syncPart3Controls();
     if (window.CageView) {
       const colors = computeCageColors();
-      window.CageView.applyState(colors, state.activeTab === 3 ? true : state.showGhostBars);
+      window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === JUNCTIONS_PHASE) ? true : state.showGhostBars);
       window.CageView.onPartClick(handleCagePartClick);
       window.CageView.onPartDoubleClick(handleCagePartDoubleClick);
       window.CageView.onPartHover(handleCagePartHover);
@@ -4182,11 +4205,12 @@
 
     const path = RULES[state.vehicle.org].paths[state.pathId];
     renderChecklist(root, path);
-    // Safety score, then Logbook (verdict for the selected sanctioning body,
-    // merged with its paperwork fields) -- always trailing the checklist
-    // now, no tab to move them behind.
+    // Safety score always trails the checklist regardless of which part is
+    // shown; Logbook (verdict for the selected sanctioning body, merged
+    // with its paperwork fields) is its own part now -- only shown while
+    // that part is the one selected, same as every other part's content.
     renderSafetyScore(root, path);
-    renderResults(root, path);
+    if (state.activeTab === LOGBOOK_PHASE) renderResults(root, path);
     syncCageView();
   }
 
