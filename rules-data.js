@@ -925,6 +925,51 @@
     return rows;
   }
 
+  // Maps a gusset_dimensions row to the tubing_bar_classification row id(s)
+  // of the tube(s) it actually joins -- reuses the exact same design-
+  // branching functions tubing_bar_classification's own rows are built
+  // from, so this can never point at a row id that design doesn't
+  // currently have. Lets app.js look up each junction's real, user-entered
+  // tube diameter(s) (via primary_tubing/secondary_tubing) instead of
+  // guessing a "primary vs secondary" family from the row id alone -- e.g.
+  // the 253-21 backstay diagonal and 253-19 rear lower X aren't fixed to
+  // either family, they're independently classified per car.
+  function gussetRowTubeRowIds(gussetRowId, getAnswer) {
+    if (gussetRowId.indexOf("main_hoop_diag_") === 0) {
+      return mainDiagonalTubeRows(getAnswer("main_hoop_diagonals").value).map((r) => r.id);
+    }
+    if (gussetRowId.indexOf("backstay_diag_") === 0) {
+      return backstayDiagonalTubeRows(getAnswer("backstay_diagonals").value).map((r) => r.id);
+    }
+    if (gussetRowId.indexOf("roof_") === 0) {
+      return roofBarTubeRows(getAnswer("roof_bars").value).map((r) => r.id);
+    }
+    if (gussetRowId === "door_front_left" || gussetRowId === "door_rear_left") {
+      return doorBarTubeRowsForSide(getAnswer("door_bars_left").value, "left").map((r) => r.id);
+    }
+    if (gussetRowId === "door_front_right" || gussetRowId === "door_rear_right") {
+      return doorBarTubeRowsForSide(getAnswer("door_bars_right").value, "right").map((r) => r.id);
+    }
+    // Lateral-to-A-pillar gusset -- the bigger of the front lateral and the
+    // A-pillar reinforcement (253-15) tube.
+    if (gussetRowId === "a_pillar_left") return ["front_laterals_left", "a_pillar_left"];
+    if (gussetRowId === "a_pillar_right") return ["front_laterals_right", "a_pillar_right"];
+    // 253-15's own side/2-piece gussets -- the A-pillar reinforcement tube
+    // meeting that side's door bar.
+    if (gussetRowId === "a_pillar_side_left" || gussetRowId.indexOf("a_pillar_2pc_left") === 0) {
+      return ["a_pillar_left"].concat(doorBarTubeRowsForSide(getAnswer("door_bars_left").value, "left").map((r) => r.id));
+    }
+    if (gussetRowId === "a_pillar_side_right" || gussetRowId.indexOf("a_pillar_2pc_right") === 0) {
+      return ["a_pillar_right"].concat(doorBarTubeRowsForSide(getAnswer("door_bars_right").value, "right").map((r) => r.id));
+    }
+    if (gussetRowId === "windshield_left") return ["windshield_reinforcement_left"];
+    if (gussetRowId === "windshield_right") return ["windshield_reinforcement_right"];
+    if (gussetRowId.indexOf("rear_lower_x_") === 0) {
+      return rearLowerXTubeRows(getAnswer("rear_lower_x_present").value).map((r) => r.id);
+    }
+    return [];
+  }
+
   const SECTION_2_3_TUBING = [
     {
       id: "primary_tubing",
@@ -1965,8 +2010,13 @@
       diagram: "gusset-dims",
       evaluationType: "table",
       rows: (getAnswer) => gussetJunctionRows(getAnswer),
+      // Closure into gussetRowTubeRowIds, same way `rows` closes into
+      // gussetJunctionRows -- app.js has no direct access to this file's
+      // private helpers, so anything it needs to call has to be handed out
+      // this way rather than as a bare function name.
+      tubeRowIdsForRow: (getAnswer, rowId) => gussetRowTubeRowIds(rowId, getAnswer),
       columns: [
-        { key: "length", label: "Gusset length (mm)", type: "number" },
+        { key: "length", label: "Gusset length", type: "length", showDiameterHint: true },
         { key: "corner_cutout", label: "Corner cutout", type: "radio", options: [
           { id: "under", label: "R<1.5D" },
           { id: "over", label: "R>1.5D" },

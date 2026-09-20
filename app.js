@@ -231,6 +231,31 @@
     if (isNaN(v)) return null;
     return dim.unit === "mm" ? v / 25.4 : v;
   }
+  function toMM(dim) {
+    const inches = toInches(dim);
+    return inches === null ? null : inches * 25.4;
+  }
+  // "D" for a gusset_dimensions row -- the biggest of the tube(s) it
+  // actually joins (see gussetRowTubeRowIds in rules-data.js, handed out
+  // via the element's own tubeRowIdsForRow closure), resolved to its real
+  // primary/secondary diameter as entered in Part 2. Returns null when the
+  // relevant tube(s) haven't been classified/sized yet, so the hint just
+  // stays hidden rather than showing a bogus 0.
+  function gussetRowDiameterMM(rowId) {
+    if (!state.pathId || !RULES[state.vehicle.org] || !RULES[state.vehicle.org].paths[state.pathId]) return null;
+    const path = RULES[state.vehicle.org].paths[state.pathId];
+    const elm = path.elements.find((e) => e.id === "gusset_dimensions");
+    if (!elm || !elm.tubeRowIdsForRow) return null;
+    let maxMM = null;
+    elm.tubeRowIdsForRow(getAnswer, rowId).forEach((tr) => {
+      const spec = getAnswer("tubing_bar_classification__" + tr + "__spec").value;
+      const soloId = spec === "primary" ? "primary_tubing" : spec === "secondary" ? "secondary_tubing" : null;
+      if (!soloId) return;
+      const mm = toMM(getAnswer(soloId).value && getAnswer(soloId).value.diameter);
+      if (mm !== null && (maxMM === null || mm > maxMM)) maxMM = mm;
+    });
+    return maxMM;
+  }
 
   // Legacy single-dropdown tubing sub-item (still used by untouched
   // grandfathered paths).
@@ -305,7 +330,7 @@
     if (col.type === "tubing3") {
       return tubing3Status(col, answer);
     }
-    if (col.type === "area") {
+    if (col.type === "area" || col.type === "length") {
       // Just needs an entry -- Part 2 captures the size, Part 4 is where
       // it's actually judged against the FIA minimum for that location.
       const v = answer.value;
@@ -1710,6 +1735,40 @@
     }
     if (col.type === "number") {
       return el("input", { type: "number", step: "any", class: "cell-number", value: cellAnswer.value || "", onchange: (e) => setAnswer(cellId, { value: e.target.value }) });
+    }
+    if (col.type === "length") {
+      const v = cellAnswer.value || {};
+      const unit = v.unit || "mm";
+      const numInput = el("input", {
+        type: "number", step: "any", class: "cell-number small",
+        value: v.value ?? "",
+        onchange: (e) => setAnswer(cellId, { value: Object.assign({}, v, { value: e.target.value, unit }) }),
+      });
+      const unitSelect = el("select", {
+        class: "length-unit-select",
+        onchange: (e) => setAnswer(cellId, { value: Object.assign({}, v, { unit: e.target.value }) }),
+      });
+      [{ id: "mm", label: "mm" }, { id: "in", label: "in" }].forEach((u) => {
+        const o = el("option", { value: u.id }, [u.label]);
+        if (unit === u.id) o.selected = true;
+        unitSelect.appendChild(o);
+      });
+      const children = [el("div", { class: "cell-answer-row" }, [numInput, unitSelect])];
+      // 2D/4D hint (see col.showDiameterHint, only set on gusset length):
+      // shows the two threshold values in the SAME unit currently selected
+      // so the entered length can be eyeballed against them directly,
+      // rather than the user having to convert D themselves.
+      if (col.showDiameterHint && row) {
+        const dMM = gussetRowDiameterMM(row.id);
+        if (dMM !== null) {
+          const perUnit = unit === "in" ? 1 / 25.4 : 1;
+          const fmt = (n) => (unit === "in" ? n.toFixed(2) : n.toFixed(1));
+          children.push(el("div", { class: "cell-hint" }, [
+            "2D = " + fmt(2 * dMM * perUnit) + " " + unit + " / 4D = " + fmt(4 * dMM * perUnit) + " " + unit,
+          ]));
+        }
+      }
+      return el("div", {}, children);
     }
     if (col.type === "select") {
       const select = el("select", { onchange: (e) => setAnswer(cellId, { value: e.target.value }) });

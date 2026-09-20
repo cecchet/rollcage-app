@@ -463,13 +463,15 @@ textarea { resize: vertical; min-height: 50px; }
 .element-card.card-flash { animation: row-flash-fade 1.6s ease-out; }
 .row-table select, .row-table input[type="text"], .row-table input[type="number"] { width: 100%; min-width: 90px; font-size: 0.8rem; }
 .row-table .tubing3-fields { flex-direction: column; gap: 4px; }
-.row-table .cell-answer-row { display: flex; gap: 4px; }
+.row-table .cell-answer-row { display: flex; gap: 4px; flex-wrap: wrap; max-width: 220px; }
 .answer-btn.small { padding: 3px 8px; font-size: 0.78rem; }
 
 .area-cell { flex-wrap: wrap; align-items: center; }
 .area-mode-toggle { width: 100%; gap: 4px; }
 .row-table .cell-number.small { width: 55px; min-width: 55px; }
 .area-xy-sep, .area-computed { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+.row-table .length-unit-select { width: auto; min-width: 52px; flex: 0 0 auto; }
+.cell-hint { font-size: 0.72rem; color: var(--muted); margin-top: 3px; white-space: nowrap; }
 
 .photo-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
 .photo-thumb { position: relative; width: 64px; height: 64px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
