@@ -189,6 +189,12 @@ body {
 .cage-viewer-safety-score.tier-red { color: var(--fail); border-color: var(--fail); }
 .cage-viewer-safety-score[hidden] { display: none; }
 .cage-viewer-header-buttons { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* An ID selector (not a class) so this reliably beats
+   .cage-viewer-header-buttons' own `display: flex` above regardless of
+   stylesheet order -- an earlier version used a class selector here, which
+   has the SAME specificity as that rule, so the [hidden] attribute set by
+   JS silently did nothing and the button row stayed visible. */
+#cageViewerHeaderButtons[hidden] { display: none; }
 /* Replaces the normal header buttons while tagging a picture's visible
    parts in the 3D model -- an actual banner (not just a mode-colored
    button row) so it's obvious the viewer is in a different mode right now. */
@@ -201,6 +207,26 @@ body {
   color: var(--ink);
 }
 .cage-viewer-picture-banner[hidden] { display: none; }
+/* Reference photo shown above the 3D model while tagging its elements, so
+   the picture being tagged doesn't scroll out of view. ID selector for the
+   same specificity reason as #cageViewerHeaderButtons above. */
+.cage-viewer-picture-thumb {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  background: var(--bg);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+}
+#cageViewerPictureModeThumb[hidden] { display: none; }
+/* The Part switcher and View switch (Design/Tube size/Junctions/Welds) are
+   suppressed while tagging a picture -- the 3D model and Done/Cancel should
+   be the only interactive things on screen, see syncPictureModeUi(). ID
+   selectors to beat .cage-viewer-part3-controls:not(:empty)'s own
+   `display: flex`, which otherwise wins on equal class-selector specificity. */
+#cageViewerPartDropdown[hidden] { display: none; }
+#cageViewerPart3Controls[hidden] { display: none; }
 
 #app {
   max-width: 900px;

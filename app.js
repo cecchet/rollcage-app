@@ -18,7 +18,7 @@
     pathId: null,
     answers: {}, // elementId -> { value, note, photos: [{name, dataUrl}] }
     pictures: [], // { id, elements: [elmId], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot } -- image bytes live in IndexedDB, see picture storage below
-    pictureSelectMode: null, // UI-only: { pictureId, selected: Set<elmId> } while "Select element" is active -- see renderPictures/computeCageColors
+    pictureSelectMode: null, // UI-only: { pictureId, selected: Set<elmId> } while "Edit rollcage elements" is active -- see renderPictures/computeCageColors
     resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
@@ -1294,9 +1294,9 @@
     panel.appendChild(
       el("div", { class: "element-desc" }, [
         "Upload up to " + PICTURE_LIMIT + " photos of the installed cage (or a blueprint/diagram). For each picture, " +
-          '"Select element" lets you click which parts of the 3D model it shows, or "AI analysis" has a vision model ' +
-          "suggest that (and a value for each) automatically. Tagging a picture never changes the checklist by itself -- " +
-          'review AI suggestions against your answers so far in "Compare with checklist" below.',
+          '"Edit rollcage elements" lets you click which parts of the 3D model it shows, or "AI analysis" has a vision ' +
+          "model suggest that (and a value for each) automatically. Tagging a picture never changes the checklist by " +
+          'itself -- review AI suggestions against your answers so far in "Compare with checklist" below.',
       ])
     );
 
@@ -1349,15 +1349,24 @@
                 render();
               },
             },
-            ["Delete"]
+            ["Delete photo"]
           )
         );
 
+        // A tagged element shows its specific AI-suggested option (same
+        // granularity Part 1's own answers show, via elementSummary) when
+        // one is known, not just the bare category name -- e.g. "Roof bar
+        // design: 253-12: ..." rather than just "Roof bar design". Elements
+        // tagged manually (no AI value) fall back to the category name,
+        // since "Edit rollcage elements" only records presence, not a value.
+        const suggestionsByElement = new Map((pic.aiSuggestions || []).map((s) => [s.elementId, s]));
         const chips = el("div", { class: "picture-elements" });
         if (pic.elements.length) {
           pic.elements.forEach((elmId) => {
             const elm = path.elements.find((e) => e.id === elmId);
-            chips.appendChild(el("span", { class: "picture-element-chip" }, [elm ? elm.name : elmId]));
+            const s = elm && suggestionsByElement.get(elmId);
+            const label = elm ? (s ? elm.name + ": " + elementSummary(elm, { value: s.value }) : elm.name) : elmId;
+            chips.appendChild(el("span", { class: "picture-element-chip" }, [label]));
           });
         } else {
           chips.appendChild(el("span", { class: "picture-elements-empty" }, ["No elements tagged yet"]));
@@ -1373,7 +1382,7 @@
                 class: "btn small secondary",
                 onclick: () => { state.pictureSelectMode = { pictureId: pic.id, selected: new Set(pic.elements) }; render(); },
               },
-              ["Select element"]
+              ["Edit rollcage elements"]
             ),
             el(
               "button",
@@ -1431,8 +1440,14 @@
       .map((s) => {
         const elm = elementsById[s.elementId];
         const current = getAnswer(s.elementId).value;
-        const labelFor = (v) => (elm.evaluationType === "boolean" ? (v === "yes" ? "Yes / Present" : "No / Absent") : (((elm.options || []).find((o) => o.id === v) || {}).label || v));
-        return { s, elm, optLabel: labelFor(s.value), currentLabel: current ? labelFor(current) : null, blank: !current, matches: current === s.value };
+        return {
+          s,
+          elm,
+          optLabel: elementSummary(elm, { value: s.value }),
+          currentLabel: current ? elementSummary(elm, { value: current }) : null,
+          blank: !current,
+          matches: current === s.value,
+        };
       })
       .filter((r) => !r.matches);
 
@@ -2831,7 +2846,7 @@
     lowerMainHoopBar: "#8ecae6",
     // Bright, unmistakably-different-from-anything-else highlight -- used
     // both for a checked (not yet applied) AI suggestion and for a part
-    // currently tagged in a picture's "Select element" mode. See
+    // currently tagged in a picture's "Edit rollcage elements" mode. See
     // computeCageColors' two overlay blocks below.
     aiPreview: "#39ff14",
     // Driver/Codriver mannequins -- seat shell and body render dim/ghosted
@@ -4285,7 +4300,7 @@
       });
     }
 
-    // Picture "Select element" mode: highlight every file whose resolved
+    // Picture "Edit rollcage elements" mode: highlight every file whose resolved
     // owner (see the claimUnowned/ITEM_PART_RULES pass just above) is
     // currently tagged for this picture -- reuses the exact same ownership
     // map click-to-jump already relies on, so a click while tagging toggles
@@ -4866,7 +4881,7 @@
     return null;
   }
   function handleCagePartDoubleClick(file, frac) {
-    // Picture "Select element" mode only recognizes single clicks (toggle
+    // Picture "Edit rollcage elements" mode only recognizes single clicks (toggle
     // this bar's element in/out of the tag set) -- ignore double-clicks
     // entirely rather than letting them fall through to the normal
     // default-fill/cycle behavior below, which would change a real answer.
@@ -4953,7 +4968,7 @@
   }
 
   function handleCagePartClick(file) {
-    // Picture "Select element" mode overrides every other click behavior
+    // Picture "Edit rollcage elements" mode overrides every other click behavior
     // while active -- clicking toggles this bar's owning element in/out of
     // the picture's tag set instead of navigating anywhere. CAGE_FILE_OWNER
     // already resolves every design element with an ITEM_PART_RULES entry
@@ -5108,6 +5123,17 @@
   function syncSafetyScoreBadge() {
     const btn = document.getElementById("cageViewerSafetyScore");
     if (!btn) return;
+    // Same top-left badge slot, repurposed while tagging a picture's
+    // elements -- the safety score is about the checklist's answers, not
+    // about a specific photo, so showing it here during picture tagging
+    // would be misleading; a plain non-interactive label instead.
+    if (state.pictureSelectMode) {
+      btn.hidden = false;
+      btn.textContent = "Picture elements selection";
+      btn.className = "cage-viewer-safety-score";
+      btn.onclick = null;
+      return;
+    }
     if (!state.pathId || !lastSafetyScoreSummary || !lastSafetyScoreSummary.ratedRows) {
       btn.hidden = true;
       return;
@@ -5124,16 +5150,36 @@
     };
   }
   // Swaps the sticky viewer header between its normal buttons and the
-  // "Selecting parts..." banner while a picture's "Select element" mode is
-  // active -- same idea as syncSafetyScoreBadge, a plain DOM toggle since
-  // this header lives outside #app and survives render()'s teardown.
-  function syncPictureModeBanner() {
+  // "Selecting parts..." banner while a picture's "Edit rollcage elements"
+  // mode is active, and suppresses every other way to navigate the viewer
+  // (Part dropdown, View switch) so the 3D model and Done/Cancel are the
+  // only interactive things left -- same idea as syncSafetyScoreBadge, a
+  // plain DOM toggle since this header lives outside #app and survives
+  // render()'s teardown. Also shows the picture being tagged above the
+  // model, loaded from the same pictureImageCache the picture card itself
+  // reads from.
+  function syncPictureModeUi() {
     const buttons = document.getElementById("cageViewerHeaderButtons");
     const banner = document.getElementById("cageViewerPictureModeBanner");
+    const partDropdown = document.getElementById("cageViewerPartDropdown");
+    const part3Controls = document.getElementById("cageViewerPart3Controls");
+    const thumb = document.getElementById("cageViewerPictureModeThumb");
     if (!buttons || !banner) return;
-    const active = !!state.pictureSelectMode;
+    const mode = state.pictureSelectMode;
+    const active = !!mode;
     buttons.hidden = active;
     banner.hidden = !active;
+    if (partDropdown) partDropdown.hidden = active;
+    if (part3Controls) part3Controls.hidden = active;
+    if (thumb) {
+      const cached = active && pictureImageCache[mode.pictureId];
+      if (cached && cached.photo) {
+        thumb.src = cached.photo;
+        thumb.hidden = false;
+      } else {
+        thumb.hidden = true;
+      }
+    }
   }
   // Captures a screenshot of the current 3D-model selection highlight (see
   // computeCageColors' pictureSelectMode overlay) and saves it alongside
@@ -5168,7 +5214,7 @@
     syncPartDropdown();
     syncPart3Controls();
     syncSafetyScoreBadge();
-    syncPictureModeBanner();
+    syncPictureModeUi();
     if (window.CageView) {
       const colors = computeCageColors();
       window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) ? true : state.showGhostBars);
