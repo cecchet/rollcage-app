@@ -17,8 +17,8 @@
     vehicle: { name: "", org: "nasa", logbookStatus: "new", logbookDate: "" },
     pathId: null,
     answers: {}, // elementId -> { value, note, photos: [{name, dataUrl}] }
-    pictures: [], // { id, elements: [elmId], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot } -- image bytes live in IndexedDB, see picture storage below
-    pictureSelectMode: null, // UI-only: { pictureId, selected: Set<elmId> } while "Edit rollcage elements" is active -- see renderPictures/computeCageColors
+    pictures: [], // { id, elements: [{elementId, value}], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot } -- image bytes live in IndexedDB, see picture storage below
+    pictureSelectMode: null, // UI-only: { pictureId, selected: Map<elmId, value|null> } while "Edit rollcage elements" is active -- see renderPictures/computeCageColors
     resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
@@ -73,7 +73,13 @@
     state.vehicle = s.vehicle;
     state.pathId = s.pathId;
     state.answers = s.answers || {};
-    state.pictures = s.pictures || [];
+    // A picture's `elements` array used to hold bare elementId strings
+    // (before tags carried their own value) -- normalize any such leftover
+    // entries from an earlier save rather than crashing on `.elementId`.
+    state.pictures = (s.pictures || []).map((p) => ({
+      ...p,
+      elements: (p.elements || []).map((t) => (typeof t === "string" ? { elementId: t, value: null } : t)),
+    }));
     state.pictureSelectMode = null;
     render();
   }
@@ -1210,13 +1216,24 @@
   // Gemini -- the API key never reaches the browser. Suggestions are never
   // applied automatically; the user reviews and accepts each one.
   //
-  // Only "choice"/"boolean" Part 1 elements are offered -- gusset/mounting-
-  // foot design (roof_corner_gussets, mounting_feet_design, gusset_design)
+  // Only "choice"/"boolean" Part 1 elements are offered -- mounting-foot
+  // design and roof corner gussets (roof_corner_gussets, mounting_feet_design)
   // are per-location tables, much harder to identify reliably from photos,
-  // and out of scope for now ("select the bars", not the gussets).
+  // and out of scope for now ("select the bars", not these). gusset_design
+  // is ALSO a per-location table, normally skipped for the same reason, but
+  // its rows are pushed onto the catalog separately below instead --
+  // these specific junction gussets (253-7/253-9/253-12/253-15/253-21)
+  // conventionally use one particular shape by design convention, which is
+  // worth asking about even when the gusset itself isn't clearly visible.
   const AI_SKIP_TABLE_IDS = new Set(["roof_corner_gussets", "mounting_feet_design", "gusset_design"]);
+  // The prefix/suffix a gusset row's synthetic catalog id (and picture tag
+  // id) uses -- the exact same "gusset_design__<row>__design" shape the
+  // real checklist answer already uses for that row (see rules-data.js's
+  // gusset_design table), so setAnswer/getAnswer work on it unchanged.
+  const GUSSET_TAG_PREFIX = "gusset_design__";
+  const GUSSET_TAG_SUFFIX = "__design";
   function buildAiElementCatalog(path) {
-    return path.elements
+    const flat = path.elements
       .filter((elm) => PHASE_1_DESIGN_CHOICE_IDS.has(elm.id) && !AI_SKIP_TABLE_IDS.has(elm.id) && elementVisible(elm))
       .map((elm) => {
         const entry = { id: elm.id, name: elm.name, description: elm.description || "" };
@@ -1225,6 +1242,46 @@
         return entry;
       })
       .filter((entry) => entry.boolean || (entry.options && entry.options.length));
+
+    const gussetElm = path.elements.find((e) => e.id === "gusset_design");
+    if (gussetElm) {
+      const options = gussetElm.columns[0].options;
+      resolveRows(gussetElm).forEach((row) => {
+        let description = "Gusset (bracing plate or wrap-around sleeve) at this specific tube junction.";
+        if (row.restrictOptionIds && row.restrictOptionIds.length === 1) {
+          description += ' This junction only ever uses a "' + row.restrictOptionIds[0] + '" gusset by design -- default to that if a gusset is visible there at all, unless the photo clearly shows otherwise.';
+        } else if (/^(main_hoop_diag_|door_front_|door_rear_|roof_|backstay_diag_)/.test(row.id)) {
+          description += ' This type of junction (253-7/253-9/253-12/253-21) conventionally uses a taco (wrap-around sleeve) gusset -- default to "taco" if a gusset is visible there but its exact shape is unclear.';
+        }
+        description += ' Omit entirely if this specific junction isn\'t visible in any photo at all -- do not guess presence, only shape, when it is visible.';
+        flat.push({
+          id: GUSSET_TAG_PREFIX + row.id + GUSSET_TAG_SUFFIX,
+          name: row.label,
+          description,
+          options: options.map((o) => ({ id: o.id, label: o.label })),
+        });
+      });
+    }
+    return flat;
+  }
+
+  // Resolves a picture tag's elementId (a normal Part 1 element id, or a
+  // synthetic gusset row id from buildAiElementCatalog above) to something
+  // elementSummary() can read -- {name, evaluationType, options} -- shared
+  // by the picture-card chip label and the "Compare with checklist" panel
+  // so both describe a tagged gusset row the same way as a tagged Part 1
+  // element.
+  function resolvePictureTagTarget(path, elementId) {
+    if (elementId.indexOf(GUSSET_TAG_PREFIX) === 0 && elementId.endsWith(GUSSET_TAG_SUFFIX)) {
+      const gussetElm = path.elements.find((e) => e.id === "gusset_design");
+      if (!gussetElm) return null;
+      const rowId = elementId.slice(GUSSET_TAG_PREFIX.length, -GUSSET_TAG_SUFFIX.length);
+      const row = resolveRows(gussetElm).find((r) => r.id === rowId);
+      if (!row) return null;
+      return { name: row.label, evaluationType: "choice", options: gussetElm.columns[0].options };
+    }
+    const elm = path.elements.find((e) => e.id === elementId);
+    return elm ? { name: elm.name, evaluationType: elm.evaluationType, options: elm.options } : null;
   }
 
   // Thin wrapper around the Vercel function -- shared by analyzePictureElements
@@ -1244,13 +1301,19 @@
   }
 
   // Runs AI analysis for a single picture: the model suggests which Part 1
-  // design elements it can see, and a value for each (same shape the old
-  // whole-checklist analysis produced) -- a suggestion returned for a photo
-  // already means "visible in this photo" (the prompt tells the model to
-  // omit anything it can't determine), so this one call both tags the
-  // picture's elements and feeds "Compare with checklist" below. Newly
-  // suggested elements are unioned into whatever was already manually
-  // tagged, never overwriting it.
+  // design elements (and specific gusset-junction shapes) it can see, and a
+  // value for each (same shape the old whole-checklist analysis produced)
+  // -- a suggestion returned for a photo already means "visible in this
+  // photo" (the prompt tells the model to omit anything it can't
+  // determine), so this one call both tags the picture's elements and
+  // feeds "Compare with checklist" below. Each tag now carries that
+  // specific value (elementId + value, not just a bare id) so the 3D
+  // highlight and chip label can show exactly which option was identified,
+  // not just the category -- e.g. "253-9", not just "Door bar design".
+  // Newly suggested elements are merged into whatever was already tagged
+  // (manually, or from an earlier AI run), updating the value for any
+  // element re-suggested this run but leaving every other existing tag
+  // untouched.
   async function analyzePictureElements(pictureId, path) {
     pictureUiState[pictureId] = { status: "loading", error: null };
     render();
@@ -1263,7 +1326,9 @@
       );
       const pic = state.pictures.find((p) => p.id === pictureId);
       if (pic) {
-        pic.elements = [...new Set(pic.elements.concat(suggestions.map((s) => s.elementId)))];
+        const byId = new Map(pic.elements.map((t) => [t.elementId, t]));
+        suggestions.forEach((s) => { byId.set(s.elementId, { elementId: s.elementId, value: s.value }); });
+        pic.elements = [...byId.values()];
         pic.aiSuggestions = suggestions;
         saveCurrent();
       }
@@ -1353,19 +1418,18 @@
           )
         );
 
-        // A tagged element shows its specific AI-suggested option (same
-        // granularity Part 1's own answers show, via elementSummary) when
-        // one is known, not just the bare category name -- e.g. "Roof bar
-        // design: 253-12: ..." rather than just "Roof bar design". Elements
-        // tagged manually (no AI value) fall back to the category name,
-        // since "Edit rollcage elements" only records presence, not a value.
-        const suggestionsByElement = new Map((pic.aiSuggestions || []).map((s) => [s.elementId, s]));
+        // A tagged element shows its specific value (same granularity Part
+        // 1's own answers show, via elementSummary) when one is known --
+        // e.g. "Roof bar design: 253-12: ..." rather than just "Roof bar
+        // design". A tag's value is known when the AI supplied it, or when
+        // it was manually tagged while that element already had a
+        // checklist answer -- see resolvePictureTagForFile. Falls back to
+        // just the category/row name otherwise.
         const chips = el("div", { class: "picture-elements" });
         if (pic.elements.length) {
-          pic.elements.forEach((elmId) => {
-            const elm = path.elements.find((e) => e.id === elmId);
-            const s = elm && suggestionsByElement.get(elmId);
-            const label = elm ? (s ? elm.name + ": " + elementSummary(elm, { value: s.value }) : elm.name) : elmId;
+          pic.elements.forEach((tag) => {
+            const target = resolvePictureTagTarget(path, tag.elementId);
+            const label = target ? (tag.value ? target.name + ": " + elementSummary(target, { value: tag.value }) : target.name) : tag.elementId;
             chips.appendChild(el("span", { class: "picture-element-chip" }, [label]));
           });
         } else {
@@ -1380,7 +1444,10 @@
               "button",
               {
                 class: "btn small secondary",
-                onclick: () => { state.pictureSelectMode = { pictureId: pic.id, selected: new Set(pic.elements) }; render(); },
+                onclick: () => {
+                  state.pictureSelectMode = { pictureId: pic.id, selected: new Map(pic.elements.map((t) => [t.elementId, t.value])) };
+                  render();
+                },
               },
               ["Edit rollcage elements"]
             ),
@@ -1432,19 +1499,17 @@
   function renderPictureComparePanel(path) {
     const panel = el("div", { class: "picture-compare-panel" });
     panel.appendChild(el("h3", {}, ["Compare with checklist"]));
-    const elementsById = {};
-    path.elements.forEach((elm) => { elementsById[elm.id] = elm; });
 
     const rows = aggregatePictureSuggestions()
-      .filter((s) => elementsById[s.elementId])
-      .map((s) => {
-        const elm = elementsById[s.elementId];
+      .map((s) => ({ s, target: resolvePictureTagTarget(path, s.elementId) }))
+      .filter((r) => r.target)
+      .map(({ s, target }) => {
         const current = getAnswer(s.elementId).value;
         return {
           s,
-          elm,
-          optLabel: elementSummary(elm, { value: s.value }),
-          currentLabel: current ? elementSummary(elm, { value: current }) : null,
+          target,
+          optLabel: elementSummary(target, { value: s.value }),
+          currentLabel: current ? elementSummary(target, { value: current }) : null,
           blank: !current,
           matches: current === s.value,
         };
@@ -1468,7 +1533,7 @@
           checkbox,
           el("div", { class: "ai-suggestion-text" }, [
             el("div", {}, [
-              el("strong", {}, [r.elm.name]),
+              el("strong", {}, [r.target.name]),
               ": " + r.optLabel + " (" + r.s.confidence + " confidence)" + (r.blank ? "" : " -- current answer: " + r.currentLabel),
             ]),
             el("div", { class: "visual-flag" }, [r.s.rationale]),
@@ -3069,6 +3134,34 @@
     return Object.assign({}, BASE_STRUCTURE_MAPS[value]);
   }
 
+  // Resolves an elementId + a SPECIFIC value to exactly the files that
+  // value's own design uses -- shared by the AI-suggestion preview overlay
+  // and the picture "Edit rollcage elements" tagging overlay below, so both
+  // highlight precisely one design, never every candidate/ghost alternate
+  // sharing that element's category ownership. Mirrors the same per-value
+  // resolution computeCageColors' main loop already uses to color each
+  // element's REAL answer, just callable with an arbitrary value instead
+  // of only the current one.
+  function filesForElementValue(elementId, value) {
+    if (!value) return [];
+    if (elementId.indexOf(GUSSET_TAG_PREFIX) === 0 && elementId.endsWith(GUSSET_TAG_SUFFIX)) {
+      const rowId = elementId.slice(GUSSET_TAG_PREFIX.length, -GUSSET_TAG_SUFFIX.length);
+      const loc = GUSSET_LOCATIONS.find((l) => l.row === rowId);
+      return loc ? [loc.file] : [];
+    }
+    if (elementId === "main_structure_layout") {
+      const map = baseStructureColors(value);
+      return map ? Object.keys(map) : [];
+    }
+    if (elementId === "a_pillar_reinforcement") {
+      return value === "continuous" ? APILLAR_FILES : value === "two_bars" ? APILLAR_2PIECE_FILES : [];
+    }
+    const rule = ITEM_PART_RULES[elementId];
+    if (!rule) return [];
+    const result = rule(value, { value });
+    return result ? result.files : [];
+  }
+
   // Shared by any left/right/both/none-style element (253-31 temple bar and
   // windshield reinforcement below) whose 2 files are simply "the left
   // part" and "the right part".
@@ -4285,29 +4378,24 @@
       acceptedIds.forEach((elementId) => {
         const s = suggestionsById.get(elementId);
         if (!s) return;
-        let files;
-        if (s.elementId === "main_structure_layout") {
-          const map = baseStructureColors(s.value);
-          files = map ? Object.keys(map) : [];
-        } else if (s.elementId === "a_pillar_reinforcement") {
-          files = s.value === "continuous" ? APILLAR_FILES : s.value === "two_bars" ? APILLAR_2PIECE_FILES : [];
-        } else {
-          const rule = ITEM_PART_RULES[s.elementId];
-          const result = rule ? rule(s.value, { value: s.value }) : null;
-          files = result ? result.files : [];
-        }
-        files.forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
+        filesForElementValue(s.elementId, s.value).forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
       });
     }
 
-    // Picture "Edit rollcage elements" mode: highlight every file whose resolved
-    // owner (see the claimUnowned/ITEM_PART_RULES pass just above) is
-    // currently tagged for this picture -- reuses the exact same ownership
-    // map click-to-jump already relies on, so a click while tagging toggles
-    // precisely what a normal click would otherwise jump to.
+    // Picture "Edit rollcage elements" mode: highlight exactly the files for
+    // each tagged element's OWN specific value (via filesForElementValue),
+    // not every file sharing that element's category ownership -- the
+    // `owner` map above deliberately claims every alternate/unchosen design
+    // under the same elementId too (so ghost bars stay clickable before
+    // anything is answered), so highlighting by owner alone would light up
+    // every candidate roof/door bar design at once instead of just the one
+    // actually tagged. A tag with no known value (an element tagged before
+    // it had a checklist answer) highlights nothing -- there's no single
+    // "correct" shape to show yet.
     if (state.pictureSelectMode) {
-      const selected = state.pictureSelectMode.selected;
-      Object.keys(owner).forEach((f) => { if (selected.has(owner[f])) colors[f] = CAGE_COLOR.aiPreview; });
+      state.pictureSelectMode.selected.forEach((value, elementId) => {
+        filesForElementValue(elementId, value).forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
+      });
     }
 
     // A half rollcage has nothing in front of the main rollbar at all --
@@ -4967,18 +5055,31 @@
     jumpToSection(elmId);
   }
 
+  // Resolves a clicked file to the specific picture-tag id + its current
+  // checklist value while in "Edit rollcage elements" mode -- a gusset file
+  // resolves to its own specific junction row (e.g. "gusset_design__
+  // main_hoop_diag_left__design"), same precision GUSSET_FILE_TO_ROW
+  // already gives normal click-to-jump navigation on Part 2, rather than
+  // the generic "gusset_design" category CAGE_FILE_OWNER alone would give.
+  // The value is snapshotted from the CURRENT checklist answer at click
+  // time -- filesForElementValue then highlights exactly that design, not
+  // every candidate sharing the same category.
+  function resolvePictureTagForFile(file) {
+    const gussetRow = GUSSET_FILE_TO_ROW.get(file);
+    const elmId = gussetRow ? GUSSET_TAG_PREFIX + gussetRow + GUSSET_TAG_SUFFIX : CAGE_FILE_OWNER[file];
+    if (!elmId) return null;
+    return { elementId: elmId, value: getAnswer(elmId).value || null };
+  }
   function handleCagePartClick(file) {
-    // Picture "Edit rollcage elements" mode overrides every other click behavior
-    // while active -- clicking toggles this bar's owning element in/out of
-    // the picture's tag set instead of navigating anywhere. CAGE_FILE_OWNER
-    // already resolves every design element with an ITEM_PART_RULES entry
-    // (even unanswered ones, via the claimUnowned fallback pass in
-    // computeCageColors), so no separate resolution chain is needed here.
+    // Picture "Edit rollcage elements" mode overrides every other click
+    // behavior while active -- clicking toggles this bar's specific design
+    // in/out of the picture's tag set instead of navigating anywhere.
     if (state.pictureSelectMode) {
-      const elmId = CAGE_FILE_OWNER[file];
-      if (!elmId) return;
+      const tag = resolvePictureTagForFile(file);
+      if (!tag) return;
       const selected = state.pictureSelectMode.selected;
-      if (selected.has(elmId)) selected.delete(elmId); else selected.add(elmId);
+      if (selected.has(tag.elementId)) selected.delete(tag.elementId);
+      else selected.set(tag.elementId, tag.value);
       render();
       return;
     }
@@ -5194,7 +5295,7 @@
     const pic = state.pictures.find((p) => p.id === mode.pictureId);
     state.pictureSelectMode = null;
     if (pic) {
-      pic.elements = [...mode.selected];
+      pic.elements = [...mode.selected.entries()].map(([elementId, value]) => ({ elementId, value }));
       pic.hasScreenshot = !!screenshot;
       saveCurrent();
       if (screenshot) {
