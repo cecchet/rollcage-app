@@ -371,7 +371,12 @@
     if (row && row.notApplicableColumns && row.notApplicableColumns.includes(col.key)) return "pass";
     if (col.type === "boolean" || col.type === "compliance") {
       if (answer.value === "yes") return "pass";
-      if (answer.value === "no") return "fail";
+      // A row can mark specific columns "soft" -- a real, still-visible
+      // yes/no answer, but "no" isn't a failure there (e.g. roof corner
+      // gussets are only actually expected on cars with no/single-
+      // diagonal roof bars; with a proper multi-bar roof, "No" just means
+      // "not needed here", not a deficiency).
+      if (answer.value === "no") return row && row.softColumns && row.softColumns.includes(col.key) ? "pass" : "fail";
       return "warn";
     }
     if (col.type === "number") {

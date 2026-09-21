@@ -1332,12 +1332,21 @@
       // junctions that don't exist without front structure.
       showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "table",
-      rows: [
-        { id: "front_left", label: "Front left" },
-        { id: "front_right", label: "Front right" },
-        { id: "rear_left", label: "Rear left" },
-        { id: "rear_right", label: "Rear right" },
-      ],
+      // Per this element's own description, these are only really expected
+      // on a deficient roof (no roof bars, or a single diagonal one) --
+      // "No" only counts against the car when the roof itself is one of
+      // those, via softColumns; with a proper multi-bar roof (253-12/
+      // 253-14), "No" is a normal, unpenalized answer.
+      rows: (getAnswer) => {
+        const roofVal = getAnswer("roof_bars").value;
+        const deficientRoof = roofVal === "none" || roofVal === "single-center" || roofVal === "single-front-left" || roofVal === "single-front-right";
+        return [
+          { id: "front_left", label: "Front left" },
+          { id: "front_right", label: "Front right" },
+          { id: "rear_left", label: "Rear left" },
+          { id: "rear_right", label: "Rear right" },
+        ].map((r) => (deficientRoof ? r : Object.assign({}, r, { softColumns: ["present"] })));
+      },
       columns: [{ key: "present", label: "Present", type: "boolean" }],
       visuallyVerifiable: true,
       hardFail: false,
