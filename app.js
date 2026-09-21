@@ -2105,18 +2105,27 @@
     return card;
   }
 
-  // ---- Safety score (qualitative, provisional) ---------------------------
+  // ---- Safety score -----------------------------------------------------
   // A separate, sanctioning-body-independent "how good is this design"
-  // rating -- explicitly a work in progress per the user's own framing ("we
-  // will refine further once we have angle and tube specs"), so only the
-  // elements/values rated below appear in the list; everything else is
-  // intentionally left out rather than guessed at. The eventual 0-100
-  // aggregate score still isn't designed (needs those angle/tube-spec
-  // rules first), so for now this is just the per-element green/orange/red
-  // list itself.
-  function doorBarSafetyTier(v) {
+  // rating -- a work in progress, so only the elements/values rated below
+  // appear in the list; everything else is intentionally left out rather
+  // than guessed at. Points (green=5, orange=2, red=0) are a first step
+  // toward an eventual aggregate score; some known-bad designs will get
+  // their own negative-point entries later (via addRow's own points
+  // override) rather than sharing the flat red=0 floor.
+  const TIER_POINTS = { green: 5, orange: 2, red: 0 };
+  // Some door-bar designs read differently depending on what the car's
+  // actually built for -- there's no explicit discipline field in this
+  // app, so per the user's own framing, solo (no codriver) stands in for
+  // road racing/hillclimb, and driver+codriver stands in for rally.
+  function doorBarSafetyTier(v, getAnswer) {
     if (v === "253-9-intersection-1" || v === "253-9-intersection-2" || v === "253-9-bent") return "green";
-    if (v === "253-10" || v === "253-11" || v === "nascar") return "orange";
+    if (v === "nascar") {
+      // NASCAR-style door bars are the right call for road racing, but not
+      // really the rally choice -- same tier as 253-10/253-11 there.
+      return getAnswer("vehicle_codriver").value === "yes" ? "orange" : "green";
+    }
+    if (v === "253-10" || v === "253-11") return "orange";
     if (v === "single-bar" || v === "none") return "red";
     return null;
   }
@@ -2129,23 +2138,64 @@
     if (!v || v === "no" || v === "none") return null;
     return "green";
   }
+  // Shared by main_hoop_diagonals/roof_bars/backstay_diagonals below -- a
+  // lone bar's own single-diagonal option only reads as "acceptable, half
+  // credit" (orange) when it's part of a genuinely complete single-
+  // diagonal SYSTEM across all 3 bars, correctly sided for the driver.
+  // Returns null if the 3 answers don't even form a coherent single-
+  // diagonal system (so each bar's own rule falls back to its normal
+  // tier instead), "correct"/"wrong" once drive side confirms which, or
+  // "unknown" when the system is complete but drive side isn't set yet
+  // (treated as an unconfirmed pass, not a failure, by the callers below).
+  function singleDiagonalSystemMatch(getAnswer) {
+    const mainHoop = getAnswer("main_hoop_diagonals").value;
+    const roof = getAnswer("roof_bars").value;
+    const backstay = getAnswer("backstay_diagonals").value;
+    const mainHoopSingle = mainHoop === "diag-left" || mainHoop === "diag-right";
+    const roofSingle = roof === "single-front-left" || roof === "single-front-right";
+    const backstaySingle = backstay === "253-20" || backstay === "253-20-right";
+    if (!mainHoopSingle || !roofSingle || !backstaySingle) return null;
+    const driveSide = getAnswer("vehicle_drive_side").value;
+    if (!driveSide) return "unknown";
+    // Verified against the user's own reference diagram for a LHD car:
+    // the roof bar's single front foot sits on the PASSENGER side (its
+    // rear end lands on the driver side, joining the main hoop diagonal's
+    // own top and the backstay's own top there) -- RHD mirrors it.
+    const combo = driveSide === "lhd"
+      ? { roof: "single-front-right", mainHoop: "diag-left", backstay: "253-20" }
+      : { roof: "single-front-left", mainHoop: "diag-right", backstay: "253-20-right" };
+    return roof === combo.roof && mainHoop === combo.mainHoop && backstay === combo.backstay ? "correct" : "wrong";
+  }
   const SAFETY_TIER_RULES = {
     main_rollbar_present: (v) => (v === "yes" ? "green" : v === "no" ? "red" : null),
-    main_hoop_diagonals: (v) => ({
-      "253-7-1": "green", "253-7-2": "green",
-      "diag-left": "orange", "diag-right": "orange",
-      "diag-horizontal": "red", "diag-lower-half": "red", "diag-v-center": "red",
-    }[v] || null),
-    roof_bars: (v) => ({
-      "253-12-1": "green", "253-12-2": "green", "253-14": "green",
-      "rb-4": "orange",
-      "253-13": "red", "single-center": "red", "single-front-left": "red", "single-front-right": "red", "none": "red",
-    }[v] || null),
-    backstay_diagonals: (v) => ({
-      "253-21-1": "green", "253-21-2": "green", "253-22": "green",
-      "253-20": "orange", "253-20-right": "orange",
-      "none": "red",
-    }[v] || null),
+    // 253-7 (X or V) is mandatory with a codriver -- no exceptions, so a
+    // single diagonal always escalates straight to red there. Solo, it's
+    // only ever half credit (orange) at best, same as the other 2 bars.
+    main_hoop_diagonals: (v, getAnswer) => {
+      const base = { "253-7-1": "green", "253-7-2": "green", "diag-left": "orange", "diag-right": "orange", "diag-horizontal": "red", "diag-lower-half": "red", "diag-v-center": "red" }[v];
+      if (base !== "orange") return base || null;
+      if (getAnswer("vehicle_codriver").value === "yes") return "red";
+      return singleDiagonalSystemMatch(getAnswer) === "wrong" ? "red" : "orange";
+    },
+    roof_bars: (v, getAnswer) => {
+      if (v === "single-front-left" || v === "single-front-right") {
+        if (getAnswer("vehicle_codriver").value === "yes") return "red";
+        return singleDiagonalSystemMatch(getAnswer) === "wrong" ? "red" : "orange";
+      }
+      return { "253-12-1": "green", "253-12-2": "green", "253-14": "green", "253-13": "red", "single-center": "red", "none": "red" }[v] || null;
+    },
+    // 253-12 (X roof bar) paired with a single 253-20 backstay is its own
+    // accepted-but-lesser-score exception -- explicitly allowed even with
+    // a codriver, unlike every other single-diagonal case here.
+    backstay_diagonals: (v, getAnswer) => {
+      if (v === "253-20" || v === "253-20-right") {
+        const roof = getAnswer("roof_bars").value;
+        if (roof === "253-12-1" || roof === "253-12-2") return "orange";
+        if (getAnswer("vehicle_codriver").value === "yes") return "red";
+        return singleDiagonalSystemMatch(getAnswer) === "wrong" ? "red" : "orange";
+      }
+      return { "253-21-1": "green", "253-21-2": "green", "253-22": "green", "none": "red" }[v] || null;
+    },
     door_bars_left: doorBarSafetyTier,
     door_bars_right: doorBarSafetyTier,
     harness_bar_present: optionalBarSafetyTier,
@@ -2164,7 +2214,7 @@
     panel.appendChild(el("h2", {}, ["Safety score"]));
     panel.appendChild(
       el("div", { class: "safety-score-placeholder" }, [
-        "First-pass, provisional ratings below (green/orange/red) per a set of safety rules of thumb -- independent of any specific sanctioning body's requirements, and not yet a single 0-100 score (that needs angle and tube-spec rules first). Not every element is rated yet.",
+        "First-pass, provisional ratings below (green/orange/red, worth 5/2/0 points) per a set of safety rules of thumb -- independent of any specific sanctioning body's requirements. A few known-bad designs are worth negative points instead of the flat red floor. Not every element is rated yet, and the point values themselves are still early and subject to change.",
       ])
     );
 
@@ -2194,13 +2244,22 @@
     }
 
     const list = el("div", { class: "safety-tier-list" });
-    function addRow(id, label, tier, valueText) {
+    let totalPoints = 0;
+    let ratedRows = 0;
+    // pointsOverride lets a future rule (a known-bad design, per the user)
+    // score below red's own flat 0 floor -- omitted, a row just uses its
+    // tier's own TIER_POINTS value.
+    function addRow(id, label, tier, valueText, pointsOverride) {
       if (!tier) return; // unrated (unanswered, or no rule yet) -- omit rather than show a meaningless row
+      const points = pointsOverride !== undefined ? pointsOverride : TIER_POINTS[tier];
+      totalPoints += points;
+      ratedRows += 1;
       list.appendChild(
         el("div", { class: "safety-tier-row tier-" + tier }, [
           el("span", { class: "safety-tier-dot" }),
           el("span", { class: "safety-tier-label" }, [label + driverSideSuffix(id)]),
           el("span", { class: "safety-tier-value" }, [valueText]),
+          el("span", { class: "safety-tier-points" }, [(points > 0 ? "+" : "") + points + " pt" + (Math.abs(points) === 1 ? "" : "s")]),
         ])
       );
     }
@@ -2209,7 +2268,7 @@
       const elm = path.elements.find((e) => e.id === elmId);
       if (!elm || !elementVisible(elm)) return;
       const answer = getAnswer(elmId);
-      const tier = SAFETY_TIER_RULES[elmId](answer.value);
+      const tier = SAFETY_TIER_RULES[elmId](answer.value, getAnswer);
       addRow(elmId, elm.name, tier, answer.value ? elementSummary(elm, answer) : "Not yet answered");
     });
 
@@ -2317,7 +2376,51 @@
       addRow(row, FOOT_ROW_LABELS[row], design === "single_plane" ? "red" : "green", optLabel);
     });
 
+    // A car built before 2002 gets 253-25 anti-intrusion bars recommended
+    // -- best-effort: vehicle_year is free text (the car's own manufacture
+    // year, not the logbook issue date used for grandfathering routing),
+    // so this only fires when a real 4-digit year can actually be pulled
+    // out of it, and only while anti-intrusion bars aren't already "yes".
+    const yearMatch = /\b(19|20)\d{2}\b/.exec(getAnswer("vehicle_year").value || "");
+    if (yearMatch && parseInt(yearMatch[0], 10) < 2002 && getAnswer("anti_intrusion_present").value !== "yes") {
+      addRow("anti_intrusion_pre_2002", "253-25 anti-intrusion bars (pre-2002 car)", "orange", "Recommended for cars built before " + yearMatch[0]);
+    }
+
+    // Driver+codriver cars need matching door-bar designs on both sides --
+    // 253-15 is the only bar allowed to differ driver/codriver. Flagged
+    // separately from each side's own individual tier since a mismatch is
+    // its own distinct problem even when both sides are individually fine
+    // choices on their own.
+    if (getAnswer("vehicle_codriver").value === "yes") {
+      const leftVal = getAnswer("door_bars_left").value;
+      const rightVal = getAnswer("door_bars_right").value;
+      if (leftVal && rightVal) {
+        addRow(
+          "door_bars_symmetry", "Door bar symmetry (left/right)", leftVal === rightVal ? "green" : "red",
+          leftVal === rightVal ? "Matched" : "Mismatched -- left and right door bar design should be the same with a codriver"
+        );
+      }
+    }
+    // A sill bar is a real bonus wherever it's fitted, not a design
+    // alternative of its own -- read straight from door_bars_left/right's
+    // own sill_bar sub-toggle (an extraFields entry, not a separate
+    // element) rather than a standalone scored field.
+    ["left", "right"].forEach((side) => {
+      const doorElm = path.elements.find((e) => e.id === "door_bars_" + side);
+      if (!doorElm || !elementVisible(doorElm)) return;
+      if (getAnswer("door_bars_" + side).extra.sill_bar === "yes") {
+        addRow("sill_bar_" + side, "Sill bar (" + side + ")", "green", "Present");
+      }
+    });
+
     panel.appendChild(list);
+    if (ratedRows) {
+      panel.appendChild(
+        el("div", { class: "safety-score-total" }, [
+          "Total: " + (totalPoints > 0 ? "+" : "") + totalPoints + " points across " + ratedRows + " rated item" + (ratedRows === 1 ? "" : "s"),
+        ])
+      );
+    }
     root.appendChild(panel);
   }
 
@@ -4562,14 +4665,37 @@
   // clicking -- reuses resolvePart3WeldTarget(), the exact same resolution
   // the click itself uses, so the tooltip is never wrong about what a
   // click would do.
+  // Part 1 (Design) hover -- names which design-choice element a bar
+  // belongs to, and its current answer, via the SAME CAGE_FILE_OWNER map
+  // handleCagePartClick's own jumpToSection(...) already uses, so hover
+  // and click can never point at different elements for the same bar.
+  // Handy for the single-diagonal side-matching rules the safety score
+  // now checks (main hoop / roof / backstay) -- seeing each bar's own
+  // name and current pick right on the model makes it easy to confirm
+  // which physical side you're actually looking at before answering.
+  function designChoiceHoverLabel(file) {
+    const elmId = CAGE_FILE_OWNER[file];
+    if (!elmId) return null;
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    const elm = path && path.elements.find((e) => e.id === elmId);
+    if (!elm) return null;
+    const answer = getAnswer(elmId);
+    return elm.name + (answer.value ? " — " + elementSummary(elm, answer) : "");
+  }
   function handleCagePartHover(file, frac, clientX, clientY) {
     const tooltip = document.getElementById("cageViewerTooltip");
     if (!tooltip) return;
-    const target = file && (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) ? resolvePart3WeldTarget(file, frac) : null;
-    if (!target) { tooltip.hidden = true; return; }
+    let label = null;
+    if (file && (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE)) {
+      const target = resolvePart3WeldTarget(file, frac);
+      label = target ? target.label : null;
+    } else if (file && state.activeTab === 1) {
+      label = designChoiceHoverLabel(file);
+    }
+    if (!label) { tooltip.hidden = true; return; }
     const container = document.getElementById("cageViewerContainer");
     const rect = container.getBoundingClientRect();
-    tooltip.textContent = target.label;
+    tooltip.textContent = label;
     tooltip.style.left = (clientX - rect.left) + "px";
     tooltip.style.top = (clientY - rect.top) + "px";
     tooltip.hidden = false;

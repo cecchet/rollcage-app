@@ -534,6 +534,8 @@ textarea { resize: vertical; min-height: 50px; }
 .safety-tier-row.tier-red .safety-tier-dot { background: var(--fail); }
 .safety-tier-label { flex: 1 1 auto; }
 .safety-tier-value { color: var(--muted); font-size: 0.85rem; }
+.safety-tier-points { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; }
+.safety-score-total { margin-top: 10px; font-weight: 600; }
 .verdict.compact { padding: 6px 12px; margin: 0; font-size: 0.9rem; }
 
 .results-header {
