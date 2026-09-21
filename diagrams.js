@@ -23,10 +23,14 @@
   const D = {}; // diagram registry, key -> svg string
   window.DIAGRAM_LEGENDS = window.DIAGRAM_LEGENDS || {};
 
-  // 253-1/253-2/253-3 (base structure layout) intentionally have no static
-  // icon here anymore -- the persistent live 3D cage viewer (cage_view.js,
-  // mounted in index.html) shows the real, verified model colored per
-  // config instead, which replaced these hand-authored isometric pictograms.
+  // 253-1/253-2/253-3/half-rollcage (base structure layout) used to have no
+  // static icon here at all -- the persistent live 3D cage viewer
+  // (cage_view.js, mounted in index.html) already shows the real, verified
+  // model colored per config, which had replaced earlier hand-authored
+  // isometric pictograms. Real screenshots of that same live viewer (see
+  // wrapImg below, registered right after it's defined) were added back so
+  // each option's own card previews its shape before clicking it, rather
+  // than requiring a click-and-watch-the-live-model round trip per option.
 
   D["mrc-4"] = wrap(
     `<ellipse cx="70" cy="18" rx="40" ry="8" ${HI}/>` +
@@ -165,6 +169,14 @@
   // SVGs above (see the ".element-diagram img"/".choice-diagram img" rules
   // in style.css).
   const wrapImg = (src) => `<img src="images/${src}" alt="" class="diagram-icon diagram-icon-photo">`;
+
+  // ---- Base structure layout (253-1/253-2/253-3/half rollcage) -- real
+  // screenshots of this same live 3D viewer, one per option, cropped/
+  // resized to a consistent size so the option grid reads as a matched set.
+  D["253-1"] = wrapImg("base_structure_253-1.png");
+  D["253-2"] = wrapImg("base_structure_253-2.png");
+  D["253-3"] = wrapImg("base_structure_253-3.png");
+  D["half-rollcage"] = wrapImg("base_structure_half_rollcage.png");
 
   // ---- A-pillar reinforcement (253-15) ----
   D["253-15"] = wrapImg("253-15.jpg");

@@ -283,7 +283,7 @@
         { id: "253-1", label: "253-1: Main rollbar + front rollbar", diagram: "253-1", outcome: "pass" },
         { id: "253-2", label: "253-2: Two lateral rollbars", diagram: "253-2", outcome: "pass" },
         { id: "253-3", label: "253-3: Main rollbar + two lateral half rollbars", diagram: "253-3", outcome: "pass" },
-        { id: "half-rollcage", label: "Half rollcage / Rollbar only", outcome: "fail" },
+        { id: "half-rollcage", label: "Half rollcage / Rollbar only", diagram: "half-rollcage", outcome: "fail" },
         { id: "none", label: "Other design", outcome: "fail" },
       ],
       tubing: null,
