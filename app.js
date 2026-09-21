@@ -1046,7 +1046,7 @@
   // inspection -- occupant safety equipment rather than the cage structure
   // itself -- so they get their own phase instead of piling into everything
   // else.
-  const PHASE_4_CATEGORIES = new Set(["Padding", "9. Seat mounting points", "10. Belt anchoring points", "11. Routing of lines"]);
+  const PHASE_4_CATEGORIES = new Set(["9. Seat mounting points", "10. Belt anchoring points", "11. Routing of lines"]);
   function isTubingSizingTable(elm) {
     if (elm.evaluationType === "tubing3solo") return true;
     if (elm.evaluationType === "plateSolo") return true;

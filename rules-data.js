@@ -2373,32 +2373,7 @@
     .concat(SECTION_3_MAIN_DIAGONALS)
     .concat(SECTION_4_1)
     .concat(SECTION_5_1, SECTION_5_2, SECTION_5_3)
-    .concat(SECTION_6_WINDSHIELD)
-    .concat([
-      {
-        id: "padding_helmet",
-        name: "Helmet-contact padding",
-        category: "Padding",
-        requirement: "required",
-        reference: "2020 FIA 253 Ch.8.3.5",
-        description: "Padding to FIA 8857-2001 type A or SFI 45.1 wherever an occupant's crash helmet could contact the cage.",
-        evaluationType: "boolean",
-        visuallyVerifiable: true,
-        hardFail: true,
-        hardFailMessage: "No certified padding at helmet-contact locations.",
-      },
-      {
-        id: "padding_body",
-        name: "Body-contact padding",
-        category: "Padding",
-        requirement: "recommended",
-        reference: "2020 FIA 253 Ch.8.3.5",
-        description: "Padding recommended anywhere an occupant's body (especially lower legs) could contact the cage.",
-        evaluationType: "boolean",
-        visuallyVerifiable: true,
-        hardFail: false,
-      },
-    ]);
+    .concat(SECTION_6_WINDSHIELD);
 
   // ---- NASA Rally Sport variances on the FIA base ----
   const NASA_NEW_CONSTRUCTION_ELEMENTS = insertElements(
@@ -2412,8 +2387,6 @@
         addOptions: [{ id: "rb-4", label: "RB-4: Single diagonal + roof gussets (NASA option)", diagram: "rb-4", outcome: "pass" }],
         hardFailMessage: "No roof bar present (253-13 is disallowed for NASA new construction).",
       },
-      padding_helmet: { reference: "NRS GRR 3.8.1" },
-      padding_body: { reference: "NRS GRR 3.8.2" },
     }),
     []
   ).concat(FIA_253_COMMON_TAIL);
@@ -2433,12 +2406,6 @@
         reference: "ARA RTR 2.2.2(c)(2)(a); 2020 FIA 253 Ch.8.3.2.1.4",
         description: "ARA is explicit: new cages without windscreen supports will NOT be accepted for logbooking whenever dimension A exceeds 200mm -- which is the case for essentially all cars.",
       },
-      padding_helmet: {
-        reference: "ARA RTR 2.2.3",
-        description: "All tubing forward of and including the main hoop in the roofline must be padded. Any other tubing which may contact the helmet while seated must also be padded.",
-        hardFailMessage: "Roofline tubing forward of/including the main hoop is not padded, or another helmet-contact tube lacks padding.",
-      },
-      padding_body: { reference: "ARA RTR 2.2.3 (heading covers padding generally; body-contact specificity not separately confirmed in the sourced text)" },
     }),
     []
   ).concat(FIA_253_COMMON_TAIL);
@@ -2449,14 +2416,6 @@
       homologation_route: { reference: "CARS NRR 12.3.2.3" },
       primary_tubing: { reference: CARS_REF, requirements: CARS_PRIMARY_REQ },
       secondary_tubing: { reference: CARS_REF, requirements: CARS_SECONDARY_REQ },
-      padding_helmet: { reference: "CARS NRR 12.3.2.6", description: "Padding to FIA 8857-2001 type A or SFI 45.1 wherever an occupant's crash helmet could contact the cage." },
-      padding_body: {
-        requirement: "required",
-        reference: "CARS NRR 12.3.2.6",
-        description: "Unlike NASA and ARA, CARS states body-contact padding as a requirement, not just a recommendation: where an occupant's body could contact the safety cage, flame-retardant padding must be provided.",
-        hardFail: true,
-        hardFailMessage: "No flame-retardant padding at locations where an occupant's body could contact the cage.",
-      },
     }),
     [
       {
