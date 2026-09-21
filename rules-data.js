@@ -276,13 +276,14 @@
       hideNotes: true,
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.1",
-      description: "One of three base structures: 253-1 (main rollbar + front rollbar + 2 longitudinal members + 2 backstays + 6 mounting feet), 253-2 (two full lateral rollbars + 2 transverse members + 2 backstays + 6 feet), or 253-3 (main rollbar + 2 lateral half rollbars + 1 transverse member + 2 backstays + 6 feet -- most common).",
+      description: "One of three base structures: 253-1 (main rollbar + front rollbar + 2 longitudinal members + 2 backstays + 6 mounting feet), 253-2 (two full lateral rollbars + 2 transverse members + 2 backstays + 6 feet), or 253-3 (main rollbar + 2 lateral half rollbars + 1 transverse member + 2 backstays + 6 feet -- most common). A half rollcage (main rollbar + backstays only, nothing in front) is its own first-class option -- everything that would normally attach to front structure that doesn't exist here (roof bars, door bars, 253-15, 253-25, 253-31, roof corner gussets) is hidden rather than offered.",
       evaluationType: "choice",
       noCapture: true,
       options: [
         { id: "253-1", label: "253-1: Main rollbar + front rollbar", diagram: "253-1", outcome: "pass" },
         { id: "253-2", label: "253-2: Two lateral rollbars", diagram: "253-2", outcome: "pass" },
         { id: "253-3", label: "253-3: Main rollbar + two lateral half rollbars", diagram: "253-3", outcome: "pass" },
+        { id: "half-rollcage", label: "Half rollcage / Rollbar only", outcome: "fail" },
         { id: "none", label: "Other design", outcome: "fail" },
       ],
       tubing: null,
@@ -420,13 +421,17 @@
       hideNotes: true,
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.1",
+      // "None (half rollcage)" used to live here as a 3rd option -- promoted
+      // to its own first-class main_structure_layout choice ("Half rollcage
+      // / Rollbar only") instead, so this question is only ever reached for
+      // an "Other design" that DOES have some kind of lateral rollbars, and
+      // only needs to say which style they follow.
       description: "",
       showIf: { id: "main_structure_layout", equals: "none" },
       evaluationType: "choice",
       options: [
         { id: "253-1", label: "253-1 style: laterals stop at the top of the windshield (no windshield transverse bar at the top)", outcome: "pass" },
         { id: "253-3", label: "253-3 style: laterals go all the way to the main rollbar", outcome: "pass" },
-        { id: "none", label: "None (half rollcage)", outcome: "fail" },
       ],
       tubing: null,
       visuallyVerifiable: true,
@@ -790,14 +795,14 @@
   }
 
   // Front mounting feet only exist where there's actual front structure to
-  // plant them on -- a true half rollcage (main_structure_layout "none" and
-  // lateral_rollbars_other explicitly "none") has nothing in front of the
-  // main rollbar at all, so it's 4 feet instead of the usual 6. Any
-  // identified structure (253-1/2/3) or an "Other design" that DID pick a
-  // lateral rollbar answer still gets the front pair.
+  // plant them on -- a half rollcage has nothing in front of the main
+  // rollbar at all, so it's 4 feet instead of the usual 6. Any identified
+  // structure (253-1/2/3) or an "Other design" (which always has SOME
+  // lateral rollbars, by definition -- half rollcage is its own separate
+  // main_structure_layout option now) still gets the front pair.
   function mountingFeetDesignRows(getAnswer) {
     const rows = [];
-    if (getAnswer("lateral_rollbars_other").value !== "none") {
+    if (getAnswer("main_structure_layout").value !== "half-rollcage") {
       rows.push({ id: "front_left", label: "Front left" }, { id: "front_right", label: "Front right" });
     }
     rows.push(
@@ -1214,9 +1219,9 @@
     requirement: "required",
     reference: "2020 FIA 253 Ch.8.3.2.1.3",
     description: "Constructions with a 253-13 design (no front roof corner support) should be strongly discouraged -- known to be deficient. Pick 253-12 or 253-14.",
-    // Doesn't apply to a half rollcage with no lateral rollbars to tie the
+    // Doesn't apply to a half rollcage with no front structure to tie the
     // roof bars into.
-    showIf: { id: "lateral_rollbars_other", notEquals: "none" },
+    showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
     evaluationType: "choice",
     options: [
       // Like 253-9's door bars, 253-12's own X is fabricated as 1
@@ -1323,6 +1328,9 @@
       requirement: "recommended",
       reference: "",
       description: "Optional corner-brace gussets, historically used on cars with no roof bars or a single diagonal roof bar in place of full triangulation. Some grandfathering rules require the gusset in the corner opposite a single diagonal roof bar for that design to be accepted.",
+      // Doesn't apply to a half rollcage -- these gussets brace roof-corner
+      // junctions that don't exist without front structure.
+      showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "table",
       rows: [
         { id: "front_left", label: "Front left" },
@@ -1464,10 +1472,8 @@
       reference: "2020 FIA 253 Ch.8.3.2.1.2",
       description: "One of 3 designs. Upper attachment point must not be higher than half the door-opening height. Left and right can differ (e.g. on a road-racing car) -- check your sanctioning body's own symmetry requirement if running with a co-driver.",
       // Doesn't apply to a half rollcage with no lateral rollbars to attach
-      // door bars to. Only actually excludes anything once "Lateral
-      // rollbars" is explicitly answered "none" -- unanswered (an identified
-      // 253-1/2/3 structure never asks that question) leaves this visible.
-      showIf: { id: "lateral_rollbars_other", notEquals: "none" },
+      // door bars to.
+      showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "choice",
       options: DOOR_BAR_DESIGN_OPTIONS,
       // Merged in rather than a separate element/card -- only relevant (shown)
@@ -1668,6 +1674,9 @@
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1.4",
       description: "Required on each side of the front rollbar when dimension A exceeds 200mm. May be bent only if straight in side view with the bend under 20 degrees. Built as either a single continuous bar, or as 2 bars where it intersects the door bar.",
+      // Doesn't apply to a half rollcage -- there's no front rollbar/
+      // windscreen area to reinforce.
+      showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "choice",
       options: [
         { id: "continuous", label: "1 continuous bar", outcome: "pass" },
@@ -1913,6 +1922,9 @@
       name: "Anti-intrusion bars (253-25) present",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "The extensions must be connected to the front suspension top mounting points.",
+      // Doesn't apply to a half rollcage -- there's no front suspension
+      // top mounting area within reach without front structure.
+      showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1945,9 +1957,9 @@
       name: "Dash bar (253-29) present",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "Optional in case the stock dash bar of the car is not retained.",
-      // Doesn't apply to a half rollcage with no lateral rollbars to tie
+      // Doesn't apply to a half rollcage with no front structure to tie
       // the dash bar into.
-      showIf: { id: "lateral_rollbars_other", notEquals: "none" },
+      showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1978,6 +1990,9 @@
       requirement: "recommended",
       reference: "",
       description: "Reinforcement tube or bent-sheet-metal U-shape per Article 253-8.2.14, thickness >=1.0mm, near the main hoop/roof junction. Ends must not extend past halfway along the members it's attached to.",
+      // Doesn't apply to a half rollcage -- no roof junction to reinforce
+      // without front structure.
+      showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "choice",
       options: [
         { id: "left", label: "Left only", outcome: "pass" },
@@ -2005,6 +2020,9 @@
       requirement: "recommended",
       reference: "",
       description: "Reinforcement tube or bent-sheet-metal U-shape per Article 253-8.2.14, thickness >=1.0mm, near the A-pillar/windshield junction. Ends must not extend past halfway along the members it's attached to.",
+      // Doesn't apply to a half rollcage -- no A-pillar/windshield junction
+      // to reinforce without front structure.
+      showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "choice",
       options: [
         { id: "left", label: "Left only", outcome: "pass" },

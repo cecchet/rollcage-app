@@ -1459,18 +1459,33 @@
           name: elm.id,
           id: inputId,
           onchange: () => {
-            // 253-1/253-2/253-3 all structurally guarantee a main rollbar
-            // and 2 backstays by definition -- pre-select those (still
-            // shown/editable) rather than hiding them outright.
-            if (elm.id === "main_structure_layout" && ["253-1", "253-2", "253-3"].includes(opt.id)) {
+            // 253-1/253-2/253-3 (and a half rollcage) all structurally
+            // guarantee a main rollbar and 2 backstays by definition --
+            // pre-select those (still shown/editable) rather than hiding
+            // them outright.
+            if (elm.id === "main_structure_layout" && ["253-1", "253-2", "253-3", "half-rollcage"].includes(opt.id)) {
               setAnswer("main_rollbar_present", { value: "yes" });
               setAnswer("backstays", { value: "yes" });
               // Clear any stale "Lateral rollbars" answer from a previous
               // visit to the "Other design" branch -- otherwise a leftover
-              // "none" here would keep wrongly hiding roof/door/dash bars
-              // (their showIf checks this field's raw answer, which
-              // doesn't itself know the question is no longer relevant).
+              // "none"/"253-1"/"253-3" here would keep wrongly hiding or
+              // showing roof/door/dash bars (their showIf checks this
+              // field's raw answer, which doesn't itself know the question
+              // is no longer relevant).
               setAnswer("lateral_rollbars_other", { value: "" });
+            }
+            // A half rollcage has nothing in front of the main rollbar at
+            // all -- every "front structure" design choice gets cleared,
+            // since its own question is about to disappear (showIf) and
+            // there'd otherwise be no way left to un-answer it, leaving a
+            // bar stuck highlighted in the 3D model with nothing to click
+            // to clear it.
+            if (elm.id === "main_structure_layout" && opt.id === "half-rollcage") {
+              [
+                "roof_bars", "door_bars_left", "door_bars_right", "dash_bar_present",
+                "a_pillar_reinforcement", "anti_intrusion_present", "temple_bar_present", "windshield_reinforcement_present",
+              ].forEach((id) => setAnswer(id, { value: "" }));
+              ["front_left", "front_right", "rear_left", "rear_right"].forEach((row) => setAnswer("roof_corner_gussets__" + row + "__present", { value: "" }));
             }
             // 253-22 (V backstay diagonal) is mandatory with a 253-14 roof
             // bar -- pre-select it (still shown/editable) if the user
@@ -3963,6 +3978,31 @@
           files = result ? result.files : [];
         }
         files.forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
+      });
+    }
+
+    // A half rollcage has nothing in front of the main rollbar at all --
+    // hide every file that isn't part of the main rollbar/backstay
+    // structure itself, so it's visually obvious those bars simply aren't
+    // an option here, rather than leaving them sitting there ghosted as if
+    // they were still a design choice to make. A whitelist (not a
+    // blacklist of "front" files) so nothing new added to the model later
+    // silently slips through unhidden.
+    if (getAnswer("main_structure_layout").value === "half-rollcage") {
+      const keepFiles = ["Main rollbar.stl"].concat(MAIN_DIAG_FILES, BACKSTAY_FILES, BACKSTAY_DIAG_FILES, [
+        "253-7 gusset left.stl", "253-7 gusset right.stl", "253-7 gusset upper.stl", "253-7 gusset lower.stl",
+        "Rear backstay gusset left.stl", "Rear backstay gusset right.stl", "Rear backstay gusset upper.stl", "Rear backstay gusset lower.stl",
+      ]);
+      ["main_hoop_left", "main_hoop_right", "backstay_left", "backstay_right"].forEach((row) => {
+        const loc = FOOT_LOCATIONS.find((f) => f.row === row);
+        if (loc) keepFiles.push(loc.plateFile);
+        keepFiles.push(footCubeFile(row), doublePlaneFile(row), rockerBaseFile(row), rockerFoldFile(row));
+      });
+      const keep = new Set(keepFiles);
+      const allFiles = window.CageView && window.CageView.getAllFiles ? window.CageView.getAllFiles() : Object.keys(colors);
+      allFiles.forEach((file) => {
+        if (DRIVER_FILES.indexOf(file) !== -1 || CODRIVER_FILES.indexOf(file) !== -1) return;
+        if (!keep.has(file)) colors[file] = "hidden";
       });
     }
 
