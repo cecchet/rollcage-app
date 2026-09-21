@@ -2326,7 +2326,7 @@
 
     if (!state.resultsExpanded) {
       const collapsed = el("div", { class: "panel results-panel results-panel-collapsed" }, [
-        el("h2", {}, ["Logbook"]),
+        el("h2", {}, [PHASE_LABELS[LOGBOOK_PHASE]]),
         el("div", { class: "verdict compact " + results.verdict.level }, [results.verdict.label]),
         el("div", { class: "results-summary" }, [
           results.requiredSatisfied + " / " + results.requiredTotal + " required items (" + results.scorePct + "%)",
@@ -2345,7 +2345,7 @@
 
     panel.appendChild(
       el("div", { class: "results-header" }, [
-        el("h2", {}, ["Logbook"]),
+        el("h2", {}, [PHASE_LABELS[LOGBOOK_PHASE]]),
         el(
           "button",
           { class: "btn secondary", onclick: () => { state.resultsExpanded = false; render(); } },
@@ -4633,14 +4633,18 @@
     }
 
     const path = RULES[state.vehicle.org].paths[state.pathId];
-    renderChecklist(root, path);
     // Logbook (verdict for the selected sanctioning body, merged with its
-    // paperwork fields) is its own part -- only shown while that part is
-    // the one selected, right where its own (otherwise-empty) checklist
-    // panel would be, so it's the first thing on screen there rather than
-    // sitting below the (Logbook-unrelated) Safety score panel. Safety
-    // score itself always trails everything else, regardless of part.
-    if (state.activeTab === LOGBOOK_PHASE) renderResults(root, path);
+    // paperwork fields) is its own part -- renderChecklist has no element
+    // cards of its own to show for it (nothing populates phases[LOGBOOK_
+    // PHASE]), so renderResults' own panel stands in for it entirely
+    // instead of sitting below an empty "Part 6" panel plus its own
+    // separate "Logbook" heading. Safety score always trails everything
+    // else, regardless of part.
+    if (state.activeTab === LOGBOOK_PHASE) {
+      renderResults(root, path);
+    } else {
+      renderChecklist(root, path);
+    }
     renderSafetyScore(root, path);
     syncCageView();
   }
