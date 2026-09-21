@@ -1370,7 +1370,7 @@
       type: "file",
       accept: "image/*",
       multiple: true,
-      disabled: remaining <= 0,
+      disabled: remaining <= 0 || !!state.pictureSelectMode,
       onchange: (e) => {
         const files = [...(e.target.files || [])].slice(0, remaining);
         if (!files.length) return;
@@ -1405,6 +1405,7 @@
             "button",
             {
               class: "btn small secondary picture-card-delete",
+              disabled: !!state.pictureSelectMode,
               onclick: () => {
                 state.pictures = state.pictures.filter((p) => p.id !== pic.id);
                 delete pictureImageCache[pic.id];
@@ -1444,6 +1445,12 @@
               "button",
               {
                 class: "btn small secondary",
+                // Disabled for every card (not just the others) while any
+                // picture is being edited -- the sticky viewer's Done/Cancel
+                // is the only way in or out of that mode; re-clicking this
+                // for the SAME picture would silently reset in-progress,
+                // unsaved edits back to its last-saved tags.
+                disabled: !!state.pictureSelectMode,
                 onclick: () => {
                   state.pictureSelectMode = { pictureId: pic.id, selected: new Map(pic.elements.map((t) => [t.elementId, t.value])) };
                   render();
@@ -1455,7 +1462,7 @@
               "button",
               {
                 class: "btn small secondary",
-                disabled: ui.status === "loading",
+                disabled: ui.status === "loading" || !!state.pictureSelectMode,
                 onclick: () => analyzePictureElements(pic.id, path),
               },
               [ui.status === "loading" ? "Analyzing..." : "AI analysis"]
@@ -4372,7 +4379,14 @@
     // the bar(s) it refers to so it's obvious which bar a suggestion means
     // before accepting it. Overrides whatever color that file would
     // otherwise have, since this is a transient preview, not a real answer.
-    const acceptedIds = Object.keys(state.aiAnalysis.accepted).filter((id) => state.aiAnalysis.accepted[id]);
+    // Suppressed while a picture's own "Edit rollcage elements" mode is
+    // active -- state.aiAnalysis.accepted is GLOBAL (shared across every
+    // picture's aggregated suggestions, not scoped to whichever picture is
+    // currently being tagged), so a box left checked from reviewing one
+    // picture would otherwise keep highlighting that element's bars while
+    // tagging a completely different picture, looking like its tags had
+    // carried over even though pictureSelectMode.selected itself is empty.
+    const acceptedIds = state.pictureSelectMode ? [] : Object.keys(state.aiAnalysis.accepted).filter((id) => state.aiAnalysis.accepted[id]);
     if (acceptedIds.length) {
       const suggestionsById = new Map(aggregatePictureSuggestions().map((s) => [s.elementId, s]));
       acceptedIds.forEach((elementId) => {
