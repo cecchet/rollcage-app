@@ -3085,8 +3085,15 @@
     // in path.elements and main_structure_layout doesn't get the last word.
     main_rollbar_present: (v) => {
       if (v !== "yes") return null;
+      // Only skip when main_structure_layout already has its OWN color for
+      // "Main rollbar.stl" via BASE_STRUCTURE_MAPS (253-1/253-2/253-3) --
+      // "half-rollcage" and "none" (Other design) have no entry there and
+      // rely entirely on this rule to color the bar (half-rollcage's option
+      // pre-sets this to "yes" specifically for that, see the choice-option
+      // onchange handler). A plain "truthy and not none" check here used to
+      // wrongly skip half-rollcage too, leaving its main rollbar uncolored.
       const structureVal = getAnswer("main_structure_layout").value;
-      if (structureVal && structureVal !== "none") return null;
+      if (BASE_STRUCTURE_MAPS[structureVal]) return null;
       return { files: ["Main rollbar.stl"], color: CAGE_COLOR.main };
     },
     backstays: (v) => (v === "yes" ? { files: BACKSTAY_FILES, color: CAGE_COLOR.backstay } : null),
