@@ -2132,41 +2132,102 @@
     },
 
     // -- 9. Seat mounting points --
+    // Each occupant picks their own mount type independently -- stock needs
+    // nothing further; 253-65 (chassis shell) and 253-65B (traverse
+    // crossmember) each get their own detail table below, whose rows only
+    // include the occupant(s) who actually picked that type. Codriver is
+    // asked at all only when the car is actually running with one (see
+    // Vehicle description); with no codriver, only the driver's own choice
+    // (and detail rows) ever appear.
     {
-      id: "seat_mount_stock_shell",
-      name: "Seat mounting points -- stock or shell mount",
+      id: "seat_mount_type_driver",
+      name: "Driver seat mount type",
       category: "9. Seat mounting points",
-      requirement: "conditional",
+      requirement: "required",
       reference: "",
-      description: "Stock mounting points of the original seat on the chassis, or directly on the chassis shell (253-65), 4 points, 40cm2 backing plate min for each.",
-      evaluationType: "table",
-      rows: [
-        { id: "driver_left_front", label: "Driver left front" }, { id: "driver_right_front", label: "Driver right front" },
-        { id: "driver_left_rear", label: "Driver left rear" }, { id: "driver_right_rear", label: "Driver right rear" },
-        { id: "codriver_left_front", label: "Codriver left front" }, { id: "codriver_right_front", label: "Codriver right front" },
-        { id: "codriver_left_rear", label: "Codriver left rear" }, { id: "codriver_right_rear", label: "Codriver right rear" },
+      description: "Stock mounting points need no further capture. 253-65 (chassis shell) and 253-65B (traverse crossmember) each have their own minimum plate/tubing spec, captured below once chosen.",
+      evaluationType: "choice",
+      options: [
+        { id: "stock", label: "Stock seat mounts", outcome: "pass" },
+        { id: "253-65", label: "253-65: Chassis shell mount", outcome: "pass" },
+        { id: "253-65b", label: "253-65B: Traverse crossmember", outcome: "pass" },
       ],
-      columns: [{ key: "anchoring", label: "Anchoring point (stock, or plate >=40cm2 and >=3mm)", type: "text" }],
       visuallyVerifiable: true,
       hardFail: false,
     },
     {
-      id: "seat_mount_bar",
-      name: "Seat mounting points -- bar mount",
+      id: "seat_mount_type_codriver",
+      name: "Codriver seat mount type",
+      category: "9. Seat mounting points",
+      requirement: "required",
+      reference: "",
+      description: "Stock mounting points need no further capture. 253-65 (chassis shell) and 253-65B (traverse crossmember) each have their own minimum plate/tubing spec, captured below once chosen.",
+      showIf: { id: "vehicle_codriver", equals: "yes" },
+      evaluationType: "choice",
+      options: [
+        { id: "stock", label: "Stock seat mounts", outcome: "pass" },
+        { id: "253-65", label: "253-65: Chassis shell mount", outcome: "pass" },
+        { id: "253-65b", label: "253-65B: Traverse crossmember", outcome: "pass" },
+      ],
+      visuallyVerifiable: true,
+      hardFail: false,
+    },
+    {
+      id: "seat_mount_shell",
+      name: "Seat mounting points -- 253-65 chassis shell mount",
       category: "9. Seat mounting points",
       requirement: "conditional",
       reference: "",
-      description: "Traverse crossmember (253-65B), square tubing min 35x2.5mm (1.38x0.098in).",
+      description: "4 points per occupant, 40cm2 backing plate min, 3mm thickness min, for each.",
+      showIf: { any: [{ id: "seat_mount_type_driver", equals: "253-65" }, { id: "seat_mount_type_codriver", equals: "253-65" }] },
       evaluationType: "table",
-      rows: [
-        { id: "driver_left_front", label: "Driver left front" }, { id: "driver_right_front", label: "Driver right front" },
-        { id: "driver_left_rear", label: "Driver left rear" }, { id: "driver_right_rear", label: "Driver right rear" },
-        { id: "codriver_left_front", label: "Codriver left front" }, { id: "codriver_right_front", label: "Codriver right front" },
-        { id: "codriver_left_rear", label: "Codriver left rear" }, { id: "codriver_right_rear", label: "Codriver right rear" },
-      ],
+      rows: (getAnswer) => {
+        const rows = [];
+        if (getAnswer("seat_mount_type_driver").value === "253-65") {
+          rows.push(
+            { id: "driver_left_front", label: "Driver left front" }, { id: "driver_right_front", label: "Driver right front" },
+            { id: "driver_left_rear", label: "Driver left rear" }, { id: "driver_right_rear", label: "Driver right rear" }
+          );
+        }
+        if (getAnswer("seat_mount_type_codriver").value === "253-65") {
+          rows.push(
+            { id: "codriver_left_front", label: "Codriver left front" }, { id: "codriver_right_front", label: "Codriver right front" },
+            { id: "codriver_left_rear", label: "Codriver left rear" }, { id: "codriver_right_rear", label: "Codriver right rear" }
+          );
+        }
+        return rows;
+      },
       columns: [
-        { key: "end_plate", label: "End plate size (>=40cm2) and thickness (>=3mm)", type: "text" },
-        { key: "square_tube", label: "Square tubing edge (>=38mm) and thickness (>=2.5mm)", type: "text" },
+        { key: "plate_size", label: "Plate size (>=40cm2)", type: "area" },
+        { key: "plate_thickness", label: "Plate thickness (>=3mm)", type: "length", compare: { op: "gte", value: 3 } },
+      ],
+      visuallyVerifiable: true,
+      hardFail: false,
+    },
+    {
+      id: "seat_mount_crossmember",
+      name: "Seat mounting points -- 253-65B traverse crossmember",
+      category: "9. Seat mounting points",
+      requirement: "conditional",
+      reference: "",
+      description: "One crossmember per occupant, front and rear, square tubing min 35x2.5mm (1.38x0.098in), mounted via its own end plates.",
+      showIf: { any: [{ id: "seat_mount_type_driver", equals: "253-65b" }, { id: "seat_mount_type_codriver", equals: "253-65b" }] },
+      evaluationType: "table",
+      rows: (getAnswer) => {
+        const rows = [];
+        if (getAnswer("seat_mount_type_driver").value === "253-65b") {
+          rows.push({ id: "driver_front", label: "Driver front" }, { id: "driver_rear", label: "Driver rear" });
+        }
+        if (getAnswer("seat_mount_type_codriver").value === "253-65b") {
+          rows.push({ id: "codriver_front", label: "Codriver front" }, { id: "codriver_rear", label: "Codriver rear" });
+        }
+        return rows;
+      },
+      columns: [
+        { key: "end_plate_size", label: "End plate size (>=40cm2)", type: "area" },
+        { key: "end_plate_thickness", label: "End plate thickness (>=3mm)", type: "length", compare: { op: "gte", value: 3 } },
+        { key: "square_tube_edge", label: "Square tubing edge (>=38mm)", type: "length", compare: { op: "gte", value: 38 } },
+        { key: "square_tube_thickness", label: "Square tubing thickness (>=2.5mm)", type: "length", compare: { op: "gte", value: 2.5 } },
       ],
       visuallyVerifiable: true,
       hardFail: false,
