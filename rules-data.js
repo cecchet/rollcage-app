@@ -2250,41 +2250,59 @@
     },
 
     // -- 10. Belt anchoring points --
+    // Split into 2 sections per the user's own preferred flow: capture
+    // every belt's own anchoring LOCATION first (this section), then its
+    // distances/angles in their own section below (10b), rather than one
+    // table per belt type mixing "where is it anchored" with "is the
+    // geometry compliant" the way this app used to. A "new" anchoring
+    // point (as opposed to stock or a dedicated bar) is the only case
+    // needing its own plate size/thickness -- notApplicableColumns marks
+    // those 2 columns N/A on any row that isn't using one, read from this
+    // same table's own anchoring answer for that row.
     {
-      id: "belt_shoulder",
-      name: "Shoulder belts",
+      id: "belt_shoulder_mount",
+      name: "Shoulder belt anchoring points",
       category: "10. Belt anchoring points",
       requirement: "required",
       reference: "",
-      description: "Anchoring point can be S (stock), HB (harness bar), or N (new point, mounted on the shell as near as possible to the centerline of the rear wheels -- indicate plate size >=40cm2 and thickness >=3mm).",
+      description: "Anchoring point can be S (stock), HB (harness bar), or N (new point, mounted on the shell as near as possible to the centerline of the rear wheels).",
       evaluationType: "table",
-      rows: [
-        { id: "driver_left", label: "Driver left" }, { id: "driver_right", label: "Driver right" },
-        { id: "codriver_left", label: "Codriver left" }, { id: "codriver_right", label: "Codriver right" },
-      ],
+      rows: (getAnswer) => [
+        ["driver_left", "Driver left"], ["driver_right", "Driver right"],
+        ["codriver_left", "Codriver left"], ["codriver_right", "Codriver right"],
+      ].map(([id, label]) => {
+        const row = { id, label };
+        if (getAnswer("belt_shoulder_mount__" + id + "__anchoring").value !== "N") row.notApplicableColumns = ["plate_size", "plate_thickness"];
+        return row;
+      }),
       columns: [
         { key: "anchoring", label: "Anchoring point (S/HB/N)", type: "select", options: [{ id: "S", label: "S (stock)" }, { id: "HB", label: "HB (harness bar)" }, { id: "N", label: "N (new point)" }] },
-        { key: "pivot_distance", label: "Pivot point distance (mm, >90)", type: "number", compare: { op: "gt", value: 90 } },
-        { key: "belt_angle", label: "Belt angle (253-61c: 0-20 deg, or 253-61d: 10-25 deg)", type: "number" },
+        { key: "plate_size", label: "Plate size (>=40cm2)", type: "area" },
+        { key: "plate_thickness", label: "Plate thickness (>=3mm)", type: "length", compare: { op: "gte", value: 3 } },
       ],
       visuallyVerifiable: false,
       hardFail: true,
     },
     {
-      id: "belt_lap",
-      name: "Lap belts",
+      id: "belt_lap_mount",
+      name: "Lap belt anchoring points",
       category: "10. Belt anchoring points",
       requirement: "required",
       reference: "",
-      description: "Can re-use stock mounting points if they don't interfere with the cage. New points must be on the chassis shell (plate >=40cm2, thickness >=3mm), not rollcage bars.",
+      description: "Can re-use stock mounting points if they don't interfere with the cage. New points must be on the chassis shell, not rollcage bars.",
       evaluationType: "table",
-      rows: [
-        { id: "driver_left", label: "Driver left" }, { id: "driver_right", label: "Driver right" },
-        { id: "codriver_left", label: "Codriver left" }, { id: "codriver_right", label: "Codriver right" },
-      ],
+      rows: (getAnswer) => [
+        ["driver_left", "Driver left"], ["driver_right", "Driver right"],
+        ["codriver_left", "Codriver left"], ["codriver_right", "Codriver right"],
+      ].map(([id, label]) => {
+        const row = { id, label };
+        if (getAnswer("belt_lap_mount__" + id + "__anchoring").value !== "new") row.notApplicableColumns = ["plate_size", "plate_thickness"];
+        return row;
+      }),
       columns: [
-        { key: "anchoring", label: "Anchoring point (stock, or plate >=40cm2/>=3mm)", type: "text" },
-        { key: "belt_angle", label: "Belt angle (20-70 deg)", type: "number", compare: { op: "between", min: 20, max: 70 } },
+        { key: "anchoring", label: "Anchoring point", type: "radio", options: [{ id: "stock", label: "Stock" }, { id: "new", label: "New point" }] },
+        { key: "plate_size", label: "Plate size (>=40cm2)", type: "area" },
+        { key: "plate_thickness", label: "Plate thickness (>=3mm)", type: "length", compare: { op: "gte", value: 3 } },
       ],
       visuallyVerifiable: false,
       hardFail: true,
@@ -2293,6 +2311,7 @@
       id: "belt_anti_submarine_points",
       name: "Anti-submarine belt point count",
       category: "10. Belt anchoring points",
+      hideNotes: true,
       requirement: "required",
       reference: "",
       description: "Anti-submarine belts can be mounted on a dedicated bar (min 38x2.5mm or 40x2mm) or a new anchoring point with a reinforcement plate (min 40cm2, min 3mm).",
@@ -2305,40 +2324,155 @@
       visuallyVerifiable: true, hardFail: false,
     },
     {
-      id: "belt_five_point",
-      name: "5-point belt anchoring",
+      id: "belt_five_point_mount",
+      name: "5-point belt anchoring points",
       category: "10. Belt anchoring points",
       requirement: "required", reference: "", description: "",
       showIf: { id: "belt_anti_submarine_points", equals: "five" },
       evaluationType: "table",
-      rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
-      columns: [{ key: "anchoring", label: "Anchoring point (bar >=38x2.5mm or 40x2mm, or plate >=40cm2/>=3mm)", type: "text" }, { key: "belt_angle", label: "Belt angle (+20 to +25 deg)", type: "number", compare: { op: "between", min: 20, max: 25 } }],
+      rows: (getAnswer) => [["driver", "Driver"], ["codriver", "Codriver"]].map(([id, label]) => {
+        const row = { id, label };
+        if (getAnswer("belt_five_point_mount__" + id + "__anchoring").value !== "new") row.notApplicableColumns = ["plate_size", "plate_thickness"];
+        return row;
+      }),
+      columns: [
+        { key: "anchoring", label: "Anchoring point", type: "radio", options: [{ id: "bar", label: "Bar (>=38x2.5mm or 40x2mm)" }, { id: "new", label: "New point" }] },
+        { key: "plate_size", label: "Plate size (>=40cm2)", type: "area" },
+        { key: "plate_thickness", label: "Plate thickness (>=3mm)", type: "length", compare: { op: "gte", value: 3 } },
+      ],
       visuallyVerifiable: false, hardFail: true,
     },
     {
-      id: "belt_six_point",
-      name: "6-point belt anchoring",
+      id: "belt_six_point_mount",
+      name: "6-point belt anchoring points",
       category: "10. Belt anchoring points",
+      requirement: "required", reference: "", description: "",
+      showIf: [{ id: "belt_anti_submarine_points", in: ["six", "seven"] }],
+      evaluationType: "table",
+      rows: (getAnswer) => [
+        ["driver_left", "Driver left"], ["driver_right", "Driver right"],
+        ["codriver_left", "Codriver left"], ["codriver_right", "Codriver right"],
+      ].map(([id, label]) => {
+        const row = { id, label };
+        if (getAnswer("belt_six_point_mount__" + id + "__anchoring").value !== "new") row.notApplicableColumns = ["plate_size", "plate_thickness"];
+        return row;
+      }),
+      columns: [
+        { key: "anchoring", label: "Anchoring point", type: "radio", options: [{ id: "bar", label: "Bar" }, { id: "new", label: "New point" }] },
+        { key: "plate_size", label: "Plate size (>=40cm2)", type: "area" },
+        { key: "plate_thickness", label: "Plate thickness (>=3mm)", type: "length", compare: { op: "gte", value: 3 } },
+      ],
+      visuallyVerifiable: false, hardFail: true,
+    },
+    {
+      id: "belt_seven_point_mount",
+      name: "7th point belt anchoring point",
+      category: "10. Belt anchoring points",
+      requirement: "required", reference: "", description: "Fill up the 6-point belt anchoring points first, then add the 7th point here.",
+      showIf: { id: "belt_anti_submarine_points", equals: "seven" },
+      evaluationType: "table",
+      rows: (getAnswer) => [["driver_7th", "Driver 7th"], ["codriver_7th", "Codriver 7th"]].map(([id, label]) => {
+        const row = { id, label };
+        if (getAnswer("belt_seven_point_mount__" + id + "__anchoring").value !== "new") row.notApplicableColumns = ["plate_size", "plate_thickness"];
+        return row;
+      }),
+      columns: [
+        { key: "anchoring", label: "Anchoring point", type: "radio", options: [{ id: "bar", label: "Bar" }, { id: "new", label: "New point" }] },
+        { key: "plate_size", label: "Plate size (>=40cm2)", type: "area" },
+        { key: "plate_thickness", label: "Plate thickness (>=3mm)", type: "length", compare: { op: "gte", value: 3 } },
+      ],
+      visuallyVerifiable: false, hardFail: true,
+    },
+
+    // -- 10b. Belt anchor distances and angles --
+    // 253-61c (horizontal angle) and 253-61d (angle between the 2 straps)
+    // are 2 genuinely separate FIA drawings, captured as separate rows/
+    // elements rather than one merged "belt angle" field -- 61c is a
+    // per-strap angle from horizontal (left/right can differ), 61d is a
+    // single angle where the 2 straps converge, so it's captured ONCE per
+    // occupant, not per side.
+    {
+      id: "belt_shoulder_distance_angle",
+      name: "Shoulder belt distance and horizontal angle (253-61c)",
+      category: "10b. Belt anchor distances and angles",
+      requirement: "required",
+      reference: "253-61c",
+      description: "Pivot point distance from the seat back, and the strap's own angle below horizontal, per side.",
+      evaluationType: "table",
+      rows: [
+        { id: "driver_left", label: "Driver left" }, { id: "driver_right", label: "Driver right" },
+        { id: "codriver_left", label: "Codriver left" }, { id: "codriver_right", label: "Codriver right" },
+      ],
+      columns: [
+        { key: "pivot_distance", label: "Pivot point distance (mm, >90)", type: "number", compare: { op: "gt", value: 90 } },
+        { key: "horizontal_angle", label: "Horizontal angle -- 253-61c (0-20 deg)", type: "number", compare: { op: "between", min: 0, max: 20 } },
+      ],
+      visuallyVerifiable: false,
+      hardFail: true,
+    },
+    {
+      id: "belt_shoulder_strap_angle",
+      name: "Shoulder belt angle between straps (253-61d)",
+      category: "10b. Belt anchor distances and angles",
+      requirement: "required",
+      reference: "253-61d",
+      description: "The angle where the left and right shoulder straps converge, viewed from behind -- one shared angle per occupant, not measured per side.",
+      evaluationType: "table",
+      rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
+      columns: [{ key: "strap_angle", label: "Angle between straps -- 253-61d (20-25 deg)", type: "number", compare: { op: "between", min: 20, max: 25 } }],
+      visuallyVerifiable: false,
+      hardFail: true,
+    },
+    {
+      id: "belt_lap_distance_angle",
+      name: "Lap belt angle",
+      category: "10b. Belt anchor distances and angles",
+      requirement: "required",
+      reference: "",
+      description: "",
+      evaluationType: "table",
+      rows: [
+        { id: "driver_left", label: "Driver left" }, { id: "driver_right", label: "Driver right" },
+        { id: "codriver_left", label: "Codriver left" }, { id: "codriver_right", label: "Codriver right" },
+      ],
+      columns: [{ key: "belt_angle", label: "Belt angle (20-70 deg)", type: "number", compare: { op: "between", min: 20, max: 70 } }],
+      visuallyVerifiable: false,
+      hardFail: true,
+    },
+    {
+      id: "belt_five_point_angle",
+      name: "5-point belt angle",
+      category: "10b. Belt anchor distances and angles",
+      requirement: "required", reference: "", description: "",
+      showIf: { id: "belt_anti_submarine_points", equals: "five" },
+      evaluationType: "table",
+      rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
+      columns: [{ key: "belt_angle", label: "Belt angle (+20 to +25 deg)", type: "number", compare: { op: "between", min: 20, max: 25 } }],
+      visuallyVerifiable: false, hardFail: true,
+    },
+    {
+      id: "belt_six_point_angle",
+      name: "6-point belt spacing and angle",
+      category: "10b. Belt anchor distances and angles",
       requirement: "required", reference: "", description: "",
       showIf: [{ id: "belt_anti_submarine_points", in: ["six", "seven"] }],
       evaluationType: "table",
       rows: [{ id: "driver_left", label: "Driver left" }, { id: "driver_right", label: "Driver right" }, { id: "codriver_left", label: "Codriver left" }, { id: "codriver_right", label: "Codriver right" }],
       columns: [
-        { key: "anchoring", label: "Anchoring point (bar spec or plate >=40cm2/>=3mm)", type: "text" },
         { key: "spacing", label: "Space between anchoring points (in, 4-6)", type: "number", compare: { op: "between", min: 4, max: 6 } },
         { key: "belt_angle", label: "Belt angle (0 to -20 deg)", type: "number" },
       ],
       visuallyVerifiable: false, hardFail: true,
     },
     {
-      id: "belt_seven_point",
-      name: "7th point belt anchoring",
-      category: "10. Belt anchoring points",
-      requirement: "required", reference: "", description: "Fill up the 6-point belt information first, then add the 7th point here.",
+      id: "belt_seven_point_angle",
+      name: "7th point belt angle",
+      category: "10b. Belt anchor distances and angles",
+      requirement: "required", reference: "", description: "Fill up the 6-point belt spacing/angle first, then add the 7th point here.",
       showIf: { id: "belt_anti_submarine_points", equals: "seven" },
       evaluationType: "table",
       rows: [{ id: "driver_7th", label: "Driver 7th" }, { id: "codriver_7th", label: "Codriver 7th" }],
-      columns: [{ key: "anchoring", label: "Anchoring point (bar spec or plate >=40cm2/>=3mm)", type: "text" }, { key: "belt_angle", label: "Belt angle (+20 to +25 deg)", type: "number", compare: { op: "between", min: 20, max: 25 } }],
+      columns: [{ key: "belt_angle", label: "Belt angle (+20 to +25 deg)", type: "number", compare: { op: "between", min: 20, max: 25 } }],
       visuallyVerifiable: false, hardFail: true,
     },
 

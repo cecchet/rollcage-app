@@ -1059,7 +1059,7 @@
   // inspection -- occupant safety equipment rather than the cage structure
   // itself -- so they get their own phase instead of piling into everything
   // else.
-  const PHASE_4_CATEGORIES = new Set(["9. Seat mounting points", "10. Belt anchoring points", "11. Routing of lines"]);
+  const PHASE_4_CATEGORIES = new Set(["9. Seat mounting points", "10. Belt anchoring points", "10b. Belt anchor distances and angles", "11. Routing of lines"]);
   function isTubingSizingTable(elm) {
     if (elm.evaluationType === "tubing3solo") return true;
     if (elm.evaluationType === "plateSolo") return true;
@@ -4634,12 +4634,14 @@
 
     const path = RULES[state.vehicle.org].paths[state.pathId];
     renderChecklist(root, path);
-    // Safety score always trails the checklist regardless of which part is
-    // shown; Logbook (verdict for the selected sanctioning body, merged
-    // with its paperwork fields) is its own part now -- only shown while
-    // that part is the one selected, same as every other part's content.
-    renderSafetyScore(root, path);
+    // Logbook (verdict for the selected sanctioning body, merged with its
+    // paperwork fields) is its own part -- only shown while that part is
+    // the one selected, right where its own (otherwise-empty) checklist
+    // panel would be, so it's the first thing on screen there rather than
+    // sitting below the (Logbook-unrelated) Safety score panel. Safety
+    // score itself always trails everything else, regardless of part.
     if (state.activeTab === LOGBOOK_PHASE) renderResults(root, path);
+    renderSafetyScore(root, path);
     syncCageView();
   }
 
