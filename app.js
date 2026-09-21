@@ -2823,7 +2823,21 @@
   // separately trying to color them as 253-12 reinforcement. Re-enable once
   // the base-structure mappings are finalized.
   const ITEM_PART_RULES = {
-    main_rollbar_present: (v) => (v === "yes" ? { files: ["Main rollbar.stl"], color: CAGE_COLOR.main } : null),
+    // 253-1/253-2/253-3 and a half rollcage each color "Main rollbar.stl"
+    // themselves (see BASE_STRUCTURE_MAPS) -- this only needs to act for a
+    // genuinely unidentified "Other design", where main_rollbar_present is
+    // the only thing establishing this bar exists at all. Otherwise the
+    // stale "yes" pre-selected automatically when picking one of those 4
+    // (main_rollbar_present is hidden there now, but its answer sticks
+    // around) would overwrite -- e.g. -- 253-2's own blue/yellow split
+    // with a flat red, since this runs right after main_structure_layout
+    // in path.elements and main_structure_layout doesn't get the last word.
+    main_rollbar_present: (v) => {
+      if (v !== "yes") return null;
+      const structureVal = getAnswer("main_structure_layout").value;
+      if (structureVal && structureVal !== "none") return null;
+      return { files: ["Main rollbar.stl"], color: CAGE_COLOR.main };
+    },
     backstays: (v) => (v === "yes" ? { files: BACKSTAY_FILES, color: CAGE_COLOR.backstay } : null),
     backstays_gf: (v) => (v === "yes" ? { files: BACKSTAY_FILES, color: CAGE_COLOR.backstay } : null),
 
