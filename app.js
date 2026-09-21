@@ -2225,7 +2225,7 @@
   };
 
   function renderSafetyScore(root, path) {
-    const panel = el("div", { class: "panel" });
+    const panel = el("div", { class: "panel", id: "safety-score-panel" });
     panel.appendChild(el("h2", {}, ["Safety score"]));
     panel.appendChild(
       el("div", { class: "safety-score-placeholder" }, [
@@ -2437,6 +2437,11 @@
       );
     }
     root.appendChild(panel);
+    // Read by syncSafetyScoreBadge() to keep the sticky 3D-viewer badge in
+    // sync -- module-level rather than threaded through a return value,
+    // same convention CAGE_FILE_OWNER already uses for cross-cutting state
+    // computed during a render pass.
+    lastSafetyScoreSummary = { totalPoints, ratedRows };
   }
 
   function renderResults(root, path) {
@@ -3717,6 +3722,11 @@
   // as `colors`; a file with no owner here (fully hidden, or never claimed
   // by any element) just doesn't jump anywhere when clicked.
   let CAGE_FILE_OWNER = {};
+  // Set by renderSafetyScore() each render pass; read by syncSafetyScoreBadge()
+  // to keep the sticky 3D-viewer badge in sync without recomputing the
+  // whole safety score a second time. Null until a path is selected and
+  // renderSafetyScore has actually run at least once.
+  let lastSafetyScoreSummary = null;
 
   function computeCageColors() {
     const colors = {};
@@ -4765,9 +4775,35 @@
     });
     holder.appendChild(select);
   }
+  // Total safety score as an always-visible badge over the 3D model,
+  // top-left (opposite the watermark) -- reads lastSafetyScoreSummary
+  // (set by renderSafetyScore, which always runs before this in render())
+  // rather than recomputing the score. Clicking it scrolls straight to
+  // the full breakdown, the same scroll-and-flash jumpToSection's own
+  // design-choice clicks already use, since the Safety score panel
+  // itself always trails whichever Part is currently shown.
+  function syncSafetyScoreBadge() {
+    const btn = document.getElementById("cageViewerSafetyScore");
+    if (!btn) return;
+    if (!state.pathId || !lastSafetyScoreSummary || !lastSafetyScoreSummary.ratedRows) {
+      btn.hidden = true;
+      return;
+    }
+    const totalPoints = lastSafetyScoreSummary.totalPoints;
+    btn.hidden = false;
+    btn.textContent = "Safety score: " + (totalPoints > 0 ? "+" : "") + totalPoints;
+    btn.className = "cage-viewer-safety-score " + (totalPoints > 0 ? "tier-green" : totalPoints < 0 ? "tier-red" : "tier-orange");
+    btn.onclick = () => {
+      const target = document.getElementById("safety-score-panel");
+      if (!target) return;
+      scrollBelowViewer(target);
+      flashCard(target);
+    };
+  }
   function syncCageView() {
     syncPartDropdown();
     syncPart3Controls();
+    syncSafetyScoreBadge();
     if (window.CageView) {
       const colors = computeCageColors();
       window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) ? true : state.showGhostBars);
