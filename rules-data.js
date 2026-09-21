@@ -2355,7 +2355,11 @@
         { id: "fuel", label: "Fuel lines" }, { id: "brake", label: "Brake lines" },
         { id: "fire_suppression", label: "Fire suppression system lines" }, { id: "electric", label: "Electric cables" },
       ],
-      columns: [{ key: "location", label: "Location / routing", type: "text" }],
+      columns: [{ key: "location", label: "Location / routing", type: "radio", options: [
+        { id: "inside_cage", label: "Inside cockpit, inside the safety cage" },
+        { id: "between_shell_cage", label: "Inside cockpit, between bodyshell and safety cage", outcome: "fail" },
+        { id: "outside_cockpit", label: "Outside cockpit (e.g. under the floor)" },
+      ] }],
       visuallyVerifiable: true,
       hardFail: true,
     },

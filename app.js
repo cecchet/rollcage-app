@@ -400,6 +400,19 @@
       }
       return "pass";
     }
+    if (col.type === "radio") {
+      // Most radio columns (corner cutout, hole diameter) just need SOME
+      // option picked -- judged elsewhere against the tube's own diameter.
+      // One with a real right/wrong answer (e.g. routing_of_lines' "between
+      // bodyshell and cage" is a hard FIA violation) marks that specific
+      // option with its own `outcome`, same convention a standalone
+      // "choice" element's own options already use -- respected here if
+      // present, otherwise falls back to "just needs an entry".
+      if (!answer.value) return "warn";
+      const opt = (col.options || []).find((o) => o.id === answer.value);
+      if (opt && opt.outcome) return opt.outcome === "fail" ? "fail" : "pass";
+      return "pass";
+    }
     // text/select: just needs an entry, no automatic pass/fail judgement
     return answer.value ? "pass" : "warn";
   }
