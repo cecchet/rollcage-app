@@ -1359,9 +1359,11 @@
     panel.appendChild(
       el("div", { class: "element-desc" }, [
         "Upload up to " + PICTURE_LIMIT + " photos of the installed cage (or a blueprint/diagram). For each picture, " +
-          '"Edit rollcage elements" lets you click which parts of the 3D model it shows, or "AI analysis" has a vision ' +
-          "model suggest that (and a value for each) automatically. Tagging a picture never changes the checklist by " +
-          'itself -- review AI suggestions against your answers so far in "Compare with checklist" below.',
+          '"Edit rollcage elements" lets you click parts of the 3D model to tag which design it shows -- clicking an ' +
+          "area with more than one possible design (roof bars, door bars, ...) cycles through its options one click " +
+          'at a time, so you can pick the exact one even before answering it in the checklist. "AI analysis" has a ' +
+          "vision model suggest that (and a value for each) automatically. Tagging a picture never changes the " +
+          'checklist by itself -- review AI suggestions against your answers so far in "Compare with checklist" below.',
       ])
     );
 
@@ -3232,6 +3234,13 @@
       // front-right to rear-left) rather than modeling a new bar.
       if (v === "single-front-left") return { files: ["Roof bar 1.stl"], color: CAGE_COLOR.roofBar };
       if (v === "single-front-right") return { files: ["Roof bar 2.stl"], color: CAGE_COLOR.roofBar };
+      // "rb-4" (NASA-specific addOptions entry, see rules-data.js) had no
+      // mapping at all here -- with nothing to color/highlight, a picture
+      // tagged with it couldn't be shown OR removed via the 3D model.
+      // Reuses the single-center bar as a stand-in (no dedicated rb-4
+      // geometry exists in the source model) -- an approximation for the
+      // 3D preview only, the stored answer/tag itself still says "rb-4".
+      if (v === "rb-4") return { files: ["Roof bar single center.stl"], color: CAGE_COLOR.roofBar };
       return null;
     },
     roof_bars_gf: () => null,
@@ -5084,16 +5093,52 @@
     if (!elmId) return null;
     return { elementId: elmId, value: getAnswer(elmId).value || null };
   }
+  // Every real value a picture tag can cycle through for an element, in
+  // click order -- lets a specific design (e.g. which of the 8 roof_bars
+  // options, or a sill-bar-less side vs. the other) be picked straight from
+  // the 3D model, without the checklist needing to be answered first.
+  // Ghost bars for an unanswered "choice"/"boolean" element all share the
+  // same CAGE_FILE_OWNER category (there's no distinct mesh per candidate
+  // option), so repeated clicks on that same area step through this list
+  // instead of a plain in/out toggle. Table categories with no single value
+  // of their own (mounting feet, roof corner gussets) return an empty list
+  // -- resolvePictureCycleClick falls back to a plain toggle for those.
+  function pictureTagCycle(path, elementId) {
+    if (elementId.indexOf(GUSSET_TAG_PREFIX) === 0 && elementId.endsWith(GUSSET_TAG_SUFFIX)) {
+      const gussetElm = path.elements.find((e) => e.id === "gusset_design");
+      return gussetElm ? gussetElm.columns[0].options.map((o) => o.id) : [];
+    }
+    const elm = path.elements.find((e) => e.id === elementId);
+    if (!elm) return [];
+    if (elm.evaluationType === "choice" && elm.options && elm.options.length) return elm.options.map((o) => o.id);
+    if (elm.evaluationType === "boolean") return ["yes", "no"];
+    return [];
+  }
   function handleCagePartClick(file) {
     // Picture "Edit rollcage elements" mode overrides every other click
-    // behavior while active -- clicking toggles this bar's specific design
-    // in/out of the picture's tag set instead of navigating anywhere.
+    // behavior while active.
     if (state.pictureSelectMode) {
       const tag = resolvePictureTagForFile(file);
       if (!tag) return;
       const selected = state.pictureSelectMode.selected;
-      if (selected.has(tag.elementId)) selected.delete(tag.elementId);
-      else selected.set(tag.elementId, tag.value);
+      const path = RULES[state.vehicle.org].paths[state.pathId];
+      const cycle = pictureTagCycle(path, tag.elementId);
+      if (!cycle.length) {
+        // No option list to step through -- plain in/out toggle.
+        if (selected.has(tag.elementId)) selected.delete(tag.elementId);
+        else selected.set(tag.elementId, tag.value);
+        render();
+        return;
+      }
+      if (!selected.has(tag.elementId)) {
+        // First click: start from the checklist's own current answer if it
+        // already has one for this element, otherwise the first option.
+        selected.set(tag.elementId, tag.value && cycle.includes(tag.value) ? tag.value : cycle[0]);
+      } else {
+        const nextValue = cycle[cycle.indexOf(selected.get(tag.elementId)) + 1];
+        if (nextValue === undefined) selected.delete(tag.elementId); // past the last option -- clear the tag
+        else selected.set(tag.elementId, nextValue);
+      }
       render();
       return;
     }
@@ -5185,11 +5230,29 @@
     const answer = getAnswer(elmId);
     return elm.name + (answer.value ? " — " + elementSummary(elm, answer) : "");
   }
+  // Picture "Edit rollcage elements" mode's own hover label -- names the
+  // element/gusset row a bar belongs to AND, crucially, which specific
+  // option the cycle (see pictureTagCycle) currently has it set to, since
+  // several candidate designs share the same ghost geometry until one is
+  // actually picked and the 3D shape alone isn't always enough to tell them
+  // apart while stepping through.
+  function pictureTagHoverLabel(file) {
+    const tag = resolvePictureTagForFile(file);
+    if (!tag) return null;
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    const target = path && resolvePictureTagTarget(path, tag.elementId);
+    if (!target) return null;
+    const selected = state.pictureSelectMode.selected;
+    const value = selected.has(tag.elementId) ? selected.get(tag.elementId) : null;
+    return target.name + (value ? " — " + elementSummary(target, { value }) : " — click to tag (cycles through options)");
+  }
   function handleCagePartHover(file, frac, clientX, clientY) {
     const tooltip = document.getElementById("cageViewerTooltip");
     if (!tooltip) return;
     let label = null;
-    if (file && (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE)) {
+    if (file && state.pictureSelectMode) {
+      label = pictureTagHoverLabel(file);
+    } else if (file && (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE)) {
       const target = resolvePart3WeldTarget(file, frac);
       label = target ? target.label : null;
     } else if (file && state.activeTab === 1) {
