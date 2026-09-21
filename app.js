@@ -2292,6 +2292,20 @@
       addRow(elmId, elm.name, tier, answer.value ? elementSummary(elm, answer) : "Not yet answered");
     });
 
+    // An identified base structure (253-1/253-2/253-3) is worth its own
+    // standalone bonus -- bigger than the standard green tier, since it's
+    // the foundation everything else builds on. "Half rollcage"/"Other
+    // design" aren't scored here; their own downstream consequences
+    // (missing front bars, main_rollbar_present, etc.) already show up as
+    // their own rows.
+    const structureElm = path.elements.find((e) => e.id === "main_structure_layout");
+    if (structureElm && elementVisible(structureElm)) {
+      const structureAnswer = getAnswer("main_structure_layout");
+      if (["253-1", "253-2", "253-3"].includes(structureAnswer.value)) {
+        addRow("main_structure_layout", structureElm.name, "green", elementSummary(structureElm, structureAnswer), 10);
+      }
+    }
+
     // 253-14 (roof bar) and 253-22 (backstay diagonal, the V design) are a
     // matched pair per FIA 253 -- 253-12 pairs with 253-21 (X-config)
     // instead (see roof_bars/rear_diag_4_1_distances' own comments in

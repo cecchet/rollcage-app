@@ -366,10 +366,11 @@
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.1",
       description: "",
-      // 253-1/253-2/253-3 all include a main rollbar by definition, so
-      // picking one of those pre-selects "yes" here automatically (see the
-      // main_structure_layout choice handler) -- still shown and editable
-      // in case that's ever not actually true.
+      // 253-1/253-2/253-3 and a half rollcage all guarantee a main rollbar
+      // by definition (each pre-selects "yes" here automatically -- see
+      // the main_structure_layout choice handler), so this only needs
+      // asking at all for a genuinely unidentified "Other design".
+      showIf: { id: "main_structure_layout", equals: "none" },
       evaluationType: "boolean",
       strictYesNo: true,
       tubing: null,
