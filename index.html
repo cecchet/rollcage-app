@@ -24,10 +24,17 @@
     <div id="cageViewerPartDropdown" class="cage-viewer-part-dropdown"></div>
     <div class="cage-viewer-header" title="Bars light up as you confirm them below. Click a bar to jump to its section. Drag to rotate, scroll to zoom, shift+drag to pan.">
       <strong>Live cage model</strong>
-      <button id="cageViewerReset" class="btn small secondary">Reset</button>
-      <button id="cageViewerGhostToggle" class="btn small secondary" title="Toggle whether bars not yet confirmed show dimmed for context, or are hidden entirely">Hide ghost bars</button>
-      <button id="cageViewerDriverToggle" class="btn small secondary" title="Toggle whether the driver/codriver mannequins show, so you can see the cage tubes behind them">Hide driver</button>
-      <button id="cageViewerToggle" class="btn small secondary">Hide 3D model</button>
+      <div id="cageViewerHeaderButtons" class="cage-viewer-header-buttons">
+        <button id="cageViewerReset" class="btn small secondary">Reset</button>
+        <button id="cageViewerGhostToggle" class="btn small secondary" title="Toggle whether bars not yet confirmed show dimmed for context, or are hidden entirely">Hide ghost bars</button>
+        <button id="cageViewerDriverToggle" class="btn small secondary" title="Toggle whether the driver/codriver mannequins show, so you can see the cage tubes behind them">Hide driver</button>
+        <button id="cageViewerToggle" class="btn small secondary">Hide 3D model</button>
+      </div>
+      <div id="cageViewerPictureModeBanner" class="cage-viewer-picture-banner" hidden>
+        <span>Selecting parts for this picture &mdash; click bars to toggle.</span>
+        <button id="cageViewerPictureModeDone" class="btn small">Done</button>
+        <button id="cageViewerPictureModeCancel" class="btn small secondary">Cancel</button>
+      </div>
     </div>
     <div id="cageViewerPart3Controls" class="cage-viewer-part3-controls"></div>
     <div id="cageViewerContainer" class="cage-viewer-container">
@@ -50,6 +57,6 @@
 <script src="cage_view.js?v=103"></script>
 <script src="diagrams.js?v=29"></script>
 <script src="rules-data.js?v=82"></script>
-<script src="app.js?v=185"></script>
+<script src="app.js?v=189"></script>
 </body>
 </html>

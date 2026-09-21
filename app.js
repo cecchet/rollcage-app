@@ -17,6 +17,8 @@
     vehicle: { name: "", org: "nasa", logbookStatus: "new", logbookDate: "" },
     pathId: null,
     answers: {}, // elementId -> { value, note, photos: [{name, dataUrl}] }
+    pictures: [], // { id, elements: [elmId], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot } -- image bytes live in IndexedDB, see picture storage below
+    pictureSelectMode: null, // UI-only: { pictureId, selected: Set<elmId> } while "Select element" is active -- see renderPictures/computeCageColors
     resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
@@ -24,7 +26,7 @@
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
     showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
     showDriver: true, // UI-only: whether the driver/codriver mannequins show, or are hidden to see the cage behind them
-    aiAnalysis: { status: "idle", suggestions: [], error: null, accepted: {} }, // UI-only, never persisted -- see renderPhotoAnalysis()
+    aiAnalysis: { accepted: {} }, // UI-only, never persisted -- checked-but-not-yet-applied rows in renderPictureComparePanel()
   };
 
   function uid() {
@@ -47,6 +49,7 @@
       vehicle: state.vehicle,
       pathId: state.pathId,
       answers: state.answers,
+      pictures: state.pictures,
       updatedAt: new Date().toISOString(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
@@ -57,6 +60,8 @@
     state.vehicle = { name: "", org: "nasa", logbookStatus: "new", logbookDate: "" };
     state.pathId = suggestPath(state.vehicle);
     state.answers = {};
+    state.pictures = [];
+    state.pictureSelectMode = null;
     render();
   }
 
@@ -68,8 +73,109 @@
     state.vehicle = s.vehicle;
     state.pathId = s.pathId;
     state.answers = s.answers || {};
+    state.pictures = s.pictures || [];
+    state.pictureSelectMode = null;
     render();
   }
+
+  // ---- Picture storage (IndexedDB) ------------------------------------
+  // Up to 20 full photos per inspection won't fit in localStorage's ~5-10MB
+  // quota alongside everything else in STORAGE_KEY, so picture bytes (the
+  // original photo + the captured 3D-model selection screenshot) live in
+  // IndexedDB instead -- same fix, same shape, as the sibling PassTech
+  // project's garage.ts (one keyless store, single blob per key, writes
+  // chained onto a promise queue so they land in call order). Only
+  // lightweight metadata (id/tagged elements/AI suggestions) lives in
+  // state.pictures / localStorage -- see saveCurrent/loadSession above.
+  const PICTURE_DB_NAME = "rollcage-app";
+  const PICTURE_DB_VERSION = 1;
+  const PICTURE_STORE_NAME = "pictures";
+
+  function picUid() {
+    return "pic_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+  }
+
+  function openPictureDb() {
+    return new Promise((resolve, reject) => {
+      const req = window.indexedDB.open(PICTURE_DB_NAME, PICTURE_DB_VERSION);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(PICTURE_STORE_NAME)) req.result.createObjectStore(PICTURE_STORE_NAME);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  // Every picture DB operation (reads included) chains onto this single
+  // queue, not just writes -- a get() issued right after a put() (e.g.
+  // loadPictureImage firing immediately after a fresh upload) would
+  // otherwise race the put's own async open+transaction and can read the
+  // record before it exists, permanently caching "not found" since nothing
+  // else ever retries. Queuing reads too guarantees every operation sees
+  // the effect of everything called before it, in call order.
+  let pictureDbQueue = Promise.resolve();
+  function queuePictureDbOp(fn) {
+    const outcome = pictureDbQueue.then(fn);
+    pictureDbQueue = outcome.then(() => undefined, () => undefined);
+    return outcome;
+  }
+
+  function getPictureRecord(id) {
+    return queuePictureDbOp(() =>
+      openPictureDb().then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            const tx = db.transaction(PICTURE_STORE_NAME, "readonly");
+            const req = tx.objectStore(PICTURE_STORE_NAME).get(id);
+            req.onsuccess = () => { resolve(req.result || null); db.close(); };
+            req.onerror = () => { reject(req.error); db.close(); };
+          })
+      )
+    );
+  }
+
+  function putPictureRecord(id, record) {
+    return queuePictureDbOp(() =>
+      openPictureDb().then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            const tx = db.transaction(PICTURE_STORE_NAME, "readwrite");
+            tx.objectStore(PICTURE_STORE_NAME).put(record, id);
+            tx.oncomplete = () => { resolve(); db.close(); };
+            tx.onerror = () => { reject(tx.error); db.close(); };
+          })
+      )
+    );
+  }
+
+  // Not itself queued -- getPictureRecord/putPictureRecord already are, and
+  // each queued op only starts once the previous one's whole promise chain
+  // (including this function's own two sequential ops) has settled, so the
+  // get-then-put here can never interleave with some other operation.
+  function patchPictureRecord(id, patch) {
+    return getPictureRecord(id).then((rec) => putPictureRecord(id, Object.assign({}, rec, patch)));
+  }
+
+  function deletePictureRecord(id) {
+    return queuePictureDbOp(() =>
+      openPictureDb().then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            const tx = db.transaction(PICTURE_STORE_NAME, "readwrite");
+            tx.objectStore(PICTURE_STORE_NAME).delete(id);
+            tx.oncomplete = () => { resolve(); db.close(); };
+            tx.onerror = () => { reject(tx.error); db.close(); };
+          })
+      )
+    );
+  }
+
+  // UI-only caches, never persisted: pictureImageCache holds whatever
+  // getPictureRecord() last resolved for a picture id (populated lazily as
+  // cards render, see loadPictureImage in renderPictures); pictureUiState
+  // holds each picture's own AI-analysis loading/error status.
+  let pictureImageCache = {};
+  let pictureUiState = {};
 
   function suggestPath(vehicle) {
     if (vehicle.logbookStatus === "new") return "new_construction";
@@ -579,13 +685,15 @@
   }
 
   // Downscales an image file to at most maxDim on its longest side and
-  // re-encodes as JPEG, returning {mimeType, data (base64, no data: URI
-  // prefix)} -- used for the AI photo-analysis upload (renderPhotoAnalysis)
-  // rather than fileToDataUrl above, since a phone photo straight off a
-  // camera can be several MB (several photos of the same cage easily blow
-  // past a serverless function's request-body size limit, and cost more
-  // in vision-API tokens for no real accuracy benefit at full resolution).
-  function resizeImageToBase64(file, maxDim) {
+  // re-encodes as JPEG, returning the full data: URI -- used both to store
+  // an uploaded picture (see renderPictures) and, stripped of its
+  // "data:...base64," prefix, as the AI photo-analysis upload (see
+  // analyzePictureElements). A phone photo straight off a camera can be
+  // several MB; several of those easily blow past a serverless function's
+  // request-body size limit (and cost more in vision-API tokens, and more
+  // IndexedDB space for 20 of them) for no real accuracy benefit at full
+  // resolution.
+  function compressImageToDataUrl(file, maxDim, quality) {
     return new Promise((resolve, reject) => {
       const img = new Image();
       const url = URL.createObjectURL(file);
@@ -601,8 +709,7 @@
         canvas.width = width;
         canvas.height = height;
         canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-        resolve({ mimeType: "image/jpeg", data: dataUrl.split(",")[1] });
+        resolve(canvas.toDataURL("image/jpeg", quality));
       };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load " + file.name)); };
       img.src = url;
@@ -1120,120 +1227,263 @@
       .filter((entry) => entry.boolean || (entry.options && entry.options.length));
   }
 
-  async function analyzeCagePhotos(files, path) {
-    state.aiAnalysis = { status: "loading", suggestions: [], error: null, accepted: {} };
+  // Thin wrapper around the Vercel function -- shared by analyzePictureElements
+  // below (the only caller now that whole-checklist batch analysis is gone).
+  // Throws on any failure (network, non-2xx, bad JSON) rather than returning
+  // an error shape, so callers can use plain try/catch.
+  async function callAnalyzeCageApi(images, elements) {
+    const resp = await fetch("api/analyze-cage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ images, elements }),
+    });
+    let json = null;
+    try { json = await resp.json(); } catch (e) { /* handled below via !resp.ok / missing json */ }
+    if (!resp.ok) throw new Error((json && json.error) || ("HTTP " + resp.status));
+    return (json && Array.isArray(json.suggestions)) ? json.suggestions : [];
+  }
+
+  // Runs AI analysis for a single picture: the model suggests which Part 1
+  // design elements it can see, and a value for each (same shape the old
+  // whole-checklist analysis produced) -- a suggestion returned for a photo
+  // already means "visible in this photo" (the prompt tells the model to
+  // omit anything it can't determine), so this one call both tags the
+  // picture's elements and feeds "Compare with checklist" below. Newly
+  // suggested elements are unioned into whatever was already manually
+  // tagged, never overwriting it.
+  async function analyzePictureElements(pictureId, path) {
+    pictureUiState[pictureId] = { status: "loading", error: null };
     render();
     try {
-      const images = await Promise.all([...files].map((f) => resizeImageToBase64(f, 1280)));
-      const elements = buildAiElementCatalog(path);
-      const resp = await fetch("api/analyze-cage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ images, elements }),
-      });
-      let json = null;
-      try { json = await resp.json(); } catch (e) { /* handled below via !resp.ok / missing json */ }
-      if (!resp.ok) {
-        state.aiAnalysis = { status: "error", suggestions: [], error: (json && json.error) || ("HTTP " + resp.status), accepted: {} };
-      } else {
-        const suggestions = (json && Array.isArray(json.suggestions)) ? json.suggestions : [];
-        state.aiAnalysis = { status: "done", suggestions, error: null, accepted: {} };
+      const rec = await getPictureRecord(pictureId);
+      if (!rec || !rec.photo) throw new Error("Picture not found");
+      const suggestions = await callAnalyzeCageApi(
+        [{ mimeType: "image/jpeg", data: rec.photo.split(",")[1] }],
+        buildAiElementCatalog(path)
+      );
+      const pic = state.pictures.find((p) => p.id === pictureId);
+      if (pic) {
+        pic.elements = [...new Set(pic.elements.concat(suggestions.map((s) => s.elementId)))];
+        pic.aiSuggestions = suggestions;
+        saveCurrent();
       }
+      pictureUiState[pictureId] = { status: "done", error: null };
     } catch (e) {
-      state.aiAnalysis = { status: "error", suggestions: [], error: e.message, accepted: {} };
+      pictureUiState[pictureId] = { status: "error", error: e.message };
     }
     render();
   }
 
-  function renderPhotoAnalysis(root, path) {
-    const panel = el("div", { class: "panel ai-analysis-panel" });
-    panel.appendChild(el("h2", {}, ["Analyze photos (AI, experimental)"]));
+  // Lazily loads a picture's image bytes from IndexedDB into pictureImageCache
+  // the first time its card renders, then re-renders once loaded -- same
+  // "kick off async work, render() again on resolve" pattern used throughout
+  // this file (e.g. analyzePictureElements above).
+  function loadPictureImage(id) {
+    if (pictureImageCache[id]) return;
+    pictureImageCache[id] = {};
+    getPictureRecord(id)
+      .then((rec) => { pictureImageCache[id] = rec || {}; render(); })
+      .catch(() => render());
+  }
+
+  const PICTURE_LIMIT = 20;
+
+  function renderPictures(root, path) {
+    const panel = el("div", { class: "panel pictures-panel" });
+    panel.appendChild(el("h2", {}, ["Pictures"]));
     panel.appendChild(
       el("div", { class: "element-desc" }, [
-        "Upload one or more photos of the installed cage (or a blueprint/diagram) -- multiple angles of the same cage help capture more of the design. A vision model will suggest which options below match; nothing is applied until you review and accept each suggestion.",
+        "Upload up to " + PICTURE_LIMIT + " photos of the installed cage (or a blueprint/diagram). For each picture, " +
+          '"Select element" lets you click which parts of the 3D model it shows, or "AI analysis" has a vision model ' +
+          "suggest that (and a value for each) automatically. Tagging a picture never changes the checklist by itself -- " +
+          'review AI suggestions against your answers so far in "Compare with checklist" below.',
       ])
     );
 
-    const ai = state.aiAnalysis;
+    const remaining = PICTURE_LIMIT - state.pictures.length;
     const fileInput = el("input", {
       type: "file",
       accept: "image/*",
       multiple: true,
-      disabled: ai.status === "loading",
+      disabled: remaining <= 0,
       onchange: (e) => {
-        if (e.target.files && e.target.files.length) analyzeCagePhotos(e.target.files, path);
+        const files = [...(e.target.files || [])].slice(0, remaining);
+        if (!files.length) return;
+        Promise.all(files.map((f) => compressImageToDataUrl(f, 1600, 0.85))).then((dataUrls) => {
+          dataUrls.forEach((dataUrl) => {
+            const id = picUid();
+            state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false });
+            putPictureRecord(id, { photo: dataUrl, screenshot: null });
+          });
+          saveCurrent();
+          render();
+        });
       },
     });
-    panel.appendChild(el("div", { class: "field" }, [fileInput]));
+    const fieldChildren = [fileInput];
+    if (remaining <= 0) fieldChildren.push(el("div", { class: "ai-status" }, ["Picture limit reached (" + PICTURE_LIMIT + ")."]));
+    panel.appendChild(el("div", { class: "field" }, fieldChildren));
 
-    if (ai.status === "loading") {
-      panel.appendChild(el("div", { class: "ai-status" }, ["Analyzing photos... this can take a little while."]));
-    } else if (ai.status === "error") {
-      panel.appendChild(el("div", { class: "ai-status ai-error" }, ["Analysis failed: " + ai.error]));
-    } else if (ai.status === "done") {
-      if (!ai.suggestions.length) {
-        panel.appendChild(el("div", { class: "ai-status" }, ["No confident suggestions from these photos -- try clearer or additional angles."]));
-      } else {
-        const elementsById = {};
-        path.elements.forEach((elm) => { elementsById[elm.id] = elm; });
-        const list = el("div", { class: "ai-suggestion-list" });
-        ai.suggestions.forEach((s) => {
-          const elm = elementsById[s.elementId];
-          if (!elm) return;
-          const optLabel = elm.evaluationType === "boolean"
-            ? (s.value === "yes" ? "Yes / Present" : "No / Absent")
-            : (((elm.options || []).find((o) => o.id === s.value) || {}).label || s.value);
-          const checkbox = el("input", {
-            type: "checkbox",
-            checked: !!ai.accepted[s.elementId],
-            // Re-renders so the 3D preview highlight (see computeCageColors)
-            // reflects the current check state immediately.
-            onchange: (e) => { state.aiAnalysis.accepted[s.elementId] = e.target.checked; render(); },
+    if (state.pictures.length) {
+      const grid = el("div", { class: "pictures-grid" });
+      state.pictures.forEach((pic) => {
+        loadPictureImage(pic.id);
+        const cached = pictureImageCache[pic.id] || {};
+        const card = el("div", { class: "picture-card" });
+        card.appendChild(
+          cached.photo
+            ? el("img", { class: "picture-card-photo", src: cached.photo, alt: "" })
+            : el("div", { class: "picture-card-photo picture-card-loading" }, ["Loading..."])
+        );
+        card.appendChild(
+          el(
+            "button",
+            {
+              class: "btn small secondary picture-card-delete",
+              onclick: () => {
+                state.pictures = state.pictures.filter((p) => p.id !== pic.id);
+                delete pictureImageCache[pic.id];
+                delete pictureUiState[pic.id];
+                deletePictureRecord(pic.id);
+                saveCurrent();
+                render();
+              },
+            },
+            ["Delete"]
+          )
+        );
+
+        const chips = el("div", { class: "picture-elements" });
+        if (pic.elements.length) {
+          pic.elements.forEach((elmId) => {
+            const elm = path.elements.find((e) => e.id === elmId);
+            chips.appendChild(el("span", { class: "picture-element-chip" }, [elm ? elm.name : elmId]));
           });
-          list.appendChild(
-            el("label", { class: "ai-suggestion-row" }, [
-              checkbox,
-              el("div", { class: "ai-suggestion-text" }, [
-                el("div", {}, [el("strong", {}, [elm.name]), ": " + optLabel + " (" + s.confidence + " confidence)"]),
-                el("div", { class: "visual-flag" }, [s.rationale]),
-              ]),
-            ])
-          );
-        });
-        panel.appendChild(list);
-        panel.appendChild(
+        } else {
+          chips.appendChild(el("span", { class: "picture-elements-empty" }, ["No elements tagged yet"]));
+        }
+        card.appendChild(chips);
+
+        const ui = pictureUiState[pic.id] || { status: "idle" };
+        card.appendChild(
           el("div", { class: "toolbar" }, [
             el(
               "button",
               {
-                class: "btn secondary",
-                onclick: () => {
-                  ai.suggestions.forEach((s) => { state.aiAnalysis.accepted[s.elementId] = true; });
-                  render();
-                },
+                class: "btn small secondary",
+                onclick: () => { state.pictureSelectMode = { pictureId: pic.id, selected: new Set(pic.elements) }; render(); },
               },
-              ["Select all"]
+              ["Select element"]
             ),
             el(
               "button",
               {
-                class: "btn",
-                onclick: () => {
-                  ai.suggestions.forEach((s) => {
-                    if (state.aiAnalysis.accepted[s.elementId]) setAnswer(s.elementId, { value: s.value });
-                  });
-                  state.aiAnalysis = { status: "idle", suggestions: [], error: null, accepted: {} };
-                  render();
-                },
+                class: "btn small secondary",
+                disabled: ui.status === "loading",
+                onclick: () => analyzePictureElements(pic.id, path),
               },
-              ["Apply accepted suggestions"]
+              [ui.status === "loading" ? "Analyzing..." : "AI analysis"]
             ),
           ])
         );
-      }
+        if (ui.status === "error") card.appendChild(el("div", { class: "ai-status ai-error" }, ["Analysis failed: " + ui.error]));
+
+        if (pic.hasScreenshot && cached.screenshot) {
+          card.appendChild(el("div", { class: "picture-screenshot-label" }, ["Selected parts:"]));
+          card.appendChild(el("img", { class: "picture-card-screenshot", src: cached.screenshot, alt: "" }));
+        }
+
+        grid.appendChild(card);
+      });
+      panel.appendChild(grid);
+    }
+
+    if (state.pictures.some((p) => p.aiSuggestions && p.aiSuggestions.length)) {
+      panel.appendChild(renderPictureComparePanel(path));
     }
 
     root.appendChild(panel);
+  }
+
+  // Aggregates the latest AI suggestion for each element across every
+  // picture -- when more than one picture suggests the same element, the
+  // later picture (in upload order) wins, simplest deterministic rule.
+  function aggregatePictureSuggestions() {
+    const byElement = new Map();
+    state.pictures.forEach((pic) => { (pic.aiSuggestions || []).forEach((s) => { byElement.set(s.elementId, s); }); });
+    return [...byElement.values()];
+  }
+
+  // "Compare with checklist": surfaces where the pictures' AI suggestions
+  // disagree with (or fill a gap in) the checklist answered so far. Purely
+  // a review step -- reuses state.aiAnalysis.accepted as the transient
+  // checkbox state (same shape/behavior the old whole-checklist analysis
+  // used, including the 3D-model preview highlight in computeCageColors),
+  // sourced from the aggregated per-picture suggestions instead.
+  function renderPictureComparePanel(path) {
+    const panel = el("div", { class: "picture-compare-panel" });
+    panel.appendChild(el("h3", {}, ["Compare with checklist"]));
+    const elementsById = {};
+    path.elements.forEach((elm) => { elementsById[elm.id] = elm; });
+
+    const rows = aggregatePictureSuggestions()
+      .filter((s) => elementsById[s.elementId])
+      .map((s) => {
+        const elm = elementsById[s.elementId];
+        const current = getAnswer(s.elementId).value;
+        const labelFor = (v) => (elm.evaluationType === "boolean" ? (v === "yes" ? "Yes / Present" : "No / Absent") : (((elm.options || []).find((o) => o.id === v) || {}).label || v));
+        return { s, elm, optLabel: labelFor(s.value), currentLabel: current ? labelFor(current) : null, blank: !current, matches: current === s.value };
+      })
+      .filter((r) => !r.matches);
+
+    if (!rows.length) {
+      panel.appendChild(el("div", { class: "ai-status" }, ["Pictures agree with the checklist so far -- nothing to review."]));
+      return panel;
+    }
+
+    const list = el("div", { class: "ai-suggestion-list" });
+    rows.forEach((r) => {
+      const checkbox = el("input", {
+        type: "checkbox",
+        checked: !!state.aiAnalysis.accepted[r.s.elementId],
+        onchange: (e) => { state.aiAnalysis.accepted[r.s.elementId] = e.target.checked; render(); },
+      });
+      list.appendChild(
+        el("label", { class: "ai-suggestion-row" }, [
+          checkbox,
+          el("div", { class: "ai-suggestion-text" }, [
+            el("div", {}, [
+              el("strong", {}, [r.elm.name]),
+              ": " + r.optLabel + " (" + r.s.confidence + " confidence)" + (r.blank ? "" : " -- current answer: " + r.currentLabel),
+            ]),
+            el("div", { class: "visual-flag" }, [r.s.rationale]),
+          ]),
+        ])
+      );
+    });
+    panel.appendChild(list);
+    panel.appendChild(
+      el("div", { class: "toolbar" }, [
+        el(
+          "button",
+          { class: "btn secondary", onclick: () => { rows.forEach((r) => { state.aiAnalysis.accepted[r.s.elementId] = true; }); render(); } },
+          ["Select all"]
+        ),
+        el(
+          "button",
+          {
+            class: "btn",
+            onclick: () => {
+              rows.forEach((r) => { if (state.aiAnalysis.accepted[r.s.elementId]) setAnswer(r.s.elementId, { value: r.s.value }); });
+              state.aiAnalysis.accepted = {};
+              render();
+            },
+          },
+          ["Apply accepted"]
+        ),
+      ])
+    );
+    return panel;
   }
 
   // Shared by renderChecklist (which parts have content to show) and the
@@ -1269,7 +1519,7 @@
     // heading always agrees with the Part dropdown/View switch above it.
     panel.appendChild(el("h2", {}, [PHASE_LABELS[shownPhases[0]] || "Rollcage design"]));
 
-    if (shownPhases.includes(1)) renderPhotoAnalysis(root, path);
+    if (shownPhases.includes(1)) renderPictures(root, path);
 
     // Welds/Installation's own 3D view-mode switch lives in the sticky
     // viewer panel now (see syncPart3Controls) so it's reachable regardless
@@ -2579,9 +2829,10 @@
     rearLateral: "#4dd0e1", rearTransversal: "#ff5252", dashBar: "#7986cb",
     rearLowerX: "#b565d8", antiIntrusion: "#ff9e4a", templeBar: "#5ec9a3", windshieldReinforcement: "#ef6ba0",
     lowerMainHoopBar: "#8ecae6",
-    // Bright, unmistakably-different-from-anything-else highlight for a
-    // checked (not yet applied) AI suggestion -- see computeCageColors'
-    // AI-preview overlay and renderPhotoAnalysis.
+    // Bright, unmistakably-different-from-anything-else highlight -- used
+    // both for a checked (not yet applied) AI suggestion and for a part
+    // currently tagged in a picture's "Select element" mode. See
+    // computeCageColors' two overlay blocks below.
     aiPreview: "#39ff14",
     // Driver/Codriver mannequins -- seat shell and body render dim/ghosted
     // (not a compliance item themselves, and shouldn't visually compete
@@ -4001,14 +4252,17 @@
       claimUnowned(possibleFilesForElement(elm, rule), elm.id);
     });
 
-    // AI photo-analysis suggestion preview: while a suggestion's checkbox
-    // is checked (not yet applied -- see renderPhotoAnalysis), highlight
+    // AI photo-analysis suggestion preview: while a suggestion's checkbox is
+    // checked (not yet applied -- see renderPictureComparePanel), highlight
     // the bar(s) it refers to so it's obvious which bar a suggestion means
     // before accepting it. Overrides whatever color that file would
     // otherwise have, since this is a transient preview, not a real answer.
-    if (state.aiAnalysis.status === "done") {
-      state.aiAnalysis.suggestions.forEach((s) => {
-        if (!state.aiAnalysis.accepted[s.elementId]) return;
+    const acceptedIds = Object.keys(state.aiAnalysis.accepted).filter((id) => state.aiAnalysis.accepted[id]);
+    if (acceptedIds.length) {
+      const suggestionsById = new Map(aggregatePictureSuggestions().map((s) => [s.elementId, s]));
+      acceptedIds.forEach((elementId) => {
+        const s = suggestionsById.get(elementId);
+        if (!s) return;
         let files;
         if (s.elementId === "main_structure_layout") {
           const map = baseStructureColors(s.value);
@@ -4022,6 +4276,16 @@
         }
         files.forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
       });
+    }
+
+    // Picture "Select element" mode: highlight every file whose resolved
+    // owner (see the claimUnowned/ITEM_PART_RULES pass just above) is
+    // currently tagged for this picture -- reuses the exact same ownership
+    // map click-to-jump already relies on, so a click while tagging toggles
+    // precisely what a normal click would otherwise jump to.
+    if (state.pictureSelectMode) {
+      const selected = state.pictureSelectMode.selected;
+      Object.keys(owner).forEach((f) => { if (selected.has(owner[f])) colors[f] = CAGE_COLOR.aiPreview; });
     }
 
     // A half rollcage has nothing in front of the main rollbar at all --
@@ -4595,6 +4859,11 @@
     return null;
   }
   function handleCagePartDoubleClick(file, frac) {
+    // Picture "Select element" mode only recognizes single clicks (toggle
+    // this bar's element in/out of the tag set) -- ignore double-clicks
+    // entirely rather than letting them fall through to the normal
+    // default-fill/cycle behavior below, which would change a real answer.
+    if (state.pictureSelectMode) return;
     // Part 2 (Tubing sizes & materials): double-click cycles that bar's own
     // primary/secondary tubing spec instead of anything Part-1-related --
     // matches how a single click already jumps to the tube-classification
@@ -4677,6 +4946,20 @@
   }
 
   function handleCagePartClick(file) {
+    // Picture "Select element" mode overrides every other click behavior
+    // while active -- clicking toggles this bar's owning element in/out of
+    // the picture's tag set instead of navigating anywhere. CAGE_FILE_OWNER
+    // already resolves every design element with an ITEM_PART_RULES entry
+    // (even unanswered ones, via the claimUnowned fallback pass in
+    // computeCageColors), so no separate resolution chain is needed here.
+    if (state.pictureSelectMode) {
+      const elmId = CAGE_FILE_OWNER[file];
+      if (!elmId) return;
+      const selected = state.pictureSelectMode.selected;
+      if (selected.has(elmId)) selected.delete(elmId); else selected.add(elmId);
+      render();
+      return;
+    }
     if (state.activeTab === 2) {
       const footRow = footRowForFile(file);
       if (footRow) { jumpToFootSizeRow(footRow); return; }
@@ -4833,10 +5116,52 @@
       flashCard(target);
     };
   }
+  // Swaps the sticky viewer header between its normal buttons and the
+  // "Selecting parts..." banner while a picture's "Select element" mode is
+  // active -- same idea as syncSafetyScoreBadge, a plain DOM toggle since
+  // this header lives outside #app and survives render()'s teardown.
+  function syncPictureModeBanner() {
+    const buttons = document.getElementById("cageViewerHeaderButtons");
+    const banner = document.getElementById("cageViewerPictureModeBanner");
+    if (!buttons || !banner) return;
+    const active = !!state.pictureSelectMode;
+    buttons.hidden = active;
+    banner.hidden = !active;
+  }
+  // Captures a screenshot of the current 3D-model selection highlight (see
+  // computeCageColors' pictureSelectMode overlay) and saves it alongside
+  // the picture's newly tagged elements. The canvas is reached via the DOM
+  // rather than a CageView export -- cage_view.js creates its renderer with
+  // preserveDrawingBuffer:true specifically so toDataURL() works here.
+  function finishPictureSelectMode() {
+    const mode = state.pictureSelectMode;
+    if (!mode) return;
+    const canvas = document.querySelector("#cageViewerContainer canvas");
+    const screenshot = canvas ? canvas.toDataURL("image/png") : null;
+    const pic = state.pictures.find((p) => p.id === mode.pictureId);
+    state.pictureSelectMode = null;
+    if (pic) {
+      pic.elements = [...mode.selected];
+      pic.hasScreenshot = !!screenshot;
+      saveCurrent();
+      if (screenshot) {
+        patchPictureRecord(pic.id, { screenshot }).then(() => {
+          pictureImageCache[pic.id] = Object.assign({}, pictureImageCache[pic.id], { screenshot });
+          render();
+        });
+      }
+    }
+    render();
+  }
+  function cancelPictureSelectMode() {
+    state.pictureSelectMode = null;
+    render();
+  }
   function syncCageView() {
     syncPartDropdown();
     syncPart3Controls();
     syncSafetyScoreBadge();
+    syncPictureModeBanner();
     if (window.CageView) {
       const colors = computeCageColors();
       window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) ? true : state.showGhostBars);
@@ -4911,6 +5236,10 @@
         syncCageView();
       });
     }
+    const pmDone = document.getElementById("cageViewerPictureModeDone");
+    if (pmDone) pmDone.addEventListener("click", finishPictureSelectMode);
+    const pmCancel = document.getElementById("cageViewerPictureModeCancel");
+    if (pmCancel) pmCancel.addEventListener("click", cancelPictureSelectMode);
   }
 
   if (document.readyState === "loading") {
