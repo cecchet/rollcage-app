@@ -854,11 +854,18 @@
     }
     // "length"/"area" cells store {value, unit} (renderTableCellInput) --
     // NOT {val, unit} (that shape is tubing3's own diameter/thickness sub-
-    // fields, a different convention this same codebase also uses).
+    // fields, a different convention this same codebase also uses). Some
+    // older saves still have a cell in that {val, unit} shape from before
+    // "length"/"area" got their own convention -- fall back to `val` so
+    // those don't render as "[object Object]" (the exact bug this whole
+    // branch was added to fix in the first place) instead of quietly
+    // handling only newly-entered answers.
     if (col.type === "length" || col.type === "area") {
-      if (v == null || v.value === "" || v.value == null) return "";
+      if (v == null) return "";
+      const raw = v.value !== undefined && v.value !== "" ? v.value : v.val;
+      if (raw === "" || raw == null) return "";
       const unitLabel = col.type === "area" ? (v.unit === "in2" ? "in²" : "cm²") : v.unit || "mm";
-      return v.value + " " + unitLabel;
+      return raw + " " + unitLabel;
     }
     return String(v);
   }
@@ -940,18 +947,26 @@
     }
     return canvas.toDataURL("image/png"); // gave up -- whatever's there is better than hanging forever
   }
-  // 4-5 orbit presets spanning the model so every side of the cage shows up
+  // 5 orbit presets spanning the model so every side of the cage shows up
   // somewhere in the report -- theta/phi straight from cage_view.js's own
   // orbit convention (see setOrbit's comment there: Z is up, phi=0 looks
-  // straight down, phi=90deg is a level view). Labels are deliberately
-  // generic ("View" + a rough position) rather than claiming a specific
-  // "front"/"rear" -- this model's own front/rear orientation isn't
-  // established anywhere in code, so guessing it here risked mislabeling.
+  // straight down, phi=90deg is a level view). The two three-quarter labels
+  // are deliberately generic ("View" + a rough position) rather than
+  // claiming a specific "front"/"rear" -- this model's own front/rear
+  // orientation isn't established anywhere in code, so guessing it here
+  // risked mislabeling. Left/right, unlike front/rear, IS established --
+  // confirmed by comparing "Left door bar ... 253-9.stl"/"Right door bar
+  // ... 253-9.stl"'s own world-space bounding boxes (left sits at the
+  // lower value on the axis that differs between them) against which
+  // theta actually renders each one large and unoccluded -- theta=-90deg
+  // shows the left door bar prominently, theta=+90deg the right one. A true
+  // profile (phi=90deg, not the 3/4 views' 45deg) is what actually shows
+  // the door/roof-bar junction gussets clearly on each side.
   const REPORT_ANGLES = [
     { label: "Three-quarter view A", theta: Math.PI / 4, phi: Math.PI / 4 },
     { label: "Three-quarter view B", theta: (3 * Math.PI) / 4, phi: Math.PI / 4 },
-    { label: "Three-quarter view C", theta: -Math.PI / 4, phi: Math.PI / 4 },
-    { label: "Three-quarter view D", theta: (-3 * Math.PI) / 4, phi: Math.PI / 4 },
+    { label: "Left side view", theta: -Math.PI / 2, phi: Math.PI / 2 },
+    { label: "Right side view", theta: Math.PI / 2, phi: Math.PI / 2 },
     { label: "Top-down view", theta: Math.PI / 4, phi: 0.2 },
   ];
   // Captures a clean screenshot of the live 3D model at each REPORT_ANGLES
