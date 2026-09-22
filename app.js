@@ -4820,7 +4820,11 @@
   // of contents. While on Part 2, this stays on Part 2 and jumps within its
   // own tube classification table (or, for a mounting foot, its plate-size
   // row) rather than switching to Part 1. Same idea on Part 3 -- see
-  // jumpToWeldRow.
+  // jumpToWeldRow. On the normal Part 1 Design view, a bar belonging to a
+  // "choice"/"boolean" element (roof bars, door bars, main structure, ...)
+  // instead cycles that element's own real answer through every option one
+  // click at a time (see elementValueCycle) -- feet/gussets keep their own
+  // dedicated per-row jump instead, handled first, below.
   // Double-clicking a bar in the 3D model toggles it on/off directly for
   // "unambiguous" parts (one ghost mesh maps to exactly one answer), or --
   // for parts shared across multiple design choices (door bars, A-pillar
@@ -5125,17 +5129,20 @@
     if (!elmId) return null;
     return { elementId: elmId, value: getAnswer(elmId).value || null };
   }
-  // Every real value a picture tag can cycle through for an element, in
-  // click order -- lets a specific design (e.g. which of the 8 roof_bars
-  // options, or a sill-bar-less side vs. the other) be picked straight from
-  // the 3D model, without the checklist needing to be answered first.
-  // Ghost bars for an unanswered "choice"/"boolean" element all share the
-  // same CAGE_FILE_OWNER category (there's no distinct mesh per candidate
+  // Every real value clicking can cycle an element through, in click order
+  // -- lets a specific design (e.g. which of the 8 roof_bars options) be
+  // picked straight from the 3D model. Shared by the normal Part 1 click
+  // handler below (cycles the real checklist answer) and picture "Edit
+  // rollcage elements" mode (cycles a picture's tag) -- same list either
+  // way, since it's just every option the element itself offers. Ghost bars
+  // for an unanswered "choice"/"boolean" element all share the same
+  // CAGE_FILE_OWNER category (there's no distinct mesh per candidate
   // option), so repeated clicks on that same area step through this list
-  // instead of a plain in/out toggle. Table categories with no single value
-  // of their own (mounting feet, roof corner gussets) return an empty list
-  // -- resolvePictureCycleClick falls back to a plain toggle for those.
-  function pictureTagCycle(path, elementId) {
+  // instead of jumping straight to one value. Table categories with no
+  // single value of their own (mounting feet, roof corner gussets) return
+  // an empty list and keep their existing dedicated click/double-click
+  // handling instead (see footRowForFile/gussetRowForFile).
+  function elementValueCycle(path, elementId) {
     if (elementId.indexOf(GUSSET_TAG_PREFIX) === 0 && elementId.endsWith(GUSSET_TAG_SUFFIX)) {
       const gussetElm = path.elements.find((e) => e.id === "gusset_design");
       return gussetElm ? gussetElm.columns[0].options.map((o) => o.id) : [];
@@ -5158,7 +5165,7 @@
       if (!tag) return;
       const selected = state.pictureSelectMode.selected;
       const path = RULES[state.vehicle.org].paths[state.pathId];
-      const cycle = pictureTagCycle(path, tag.elementId);
+      const cycle = elementValueCycle(path, tag.elementId);
       if (!cycle.length) {
         // No option list to step through -- plain in/out toggle.
         if (selected.has(tag.elementId)) selected.delete(tag.elementId);
@@ -5206,7 +5213,21 @@
       return;
     }
     const elmId = CAGE_FILE_OWNER[file];
-    if (elmId) jumpToSection(elmId);
+    if (!elmId) return;
+    // Design view: clicking cycles the element's own real answer through
+    // every option (same list/order as picture tagging's cycle, and the
+    // same "start from whatever's already answered" first step) rather
+    // than just jumping to its section -- lets a specific design be picked
+    // straight from the model without opening the form at all. Falls back
+    // to the old jump-only behavior for anything with no option list to
+    // cycle (shouldn't normally happen here -- feet/gussets are already
+    // handled above with their own dedicated click/double-click mapping).
+    const path = RULES[state.vehicle.org].paths[state.pathId];
+    const cycle = elementValueCycle(path, elmId);
+    if (!cycle.length) { jumpToSection(elmId); return; }
+    const current = getAnswer(elmId).value;
+    const nextValue = cycle[(current ? cycle.indexOf(current) : -1) + 1];
+    setAnswer(elmId, { value: nextValue === undefined ? "" : nextValue });
   }
 
   // The View switch lives in the STICKY 3D viewer panel (outside #app, so
@@ -5251,12 +5272,14 @@
   // click would do.
   // Part 1 (Design) hover -- names which design-choice element a bar
   // belongs to, and its current answer, via the SAME CAGE_FILE_OWNER map
-  // handleCagePartClick's own jumpToSection(...) already uses, so hover
+  // handleCagePartClick's own CAGE_FILE_OWNER lookup already uses, so hover
   // and click can never point at different elements for the same bar.
   // Handy for the single-diagonal side-matching rules the safety score
   // now checks (main hoop / roof / backstay) -- seeing each bar's own
   // name and current pick right on the model makes it easy to confirm
-  // which physical side you're actually looking at before answering.
+  // which physical side you're actually looking at before answering. Also
+  // names the click-to-cycle behavior itself for anything with a real
+  // option list, since a click here now changes the answer, not just jumps.
   function designChoiceHoverLabel(file) {
     const elmId = CAGE_FILE_OWNER[file];
     if (!elmId) return null;
@@ -5264,11 +5287,12 @@
     const elm = path && path.elements.find((e) => e.id === elmId);
     if (!elm) return null;
     const answer = getAnswer(elmId);
-    return elm.name + (answer.value ? " — " + elementSummary(elm, answer) : "");
+    const base = elm.name + (answer.value ? " — " + elementSummary(elm, answer) : "");
+    return elementValueCycle(path, elmId).length ? base + " (click to cycle options)" : base;
   }
   // Picture "Edit rollcage elements" mode's own hover label -- names the
   // element/gusset row a bar belongs to AND, crucially, which specific
-  // option the cycle (see pictureTagCycle) currently has it set to, since
+  // option the cycle (see elementValueCycle) currently has it set to, since
   // several candidate designs share the same ghost geometry until one is
   // actually picked and the 3D shape alone isn't always enough to tell them
   // apart while stepping through.
