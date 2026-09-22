@@ -14,7 +14,7 @@
 
   const state = {
     sessionId: null,
-    vehicle: { name: "", org: "nasa", logbookStatus: "new", logbookDate: "" },
+    vehicle: { name: "", org: "nasa", logbookDate: "" },
     pathId: null,
     answers: {}, // elementId -> { value, note, photos: [{name, dataUrl}] }
     pictures: [], // { id, elements: [{elementId, value}], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot } -- image bytes live in IndexedDB, see picture storage below
@@ -60,8 +60,8 @@
 
   function startNew() {
     state.sessionId = uid();
-    state.vehicle = { name: "", org: "nasa", logbookStatus: "new", logbookDate: "" };
-    state.pathId = suggestPath(state.vehicle);
+    state.vehicle = { name: "", org: "nasa", logbookDate: "" };
+    state.pathId = "new_construction";
     state.answers = {};
     state.pictures = [];
     state.homologationPhotos = [];
@@ -75,7 +75,10 @@
     if (!s) return;
     state.sessionId = s.sessionId;
     state.vehicle = s.vehicle;
-    state.pathId = s.pathId;
+    // Older saves could have pathId: null (from the now-removed "Existing
+    // logbook, no date entered yet" bootstrap state) -- fall back to the
+    // only path this app checks against now rather than leaving it null.
+    state.pathId = s.pathId || "new_construction";
     state.answers = s.answers || {};
     // A picture's `elements` array used to hold bare elementId strings
     // (before tags carried their own value) -- normalize any such leftover
@@ -187,29 +190,6 @@
   // holds each picture's own AI-analysis loading/error status.
   let pictureImageCache = {};
   let pictureUiState = {};
-
-  function suggestPath(vehicle) {
-    if (vehicle.logbookStatus === "new") return "new_construction";
-    if (!vehicle.logbookDate) return null;
-    const orgRules = RULES[vehicle.org];
-    if (!orgRules) return null;
-    const cutoff = new Date(orgRules.logbookCutoffDate);
-    const issued = new Date(vehicle.logbookDate);
-    return issued >= cutoff ? "new_construction" : "grandfathered";
-  }
-  // Re-suggests state.pathId from the vehicle's current logbook status/date,
-  // but only actually applies it when suggestPath returns a real answer --
-  // e.g. switching "Logbook status" to "Existing logbook" before a date is
-  // entered yet has nothing to suggest (suggestPath returns null), and
-  // blanking state.pathId at that point would collapse the whole checklist
-  // (and the 3D model) back to the bootstrap screen even though nothing
-  // about the ALREADY-entered answers actually changed -- this info is
-  // meant to pick which ruleset to check against later, not to reset
-  // anything the moment it's touched.
-  function applySuggestedPath() {
-    const suggested = suggestPath(state.vehicle);
-    if (suggested) state.pathId = suggested;
-  }
 
   function getAnswer(id) {
     return state.answers[id] || { value: "", note: "", photos: [], extra: {} };
@@ -809,7 +789,7 @@
       }
       state.sessionId = uid();
       state.vehicle = data.vehicle;
-      state.pathId = data.pathId || null;
+      state.pathId = data.pathId || "new_construction";
       state.answers = data.answers || {};
       saveCurrent();
       render();
@@ -846,7 +826,6 @@
     const lines = [
       { label: "Vehicle / entry name", value: state.vehicle.name || "(unnamed)" },
       { label: "Sanctioning body", value: (RULES[state.vehicle.org] || {}).orgFullName || state.vehicle.org },
-      { label: "Logbook status", value: state.vehicle.logbookStatus === "new" ? "New build" : "Existing logbook" },
     ];
     if (state.vehicle.logbookDate) lines.push({ label: "Logbook issue date", value: state.vehicle.logbookDate });
     VEHICLE_INFO_FIELDS.forEach(({ label, id, map, isWeight }) => {
@@ -1008,30 +987,33 @@
   }
 
   // Every field appendLogbookFields() captures for the actual logbook
-  // paperwork (status/date, certificate #, sanctioning body, logbook
-  // number, which compliance path was checked, homologation route, notes)
-  // -- most of these already show up individually in buildReportVehicleLines
+  // paperwork (sanctioning body, homologation route, certificate #, owner/
+  // builder/inspector contact info, logbook issue date/number, notes) --
+  // most of these already show up individually in buildReportVehicleLines
   // (cover page), but the "Logbook application PDF" (generateLogbookApp
   // licationPdf) wants them all grouped in their own section too, since
   // that's the one meant to actually accompany a real logbook application.
+  // Field order mirrors appendLogbookFields' own top-to-bottom form order.
   function buildReportLogbookApplicationDetails(path) {
     const orgRules = RULES[state.vehicle.org];
-    const lines = [
-      { label: "Logbook status", value: state.vehicle.logbookStatus === "new" ? "New build (logbook not yet issued)" : "Existing logbook" },
-    ];
-    if (state.vehicle.logbookDate) lines.push({ label: "Logbook issue date", value: state.vehicle.logbookDate });
-    const cert = getAnswer("vehicle_certificate_number").value;
-    if (cert) lines.push({ label: "Certificate #, ASN", value: cert });
-    lines.push({ label: "Sanctioning body", value: orgRules.orgFullName });
-    const logbookNumber = getAnswer("vehicle_logbook_number").value;
-    if (logbookNumber) lines.push({ label: "Logbook number", value: logbookNumber });
-    lines.push({ label: "Compliance path checked", value: orgRules.paths[state.pathId].label });
+    const lines = [{ label: "Sanctioning body", value: orgRules.orgFullName }];
     const routeElm = path.elements.find((e) => e.id === "homologation_route");
     const routeAnswer = getAnswer("homologation_route");
     if (routeElm && routeAnswer.value) {
       const opt = (routeElm.options || []).find((o) => o.id === routeAnswer.value);
       lines.push({ label: routeElm.name, value: opt ? opt.label + (opt.note ? " -- " + opt.note : "") : routeAnswer.value });
     }
+    const cert = getAnswer("vehicle_certificate_number").value;
+    if (cert) lines.push({ label: "Certificate #, ASN", value: cert });
+    LOGBOOK_OWNER_FIELDS.concat(LOGBOOK_BUILDER_FIELDS).concat(LOGBOOK_INSPECTOR_FIELDS).forEach(([label, id]) => {
+      const v = getAnswer(id).value;
+      if (v) lines.push({ label, value: v });
+    });
+    const inspectionNotes = getAnswer("vehicle_inspection_notes").value;
+    if (inspectionNotes) lines.push({ label: "Inspection notes", value: inspectionNotes });
+    if (state.vehicle.logbookDate) lines.push({ label: "Logbook issue date", value: state.vehicle.logbookDate });
+    const logbookNumber = getAnswer("vehicle_logbook_number").value;
+    if (logbookNumber) lines.push({ label: "Logbook number", value: logbookNumber });
     const notes = getAnswer("vehicle_description_notes").value;
     if (notes) lines.push({ label: "Notes", value: notes });
     return lines;
@@ -1193,12 +1175,12 @@
     ]);
   }
 
-  function textAnswerField(label, id, placeholder) {
+  function textAnswerField(label, id, placeholder, type) {
     const answer = getAnswer(id);
     return el("div", { class: "field" }, [
       el("label", {}, [label]),
       el("input", {
-        type: "text",
+        type: type || "text",
         value: answer.value || "",
         placeholder: placeholder || "",
         onchange: (e) => setAnswer(id, { value: e.target.value }),
@@ -1234,9 +1216,9 @@
 
   // A small 2-3-option radio field wired to a checklist answer (getAnswer/
   // setAnswer), same access pattern as textAnswerField -- unlike
-  // state.vehicle.* fields (name/org/logbookStatus), which drive app
-  // routing logic directly, this is for vehicle facts other parts of the
-  // app (e.g. renderSafetyScore's driver-side callout) just read back.
+  // state.vehicle.* fields (name/org/logbookDate), which drive app routing
+  // logic directly, this is for vehicle facts other parts of the app (e.g.
+  // renderSafetyScore's driver-side callout) just read back.
   function answerRadioField(label, id, options) {
     const answer = getAnswer(id);
     return el("div", { class: "field" }, [
@@ -1313,11 +1295,10 @@
     root.appendChild(vehiclePanel);
   }
 
-  // Logbook paperwork fields (status/date, certificate #, sanctioning body,
-  // logbook number, compliance path, homologation route, notes) -- appended
-  // into an existing panel element. Shared by the bootstrap screen (no
-  // pathId chosen yet, so no verdict to show) and the merged Logbook section
-  // (renderResults) once a path is active.
+  // Logbook paperwork fields (sanctioning body, homologation route,
+  // certificate #, owner/builder/inspector contact info, logbook issue
+  // date/number, notes) -- appended into Part 6's results panel
+  // (renderResults) below the verdict/score.
   const HOMOLOGATION_PHOTO_LIMIT = 15;
   // Photos of the actual FIA/ASN homologation paperwork -- only relevant
   // when homologation_route === "homologated" (see appendLogbookFields'
@@ -1385,65 +1366,28 @@
     return wrap;
   }
 
+  // Contact-info field ids captured for the logbook application (owner/
+  // builder/inspector) -- plain vehicle_* answers with no evaluationType of
+  // their own, same convention as vehicle_certificate_number/
+  // vehicle_logbook_number above (rendered directly here via textAnswerField,
+  // not part of path.elements). Shared between appendLogbookFields (the
+  // form) and buildReportLogbookApplicationDetails (the PDF section) so the
+  // two can never drift out of sync on labels/ids.
+  const LOGBOOK_OWNER_FIELDS = [
+    ["Owner's Name", "vehicle_owner_name"], ["Owner's Address", "vehicle_owner_address"],
+    ["Owner's Email", "vehicle_owner_email"], ["Owner's Phone", "vehicle_owner_phone"],
+  ];
+  const LOGBOOK_BUILDER_FIELDS = [
+    ["Builder's Name", "vehicle_builder_name"], ["Builder's Address", "vehicle_builder_address"],
+    ["Builder's Email", "vehicle_builder_email"], ["Builder's Phone", "vehicle_builder_phone"],
+  ];
+  const LOGBOOK_INSPECTOR_FIELDS = [
+    ["Inspector Name", "vehicle_inspector_name"], ["Inspector license #", "vehicle_inspector_license"],
+    ["Inspection date", "vehicle_inspection_date"], ["Inspection location", "vehicle_inspection_location"],
+  ];
+
   function appendLogbookFields(logbookPanel) {
-    const statusField = el("div", { class: "field" }, [
-      el("label", {}, ["Logbook status"]),
-      el("div", { class: "radio-group" }, [
-        radioOption("logbookStatus", "new", "New build (logbook not yet issued)", state.vehicle.logbookStatus === "new", (v) => {
-          state.vehicle.logbookStatus = v;
-          state.vehicle.logbookDate = "";
-          applySuggestedPath();
-          saveCurrent();
-          render();
-        }),
-        radioOption("logbookStatus", "existing", "Existing logbook", state.vehicle.logbookStatus === "existing", (v) => {
-          state.vehicle.logbookStatus = v;
-          applySuggestedPath();
-          saveCurrent();
-          render();
-        }),
-      ]),
-    ]);
-
-    const dateField = el("div", { class: "field" }, [
-      el("label", {}, ["Logbook issue date"]),
-      el("input", {
-        type: "date",
-        value: state.vehicle.logbookDate || "",
-        disabled: state.vehicle.logbookStatus !== "existing",
-        oninput: (e) => {
-          state.vehicle.logbookDate = e.target.value;
-          applySuggestedPath();
-          saveCurrent();
-          render();
-        },
-      }),
-    ]);
-
-    logbookPanel.appendChild(el("div", { class: "field-row" }, [statusField, dateField]));
-
     const orgRules = RULES[state.vehicle.org];
-    const suggested = suggestPath(state.vehicle);
-    const activePath = state.pathId && orgRules.paths[state.pathId];
-    const routeElm = activePath && activePath.elements.find((e) => e.id === "homologation_route");
-    const routeAnswer = getAnswer("homologation_route");
-
-    const certAnswer = getAnswer("vehicle_certificate_number");
-    // Only meaningful for a homologated cage (the FIA/ASN certificate # is
-    // what ties it to its homologation papers) -- hidden rather than just
-    // disabled once that's no longer the selected route, since a route
-    // choice further down this same panel is what decides whether it
-    // applies at all.
-    const certField = routeAnswer.value === "homologated"
-      ? el("div", { class: "field" }, [
-          el("label", {}, ["Certificate #, ASN"]),
-          el("input", {
-            type: "text",
-            value: certAnswer.value || "",
-            onchange: (e) => setAnswer("vehicle_certificate_number", { value: e.target.value }),
-          }),
-        ])
-      : null;
 
     const orgSelect = el("select", {
       onchange: (e) => {
@@ -1455,7 +1399,7 @@
         // will now show as a fail/needs-review, via elementStatus/
         // tubingStatus's existing "unrecognized value" handling).
         if (!RULES[state.vehicle.org].paths[state.pathId]) {
-          state.pathId = suggestPath(state.vehicle);
+          state.pathId = "new_construction";
         }
         setAnswer("vehicle_logbook_body", { value: e.target.value });
         saveCurrent();
@@ -1467,39 +1411,15 @@
       if (state.vehicle.org === orgKey) opt.selected = true;
       orgSelect.appendChild(opt);
     });
-    const orgField = el("div", { class: "field" }, [el("label", {}, ["Logbook sanctioning body"]), orgSelect]);
+    logbookPanel.appendChild(el("div", { class: "field" }, [el("label", {}, ["Sanctioning body"]), orgSelect]));
 
-    const logbookNumberAnswer = getAnswer("vehicle_logbook_number");
-    const logbookNumberField = el("div", { class: "field" }, [
-      el("label", {}, ["Logbook number"]),
-      el("input", {
-        type: "text",
-        value: logbookNumberAnswer.value || "",
-        onchange: (e) => setAnswer("vehicle_logbook_number", { value: e.target.value }),
-      }),
-    ]);
-
-    logbookPanel.appendChild(el("div", { class: "field-row" }, [certField, orgField, logbookNumberField]));
-
-    const pathField = el("div", { class: "field" }, [
-      el("label", {}, ["Compliance path to check against"]),
-      el("div", { class: "radio-group" }, [
-        radioOption("pathId", "new_construction", orgRules.paths.new_construction.label, state.pathId === "new_construction", (v) => {
-          state.pathId = v;
-          saveCurrent();
-          render();
-        }),
-        radioOption("pathId", "grandfathered", orgRules.paths.grandfathered.label, state.pathId === "grandfathered", (v) => {
-          state.pathId = v;
-          saveCurrent();
-          render();
-        }),
-      ]),
-      suggested
-        ? el("div", { class: "path-suggestion" }, ["Suggested based on logbook date/status: " + orgRules.paths[suggested].label])
-        : el("div", { class: "path-suggestion" }, ["Enter a logbook date, or choose 'new build', to get a suggestion."]),
-    ]);
-    logbookPanel.appendChild(pathField);
+    // This app only checks new-construction compliance now -- grandfathering
+    // and cross-sanctioning-body compliance are handled in PassTech instead,
+    // so there's no path to pick here; state.pathId is always
+    // "new_construction" (see startNew/loadSession).
+    const path = orgRules.paths[state.pathId];
+    const routeElm = path.elements.find((e) => e.id === "homologation_route");
+    const routeAnswer = getAnswer("homologation_route");
 
     if (routeElm) {
       const routeField = el("div", { class: "field" });
@@ -1531,9 +1451,82 @@
       logbookPanel.appendChild(routeField);
     }
 
+    // Only meaningful for a homologated cage (the FIA/ASN certificate # is
+    // what ties it to its homologation papers) -- hidden rather than just
+    // disabled once that's no longer the selected route, since the route
+    // choice above is what decides whether it applies at all.
     if (routeAnswer.value === "homologated") {
+      const certAnswer = getAnswer("vehicle_certificate_number");
+      logbookPanel.appendChild(
+        el("div", { class: "field" }, [
+          el("label", {}, ["Certificate #, ASN"]),
+          el("input", {
+            type: "text",
+            value: certAnswer.value || "",
+            onchange: (e) => setAnswer("vehicle_certificate_number", { value: e.target.value }),
+          }),
+        ])
+      );
       logbookPanel.appendChild(renderHomologationPhotosField());
     }
+
+    logbookPanel.appendChild(el("div", { class: "category-heading" }, ["Owner information"]));
+    for (let i = 0; i < LOGBOOK_OWNER_FIELDS.length; i += 2) {
+      logbookPanel.appendChild(
+        el("div", { class: "field-row" }, LOGBOOK_OWNER_FIELDS.slice(i, i + 2).map(([label, id]) => textAnswerField(label, id)))
+      );
+    }
+
+    logbookPanel.appendChild(el("div", { class: "category-heading" }, ["Builder information"]));
+    for (let i = 0; i < LOGBOOK_BUILDER_FIELDS.length; i += 2) {
+      logbookPanel.appendChild(
+        el("div", { class: "field-row" }, LOGBOOK_BUILDER_FIELDS.slice(i, i + 2).map(([label, id]) => textAnswerField(label, id)))
+      );
+    }
+
+    logbookPanel.appendChild(el("div", { class: "category-heading" }, ["Inspector information"]));
+    logbookPanel.appendChild(
+      el("div", { class: "field-row" }, [
+        textAnswerField(LOGBOOK_INSPECTOR_FIELDS[0][0], LOGBOOK_INSPECTOR_FIELDS[0][1]),
+        textAnswerField(LOGBOOK_INSPECTOR_FIELDS[1][0], LOGBOOK_INSPECTOR_FIELDS[1][1]),
+      ])
+    );
+    logbookPanel.appendChild(
+      el("div", { class: "field-row" }, [
+        textAnswerField(LOGBOOK_INSPECTOR_FIELDS[2][0], LOGBOOK_INSPECTOR_FIELDS[2][1], "", "date"),
+        textAnswerField(LOGBOOK_INSPECTOR_FIELDS[3][0], LOGBOOK_INSPECTOR_FIELDS[3][1]),
+      ])
+    );
+    const inspectionNotesAnswer = getAnswer("vehicle_inspection_notes");
+    const inspectionNotesInput = el("textarea", {
+      class: "note-input",
+      placeholder: "Inspection notes...",
+      onchange: (e) => setAnswer("vehicle_inspection_notes", { value: e.target.value }),
+    });
+    inspectionNotesInput.value = inspectionNotesAnswer.value || "";
+    logbookPanel.appendChild(el("div", { class: "field" }, [el("label", {}, ["Inspection notes"]), inspectionNotesInput]));
+
+    const dateField = el("div", { class: "field" }, [
+      el("label", {}, ["Logbook issue date"]),
+      el("input", {
+        type: "date",
+        value: state.vehicle.logbookDate || "",
+        oninput: (e) => {
+          state.vehicle.logbookDate = e.target.value;
+          saveCurrent();
+        },
+      }),
+    ]);
+    const logbookNumberAnswer = getAnswer("vehicle_logbook_number");
+    const logbookNumberField = el("div", { class: "field" }, [
+      el("label", {}, ["Logbook number"]),
+      el("input", {
+        type: "text",
+        value: logbookNumberAnswer.value || "",
+        onchange: (e) => setAnswer("vehicle_logbook_number", { value: e.target.value }),
+      }),
+    ]);
+    logbookPanel.appendChild(el("div", { class: "field-row" }, [dateField, logbookNumberField]));
 
     const notesAnswer = getAnswer("vehicle_description_notes");
     const notesInput = el("textarea", {
@@ -5960,18 +5953,6 @@
     renderSessionBar(root);
 
     renderVehicleDescription(root);
-
-    if (!state.pathId) {
-      const logbookPanel = el("div", { class: "panel" });
-      logbookPanel.appendChild(el("h2", {}, ["Logbook"]));
-      logbookPanel.appendChild(
-        el("div", {}, ["Select logbook status / date below (or choose a path directly) to load the checklist."])
-      );
-      appendLogbookFields(logbookPanel);
-      root.appendChild(logbookPanel);
-      syncCageView();
-      return;
-    }
 
     const path = RULES[state.vehicle.org].paths[state.pathId];
     // Logbook (verdict for the selected sanctioning body, merged with its
