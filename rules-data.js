@@ -211,7 +211,7 @@
     {
       id: "cage_within_suspension_points",
       name: "Cage within suspension mounting points",
-      category: "1. Installation constraints",
+      category: "Installation constraints",
       hideNotes: true,
       requirement: "required",
       reference: "",
@@ -226,7 +226,7 @@
     {
       id: "installation_constraints",
       name: "Installation constraints",
-      category: "1. Installation constraints",
+      category: "Installation constraints",
       requirement: "required",
       reference: "",
       description: "Dimensional limits controlling cockpit encroachment and windshield projection. A/B/C/H/E measured per Drawing 253-49; R1/R2 measured per Drawing 253-48.",
@@ -248,7 +248,7 @@
     {
       id: "a_pillar_dimension_a",
       name: "253-15 Windscreen pillar reinforcement dimension A",
-      category: "1. Installation constraints",
+      category: "Installation constraints",
       hideNotes: true,
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1.4",
@@ -265,7 +265,7 @@
     {
       id: "windshield_measurements",
       name: "253-15 windscreen pillar reinforcement straightness and bend angle",
-      category: "1. Installation constraints",
+      category: "Installation constraints",
       requirement: "required",
       reference: "",
       // # sections (1 vs 2 piece) is already captured by a_pillar_reinforcement
@@ -1609,7 +1609,7 @@
     {
       id: "door_9_2bar_dims",
       name: "Dimensions -- 2-bar configurations",
-      category: "5.1. Door bars -- 253-9 (X bar design)",
+      category: "Door bars -- 253-9 (X bar design)",
       requirement: "required", reference: "", description: "",
       showIf: DOOR_9BENT_SHOWIF,
       evaluationType: "table",
@@ -2238,7 +2238,7 @@
     {
       id: "seat_mount_type_driver",
       name: "Driver seat mount type",
-      category: "9. Seat mounting points",
+      category: "Seat mounting points",
       requirement: "required",
       reference: "",
       description: "Stock mounting points need no further capture. 253-65 (chassis shell) and 253-65B (traverse crossmember) each have their own minimum plate/tubing spec, captured below once chosen.",
@@ -2254,7 +2254,7 @@
     {
       id: "seat_mount_type_codriver",
       name: "Codriver seat mount type",
-      category: "9. Seat mounting points",
+      category: "Seat mounting points",
       requirement: "required",
       reference: "",
       description: "Stock mounting points need no further capture. 253-65 (chassis shell) and 253-65B (traverse crossmember) each have their own minimum plate/tubing spec, captured below once chosen.",
@@ -2271,7 +2271,7 @@
     {
       id: "seat_mount_shell",
       name: "Seat mounting points -- 253-65 chassis shell mount",
-      category: "9. Seat mounting points",
+      category: "Seat mounting points",
       requirement: "conditional",
       reference: "",
       description: "4 points per occupant, 40cm2 backing plate min, 3mm thickness min, for each.",
@@ -2303,7 +2303,7 @@
     {
       id: "seat_mount_crossmember",
       name: "Seat mounting points -- 253-65B traverse crossmember",
-      category: "9. Seat mounting points",
+      category: "Seat mounting points",
       requirement: "conditional",
       reference: "",
       description: "One crossmember per occupant, front and rear, square tubing min 35x2.5mm (1.38x0.098in), mounted via its own end plates.",
@@ -2331,7 +2331,7 @@
     {
       id: "seat_angle_location",
       name: "Seat angle and location",
-      category: "9. Seat mounting points",
+      category: "Seat mounting points",
       requirement: "recommended",
       reference: "",
       description: "Most Model 20 HANS devices used in saloon cars need a backrest angle of about 20 degrees from vertical. Minimum 90mm between the inside of the seat backrest and the rollbar.",
@@ -2362,7 +2362,7 @@
     {
       id: "belt_shoulder_mount",
       name: "Shoulder belt anchoring points",
-      category: "10. Belt anchoring points",
+      category: "Belt anchoring points",
       requirement: "required",
       reference: "",
       description: "Anchoring point can be S (stock), HB (harness bar), or N (new point, mounted on the shell as near as possible to the centerline of the rear wheels).",
@@ -2385,7 +2385,7 @@
     {
       id: "belt_lap_mount",
       name: "Lap belt anchoring points",
-      category: "10. Belt anchoring points",
+      category: "Belt anchoring points",
       requirement: "required",
       reference: "",
       description: "Can re-use stock mounting points if they don't interfere with the cage. New points must be on the chassis shell, not rollcage bars.",
@@ -2408,7 +2408,7 @@
     {
       id: "belt_anti_submarine_points",
       name: "Anti-submarine belt point count",
-      category: "10. Belt anchoring points",
+      category: "Belt anchoring points",
       hideNotes: true,
       requirement: "required",
       reference: "",
@@ -2424,7 +2424,7 @@
     {
       id: "belt_five_point_mount",
       name: "5-point belt anchoring points",
-      category: "10. Belt anchoring points",
+      category: "Belt anchoring points",
       requirement: "required", reference: "", description: "",
       showIf: { id: "belt_anti_submarine_points", equals: "five" },
       evaluationType: "table",
@@ -2442,7 +2442,7 @@
     {
       id: "belt_six_point_mount",
       name: "6-point belt anchoring points",
-      category: "10. Belt anchoring points",
+      category: "Belt anchoring points",
       requirement: "required", reference: "", description: "",
       showIf: [{ id: "belt_anti_submarine_points", in: ["six", "seven"] }],
       evaluationType: "table",
@@ -2463,7 +2463,7 @@
     {
       id: "belt_seven_point_mount",
       name: "7th point belt anchoring point",
-      category: "10. Belt anchoring points",
+      category: "Belt anchoring points",
       requirement: "required", reference: "", description: "Fill up the 6-point belt anchoring points first, then add the 7th point here.",
       showIf: { id: "belt_anti_submarine_points", equals: "seven" },
       evaluationType: "table",
@@ -2488,10 +2488,11 @@
     {
       id: "belt_shoulder_distance_angle",
       name: "Shoulder belt distance and horizontal angle (253-61c)",
-      category: "10b. Belt anchor distances and angles",
+      category: "Belt anchor distances and angles",
       requirement: "required",
       reference: "253-61c",
       description: "Pivot point distance from the seat back, and the strap's own angle below horizontal -- the same measurement on both the left and right strap, so captured once per occupant rather than per side.",
+      diagram: "253-61c",
       evaluationType: "table",
       rows: (getAnswer) => beltRows(getAnswer, [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }]),
       columns: [
@@ -2504,10 +2505,11 @@
     {
       id: "belt_shoulder_strap_angle",
       name: "Shoulder belt angle between straps (253-61d)",
-      category: "10b. Belt anchor distances and angles",
+      category: "Belt anchor distances and angles",
       requirement: "required",
       reference: "253-61d",
       description: "The angle where the left and right shoulder straps converge, viewed from behind -- one shared angle per occupant, not measured per side.",
+      diagram: "253-61d",
       evaluationType: "table",
       rows: (getAnswer) => beltRows(getAnswer, [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }]),
       columns: [{ key: "strap_angle", label: "Angle between straps -- 253-61d (20-25 deg)", type: "number", compare: { op: "between", min: 20, max: 25 } }],
@@ -2517,23 +2519,24 @@
     {
       id: "belt_lap_distance_angle",
       name: "Lap belt angle",
-      category: "10b. Belt anchor distances and angles",
+      category: "Belt anchor distances and angles",
       requirement: "required",
       reference: "",
       description: "",
+      diagram: "lap-belt-angle",
       evaluationType: "table",
       rows: (getAnswer) => beltRows(getAnswer, [
         { id: "driver_left", label: "Driver left" }, { id: "driver_right", label: "Driver right" },
         { id: "codriver_left", label: "Codriver left" }, { id: "codriver_right", label: "Codriver right" },
       ]),
-      columns: [{ key: "belt_angle", label: "Belt angle (20-70 deg)", type: "number", compare: { op: "between", min: 20, max: 70 } }],
+      columns: [{ key: "belt_angle", label: "Belt angle (10-70 deg)", type: "number", compare: { op: "between", min: 10, max: 70 } }],
       visuallyVerifiable: false,
       hardFail: true,
     },
     {
       id: "belt_five_point_angle",
       name: "5-point belt angle",
-      category: "10b. Belt anchor distances and angles",
+      category: "Belt anchor distances and angles",
       requirement: "required", reference: "", description: "",
       showIf: { id: "belt_anti_submarine_points", equals: "five" },
       evaluationType: "table",
@@ -2544,9 +2547,10 @@
     {
       id: "belt_six_point_angle",
       name: "6-point belt spacing and angle",
-      category: "10b. Belt anchor distances and angles",
+      category: "Belt anchor distances and angles",
       requirement: "required", reference: "", description: "Same spacing and angle on both the left and right anchor, so captured once per occupant rather than per side.",
       showIf: [{ id: "belt_anti_submarine_points", in: ["six", "seven"] }],
+      diagram: "belt-six-point-spacing-angle",
       evaluationType: "table",
       rows: (getAnswer) => beltRows(getAnswer, [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }]),
       columns: [
@@ -2563,7 +2567,7 @@
     {
       id: "belt_seven_point_angle",
       name: "7th point belt angle",
-      category: "10b. Belt anchor distances and angles",
+      category: "Belt anchor distances and angles",
       requirement: "required", reference: "", description: "Fill up the 6-point belt spacing/angle first, then add the 7th point here.",
       showIf: { id: "belt_anti_submarine_points", equals: "seven" },
       evaluationType: "table",
@@ -2576,7 +2580,7 @@
     {
       id: "routing_of_lines",
       name: "Routing of lines",
-      category: "11. Routing of lines",
+      category: "Routing of lines",
       requirement: "required",
       reference: "FIA Article 253",
       description: "Inside the cockpit, the passage of electric cables, fluid lines (except windscreen washer fluid), and fire-suppression-system lines between the bodyshell's side members and the safety cage is forbidden.",
@@ -2657,7 +2661,7 @@
         element: {
           id: "tube_sample_documentation",
           name: "Material certificate and tube sample",
-          category: "2.4. Welds",
+          category: "Welds",
           requirement: "required",
           reference: "CARS NRR 12.3.2.5",
           description: "A material certificate or original sales receipt detailing the tubing material must be presented. For every tube size used in the cage, an unpainted sample section 45cm long and bent 60 degrees must be presented as part of the initial log book inspection.",

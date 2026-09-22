@@ -258,5 +258,11 @@
   D["253-15-straight"] = wrapImg("253-15_straight_side_view.png");
   D["253-15-bend-angle-only"] = wrapImg("253-15_bend_angle.png");
 
+  // ---- Belt anchor distances and angles (Part 5) ----
+  D["253-61c"] = wrapImg("253-61c.png");
+  D["253-61d"] = wrapImg("253-61d.png");
+  D["belt-six-point-spacing-angle"] = wrapImg("belt_six_point_spacing_angle.png");
+  D["lap-belt-angle"] = wrapImg("lap_belt_angle.png");
+
   window.DIAGRAMS = D;
 })();
