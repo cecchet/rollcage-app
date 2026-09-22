@@ -2603,7 +2603,7 @@
   const FIA_253_DOCUMENT_BASE = [
     { id: "homologation_route", name: "Construction route", category: "Logbook", requirement: "required", reference: "2020 FIA 253 Ch.8", description: "Is this cage FIA/ASN homologated (exact, unmodified match to homologation papers), or a custom build to 2020 FIA Appendix J Article 253 Chapter 8?", evaluationType: "choice", isRoutingQuestion: true, options: [
       { id: "homologated", label: "FIA/ASN homologated", note: "Rest of this checklist does not apply; verify against homologation papers instead.", outcome: "exempt" },
-      { id: "fabricated", label: "FIA 253 Ch.8 custom build", note: "Continue through the checklist below.", outcome: "pass" },
+      { id: "fabricated", label: "FIA 253 Ch.8 custom build", outcome: "pass" },
     ], visuallyVerifiable: false, hardFail: true, hardFailMessage: "No construction route selected or homologation papers not available for a claimed-homologated cage." },
   ]
     .concat(SECTION_1_VEHICLE)
