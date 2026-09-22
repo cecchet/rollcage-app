@@ -330,6 +330,13 @@
     }
     // boolean / attestation share yes/no/unsure
     if (answer.value === "yes") return "pass";
+    // A "recommended" boolean can declare recommendedIf(getAnswer) to gate
+    // whether it's actually worth recommending right now (e.g.
+    // anti_intrusion_present is only a real recommendation on a pre-2002
+    // car; lower_main_hoop_bar_present never is) -- when it says no, "No"/
+    // "unsure"/blank are all just normal answers here, not something to
+    // flag in the Logbook's advisory list.
+    if (el.recommendedIf && !el.recommendedIf(getAnswer)) return "neutral";
     if (answer.value === "no") return el.requirement === "recommended" ? "warn" : "fail";
     if (answer.value === "unsure") return "warn";
     return el.requirement === "recommended" ? "neutral" : "warn";

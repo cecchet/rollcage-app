@@ -129,6 +129,17 @@
   const DISTANCE_COLUMNS = [
     { key: "distance", label: "Distance from junction (<100mm/3.94in)", type: "length", compare: { op: "lt", value: 100 } },
   ];
+  // A car's manufacture year (vehicle_year, free text -- not the logbook
+  // issue date used for grandfathering routing) parsed as best-effort
+  // digits. Shared by anti_intrusion_present's recommendedIf below and
+  // app.js's computeSafetyScoreRows (its own pre-2002 anti-intrusion-bar
+  // recommendation row) -- duplicated as a function rather than shared
+  // state since rules-data.js has no access to app.js's own getAnswer.
+  function vehicleManufactureYear(getAnswer) {
+    const m = /\b(19|20)\d{2}\b/.exec(getAnswer("vehicle_year").value || "");
+    return m ? parseInt(m[0], 10) : null;
+  }
+
   // ---- Merge helpers -------------------------------------------------
   // Applies a per-org patch object to the shared FIA base element list.
   // A patch may set/override any plain field, patch individual options by
@@ -1846,6 +1857,10 @@
       name: "Lower main hoop bar (253-30) present",
       category: "Optional bars",
       requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253", description: "Optional bar across the bottom of the main hoop.",
+      // Purely optional with no rule of thumb favoring it either way --
+      // unlike anti_intrusion_present below, there's no condition under
+      // which "No" should actually flag as an advisory to reconsider.
+      recommendedIf: () => false,
       evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -1969,6 +1984,15 @@
       // Doesn't apply to a half rollcage -- there's no front suspension
       // top mounting area within reach without front structure.
       showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
+      // Only actually worth recommending on an older car (same pre-2002
+      // cutoff, and the same best-effort vehicle_year parse, as the safety
+      // score's own "253-25 anti-intrusion bars (pre-2002 car)" row in
+      // app.js's computeSafetyScoreRows) -- "No" on a 2002+ car (or one
+      // with no parseable year) is a normal answer, not something to flag.
+      recommendedIf: (getAnswer) => {
+        const year = vehicleManufactureYear(getAnswer);
+        return year !== null && year < 2002;
+      },
       evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
     },
     {
