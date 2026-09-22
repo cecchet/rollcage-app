@@ -1025,6 +1025,18 @@
     theta = Math.PI / 4; phi = Math.PI / 4; roll = 0;
     fitCamera();
   }
+  // Lets app.js (the PDF report's multi-angle capture) point the camera at
+  // an arbitrary preset orbit position from outside this module -- same
+  // theta/phi/roll this file already drives drag-to-rotate with (see the
+  // Z-is-up comment on updateCamera above for what each one means), just
+  // settable directly instead of only via mouse/touch drag. fitCamera()
+  // re-centers on the current mesh bounds the same way resetView() does, so
+  // this still frames the whole model correctly regardless of what's
+  // currently shown/hidden.
+  function setOrbit(thetaRad, phiRad, rollRad) {
+    theta = thetaRad; phi = phiRad; roll = rollRad || 0;
+    fitCamera();
+  }
 
   function onPartClick(cb) { partClickCb = cb; }
   function onPartDoubleClick(cb) { partDoubleClickCb = cb; }
@@ -1074,7 +1086,7 @@
     const mesh = meshes[file];
     return mesh ? meshAxisBounds(mesh) : null;
   }
-  window.CageView = { init, applyState, resetView, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles };
+  window.CageView = { init, applyState, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");

@@ -27,6 +27,7 @@
     showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
     showDriver: true, // UI-only: whether the driver/codriver mannequins show, or are hidden to see the cage behind them
     aiAnalysis: { accepted: {} }, // UI-only, never persisted -- checked-but-not-yet-applied rows in renderPictureComparePanel()
+    pdfReportStatus: "idle", // UI-only: "idle" | "generating" -- see generatePdfReport()
   };
 
   function uid() {
@@ -769,6 +770,216 @@
     reader.readAsText(file);
   }
 
+  // ---- PDF report --------------------------------------------------------
+  // Assembles a plain data object (no DOM, no app.js internals) and hands it
+  // to pdf_report.js's generate() -- see that file's own generate() doc
+  // comment for the exact shape. Reuses the same data the live checklist
+  // already computes (computeUsedPhases/computeResults/
+  // computeSafetyScoreRows/resolvePictureTagTarget) rather than re-deriving
+  // any of it, so the report can never drift from what's on screen.
+
+  // vehicle_* answers with no evaluationType/options of their own (plain
+  // textAnswerField/answerRadioField fields on the Vehicle description
+  // panel, not path.elements entries -- see renderVehicleDescription) --
+  // map is for the 2 radio fields, whose stored value is a raw id.
+  const VEHICLE_INFO_FIELDS = [
+    { label: "Manufacturer", id: "vehicle_manufacturer" },
+    { label: "Model", id: "vehicle_model" },
+    { label: "Year", id: "vehicle_year" },
+    { label: "VIN", id: "vehicle_vin" },
+    { label: "Rollcage builder", id: "vehicle_builder" },
+    { label: "Build date", id: "vehicle_build_date" },
+    { label: "Vehicle weight", id: "vehicle_weight" },
+    { label: "Drive configuration", id: "vehicle_drive_side", map: { lhd: "Left-hand drive", rhd: "Right-hand drive" } },
+    { label: "Occupants", id: "vehicle_codriver", map: { no: "Driver only", yes: "Driver + Codriver" } },
+    { label: "Certificate number", id: "vehicle_certificate_number" },
+    { label: "Logbook number", id: "vehicle_logbook_number" },
+  ];
+  function buildReportVehicleLines() {
+    const lines = [
+      { label: "Vehicle / entry name", value: state.vehicle.name || "(unnamed)" },
+      { label: "Sanctioning body", value: (RULES[state.vehicle.org] || {}).orgFullName || state.vehicle.org },
+      { label: "Logbook status", value: state.vehicle.logbookStatus === "new" ? "New build" : "Existing logbook" },
+    ];
+    if (state.vehicle.logbookDate) lines.push({ label: "Logbook issue date", value: state.vehicle.logbookDate });
+    VEHICLE_INFO_FIELDS.forEach(({ label, id, map }) => {
+      const v = getAnswer(id).value;
+      if (v) lines.push({ label, value: (map && map[v]) || v });
+    });
+    return lines;
+  }
+
+  // Generic per-cell value formatter for a table row, reusing the same
+  // col.type/col.options conventions every table element already uses
+  // (tableCellStatus, renderTableElement) -- a "boolean"/"radio"/"select"
+  // cell resolves to its label, a length/area dim field ({val,unit}) joins
+  // its two parts, anything else is used as-is.
+  function reportCellValue(col, answer) {
+    const v = answer.value;
+    if (v === "" || v === undefined || v === null) return "";
+    if (col.type === "boolean") return v === "yes" ? "Yes" : v === "no" ? "No" : String(v);
+    if (col.type === "radio" || col.type === "select") {
+      const opt = (col.options || []).find((o) => o.id === v);
+      return opt ? opt.label : String(v);
+    }
+    if (v && typeof v === "object" && "val" in v) return v.val === "" ? "" : v.val + (v.unit ? " " + v.unit : "");
+    return String(v);
+  }
+  function buildReportRow(elm) {
+    const answer = getAnswer(elm.id);
+    if (elm.evaluationType === "table") {
+      if (elm.distanceQuickCheck && getAnswer(distanceQuickCheckId(elm)).value === "yes") {
+        return { kind: "table", label: elm.name, subRows: [{ label: "All rows", value: "Confirmed under 100mm (quick-check)" }] };
+      }
+      const subRows = [];
+      resolveRows(elm).forEach((row) => {
+        elm.columns.forEach((col) => {
+          if (col.optional) return;
+          const cellAnswer = getAnswer(tableCellId(elm, row, col));
+          const value = reportCellValue(col, cellAnswer);
+          if (!value) return; // skip genuinely blank cells so the report stays readable
+          subRows.push({ label: row.label + (elm.columns.length > 1 ? " — " + col.label : ""), value });
+        });
+      });
+      return { kind: "table", label: elm.name, subRows };
+    }
+    return { kind: "element", label: elm.name, value: answer.value ? elementSummary(elm, answer) : "" };
+  }
+  function buildReportParts(path) {
+    const { phases, usedPhases } = computeUsedPhases(path);
+    return usedPhases
+      .filter((p) => p !== LOGBOOK_PHASE) // Logbook has no element cards of its own -- see buildReportLogbook
+      .map((p) => {
+        const byCategory = {};
+        phases[p].forEach((elm) => { (byCategory[elm.category] = byCategory[elm.category] || []).push(elm); });
+        const categories = Object.keys(byCategory).map((cat) => ({ name: cat, rows: byCategory[cat].map(buildReportRow) }));
+        return { phaseLabel: PHASE_LABELS[p], categories };
+      });
+  }
+  function buildReportLogbook(path) {
+    const results = computeResults(path);
+    return {
+      verdictLabel: results.verdict.label,
+      verdictDetail: results.verdict.detail,
+      verdictLevel: results.verdict.level,
+      requiredTotal: results.requiredTotal,
+      requiredSatisfied: results.requiredSatisfied,
+      failures: results.failures.map((e) => e.name),
+      unresolved: results.unresolved.map((e) => e.name),
+      advisories: results.advisories.map((e) => e.name),
+    };
+  }
+  function buildReportSafetyScore(path) {
+    const { rows, totalPoints, ratedRows } = computeSafetyScoreRows(path);
+    return { rows: rows.map((r) => ({ label: r.label, valueText: r.valueText, tier: r.tier, points: r.points })), totalPoints, ratedRows };
+  }
+  async function buildReportPictures(path) {
+    const out = [];
+    for (const pic of state.pictures) {
+      const rec = await getPictureRecord(pic.id).catch(() => null);
+      const tags = pic.elements.map((tag) => {
+        const target = resolvePictureTagTarget(path, tag.elementId);
+        if (!target) return tag.elementId;
+        return tag.value ? target.name + ": " + elementSummary(target, { value: tag.value }) : target.name;
+      });
+      out.push({ photoDataUrl: rec && rec.photo, screenshotDataUrl: rec && rec.screenshot, tags });
+    }
+    return out;
+  }
+
+  // Repaint timing after setOrbit() turns out not to be reliably fast (or
+  // even reliably rAF-driven -- observed taking noticeably longer than one
+  // frame in some environments) -- rather than guess a fixed delay long
+  // enough everywhere, poll toDataURL() itself until it actually differs
+  // from the pre-move capture, proving a real repaint happened, with a
+  // capped number of attempts (plain setTimeout, not requestAnimationFrame,
+  // since rAF can be paused outright while the tab/pane isn't visible and
+  // would hang this indefinitely).
+  async function waitForCanvasRepaint(canvas, priorDataUrl) {
+    for (let i = 0; i < 15; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const current = canvas.toDataURL("image/png");
+      if (current !== priorDataUrl) return current;
+    }
+    return canvas.toDataURL("image/png"); // gave up -- whatever's there is better than hanging forever
+  }
+  // 4-5 orbit presets spanning the model so every side of the cage shows up
+  // somewhere in the report -- theta/phi straight from cage_view.js's own
+  // orbit convention (see setOrbit's comment there: Z is up, phi=0 looks
+  // straight down, phi=90deg is a level view). Labels are deliberately
+  // generic ("View" + a rough position) rather than claiming a specific
+  // "front"/"rear" -- this model's own front/rear orientation isn't
+  // established anywhere in code, so guessing it here risked mislabeling.
+  const REPORT_ANGLES = [
+    { label: "Three-quarter view A", theta: Math.PI / 4, phi: Math.PI / 4 },
+    { label: "Three-quarter view B", theta: (3 * Math.PI) / 4, phi: Math.PI / 4 },
+    { label: "Three-quarter view C", theta: -Math.PI / 4, phi: Math.PI / 4 },
+    { label: "Three-quarter view D", theta: (-3 * Math.PI) / 4, phi: Math.PI / 4 },
+    { label: "Top-down view", theta: Math.PI / 4, phi: 0.2 },
+  ];
+  // Captures a clean screenshot of the live 3D model at each REPORT_ANGLES
+  // orbit -- ghost bars and the driver/co-driver hidden throughout, per the
+  // user's request, using the same toggles the header's own "Hide ghost
+  // bars"/"Hide driver" buttons already drive (state.showGhostBars/
+  // showDriver), and the SAME canvas.toDataURL() technique the picture-
+  // tagging "Select element" screenshot capture already uses (see
+  // finishPictureSelectMode). Restores the viewer to exactly how it was
+  // (toggles + camera) once done, so generating a report never leaves the
+  // live view in a different state than before.
+  async function captureReportAngles() {
+    if (!window.CageView) return [];
+    const canvas = document.querySelector("#cageViewerContainer canvas");
+    if (!canvas) return [];
+    const prevGhost = state.showGhostBars;
+    const prevDriver = state.showDriver;
+    state.showGhostBars = false;
+    state.showDriver = false;
+    syncCageView();
+    let lastDataUrl = await waitForCanvasRepaint(canvas, canvas.toDataURL("image/png"));
+    const shots = [];
+    for (const angle of REPORT_ANGLES) {
+      window.CageView.setOrbit(angle.theta, angle.phi, 0);
+      lastDataUrl = await waitForCanvasRepaint(canvas, lastDataUrl);
+      shots.push({ label: angle.label, dataUrl: lastDataUrl });
+    }
+    state.showGhostBars = prevGhost;
+    state.showDriver = prevDriver;
+    syncCageView();
+    window.CageView.resetView();
+    return shots;
+  }
+
+  async function generatePdfReport() {
+    if (!state.pathId || !RULES[state.vehicle.org] || !RULES[state.vehicle.org].paths[state.pathId]) return;
+    if (!window.jspdf || !window.PdfReport) {
+      alert("PDF report library failed to load -- check your connection and reload the page.");
+      return;
+    }
+    state.pdfReportStatus = "generating";
+    render();
+    try {
+      const path = RULES[state.vehicle.org].paths[state.pathId];
+      const angleImages = await captureReportAngles();
+      const pictures = await buildReportPictures(path);
+      window.PdfReport.generate({
+        filename: (state.vehicle.name || "rollcage") + "-report.pdf",
+        generatedAt: new Date().toLocaleString(),
+        vehicleLines: buildReportVehicleLines(),
+        angleImages,
+        parts: buildReportParts(path),
+        logbook: buildReportLogbook(path),
+        pictures,
+        safetyScore: buildReportSafetyScore(path),
+      });
+    } catch (e) {
+      console.error("PDF report generation failed", e);
+      alert("Report generation failed: " + e.message);
+    } finally {
+      state.pdfReportStatus = "idle";
+      render();
+    }
+  }
+
   function renderSessionBar(root) {
     const all = loadAll();
     const select = el("select", {
@@ -821,6 +1032,11 @@
         ]),
         el("div", { class: "session-bar-group" }, [
           el("button", { class: "btn small secondary", onclick: saveWithFlash }, [state.justSaved ? "Saved ✓" : "Save"]),
+          el(
+            "button",
+            { class: "btn small secondary", disabled: state.pdfReportStatus === "generating" || !state.pathId, onclick: generatePdfReport },
+            [state.pdfReportStatus === "generating" ? "Generating report…" : "PDF report"]
+          ),
           el("button", { class: "btn small secondary", onclick: exportSessionToFile }, ["Export to file"]),
           el("button", { class: "btn small secondary", onclick: () => importInput.click() }, ["Import from file"]),
           importInput,
@@ -2577,15 +2793,14 @@
     windshield_reinforcement_present: optionalBarSafetyTier,
   };
 
-  function renderSafetyScore(root, path) {
-    const panel = el("div", { class: "panel", id: "safety-score-panel" });
-    panel.appendChild(el("h2", {}, ["Safety score"]));
-    panel.appendChild(
-      el("div", { class: "safety-score-placeholder" }, [
-        "First-pass, provisional ratings below (green/orange/red, worth 5/2/0 points) per a set of safety rules of thumb -- independent of any specific sanctioning body's requirements. A few known-bad designs are worth negative points instead of the flat red floor. Not every element is rated yet, and the point values themselves are still early and subject to change.",
-      ])
-    );
-
+  // Pure computation half of the safety score -- every rule/row below used
+  // to build DOM directly via addRow(); now addRow() just pushes a plain
+  // {id, label, tier, valueText, points} row instead, so this same walk
+  // serves both renderSafetyScore() (below) and the PDF report, which needs
+  // the exact same rows/total without rendering anything. Returns
+  // driveSide/driverSide too so renderSafetyScore can reuse them for its
+  // own intro text instead of recomputing.
+  function computeSafetyScoreRows(path) {
     // Without a codriver, the driver is the only occupant, so whichever
     // side they actually sit on (derived from drive configuration -- LHD
     // sits left, RHD sits right) is the one side where a weak rating
@@ -2602,16 +2817,8 @@
     function driverSideSuffix(id) {
       return driverSide && sideOf(id) === driverSide ? " (driver side)" : "";
     }
-    if (driverSide) {
-      panel.appendChild(
-        el("div", { class: "safety-score-placeholder" }, [
-          "Running solo (no codriver) with " + (driveSide === "lhd" ? "left-hand drive" : "right-hand drive") +
-            " -- the driver sits on the " + driverSide + ", so items marked \"(driver side)\" below matter most for driver protection.",
-        ])
-      );
-    }
 
-    const list = el("div", { class: "safety-tier-list" });
+    const rows = [];
     let totalPoints = 0;
     let ratedRows = 0;
     // pointsOverride lets a future rule (a known-bad design, per the user)
@@ -2622,14 +2829,7 @@
       const points = pointsOverride !== undefined ? pointsOverride : TIER_POINTS[tier];
       totalPoints += points;
       ratedRows += 1;
-      list.appendChild(
-        el("div", { class: "safety-tier-row tier-" + tier }, [
-          el("span", { class: "safety-tier-dot" }),
-          el("span", { class: "safety-tier-label" }, [label + driverSideSuffix(id)]),
-          el("span", { class: "safety-tier-value" }, [valueText]),
-          el("span", { class: "safety-tier-points" }, [(points > 0 ? "+" : "") + points + " pt" + (Math.abs(points) === 1 ? "" : "s")]),
-        ])
-      );
+      rows.push({ id, label: label + driverSideSuffix(id), tier, valueText, points });
     }
 
     Object.keys(SAFETY_TIER_RULES).forEach((elmId) => {
@@ -2793,6 +2993,40 @@
       if (getAnswer("door_bars_" + side).extra.sill_bar === "yes") {
         addRow("sill_bar_" + side, "Sill bar (" + side + ")", "green", "Present");
       }
+    });
+
+    return { rows, totalPoints, ratedRows, driveSide, driverSide };
+  }
+
+  function renderSafetyScore(root, path) {
+    const panel = el("div", { class: "panel", id: "safety-score-panel" });
+    panel.appendChild(el("h2", {}, ["Safety score"]));
+    panel.appendChild(
+      el("div", { class: "safety-score-placeholder" }, [
+        "First-pass, provisional ratings below (green/orange/red, worth 5/2/0 points) per a set of safety rules of thumb -- independent of any specific sanctioning body's requirements. A few known-bad designs are worth negative points instead of the flat red floor. Not every element is rated yet, and the point values themselves are still early and subject to change.",
+      ])
+    );
+
+    const { rows, totalPoints, ratedRows, driveSide, driverSide } = computeSafetyScoreRows(path);
+    if (driverSide) {
+      panel.appendChild(
+        el("div", { class: "safety-score-placeholder" }, [
+          "Running solo (no codriver) with " + (driveSide === "lhd" ? "left-hand drive" : "right-hand drive") +
+            " -- the driver sits on the " + driverSide + ", so items marked \"(driver side)\" below matter most for driver protection.",
+        ])
+      );
+    }
+
+    const list = el("div", { class: "safety-tier-list" });
+    rows.forEach((row) => {
+      list.appendChild(
+        el("div", { class: "safety-tier-row tier-" + row.tier }, [
+          el("span", { class: "safety-tier-dot" }),
+          el("span", { class: "safety-tier-label" }, [row.label]),
+          el("span", { class: "safety-tier-value" }, [row.valueText]),
+          el("span", { class: "safety-tier-points" }, [(row.points > 0 ? "+" : "") + row.points + " pt" + (Math.abs(row.points) === 1 ? "" : "s")]),
+        ])
+      );
     });
 
     panel.appendChild(list);
