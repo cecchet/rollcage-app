@@ -1327,7 +1327,14 @@
       const pic = state.pictures.find((p) => p.id === pictureId);
       if (pic) {
         const byId = new Map(pic.elements.map((t) => [t.elementId, t]));
-        suggestions.forEach((s) => { byId.set(s.elementId, { elementId: s.elementId, value: s.value }); });
+        // Keeps a prior manual extra (e.g. a sill-bar tag) when the AI
+        // re-suggests the same element with a new value -- the AI itself
+        // never suggests extra sub-fields, so overwriting wholesale would
+        // silently drop it.
+        suggestions.forEach((s) => {
+          const prior = byId.get(s.elementId);
+          byId.set(s.elementId, { elementId: s.elementId, value: s.value, extra: prior && prior.extra });
+        });
         pic.elements = [...byId.values()];
         pic.aiSuggestions = suggestions;
         saveCurrent();
@@ -1361,9 +1368,10 @@
         "Upload up to " + PICTURE_LIMIT + " photos of the installed cage (or a blueprint/diagram). For each picture, " +
           '"Edit rollcage elements" lets you click parts of the 3D model to tag which design it shows -- clicking an ' +
           "area with more than one possible design (roof bars, door bars, ...) cycles through its options one click " +
-          'at a time, so you can pick the exact one even before answering it in the checklist. "AI analysis" has a ' +
-          "vision model suggest that (and a value for each) automatically. Tagging a picture never changes the " +
-          'checklist by itself -- review AI suggestions against your answers so far in "Compare with checklist" below.',
+          "at a time, so you can pick the exact one even before answering it in the checklist; double-click a door " +
+          'bar to add/remove a sill bar where that design allows one. "AI analysis" has a vision model suggest that ' +
+          "(and a value for each) automatically. Tagging a picture never changes the checklist by itself -- review " +
+          'AI suggestions against your answers so far in "Compare with checklist" below.',
       ])
     );
 
@@ -1432,7 +1440,8 @@
         if (pic.elements.length) {
           pic.elements.forEach((tag) => {
             const target = resolvePictureTagTarget(path, tag.elementId);
-            const label = target ? (tag.value ? target.name + ": " + elementSummary(target, { value: tag.value }) : target.name) : tag.elementId;
+            let label = target ? (tag.value ? target.name + ": " + elementSummary(target, { value: tag.value }) : target.name) : tag.elementId;
+            if (tag.extra && tag.extra.sill_bar === "yes") label += " + sill bar";
             chips.appendChild(el("span", { class: "picture-element-chip" }, [label]));
           });
         } else {
@@ -1454,7 +1463,7 @@
                 // unsaved edits back to its last-saved tags.
                 disabled: !!state.pictureSelectMode,
                 onclick: () => {
-                  state.pictureSelectMode = { pictureId: pic.id, selected: new Map(pic.elements.map((t) => [t.elementId, t.value])) };
+                  state.pictureSelectMode = { pictureId: pic.id, selected: new Map(pic.elements.map((t) => [t.elementId, { value: t.value, extra: t.extra || {} }])) };
                   render();
                 },
               },
@@ -3143,15 +3152,16 @@
     return Object.assign({}, BASE_STRUCTURE_MAPS[value]);
   }
 
-  // Resolves an elementId + a SPECIFIC value to exactly the files that
-  // value's own design uses -- shared by the AI-suggestion preview overlay
-  // and the picture "Edit rollcage elements" tagging overlay below, so both
+  // Resolves an elementId + a SPECIFIC value (+ optional extra sub-fields,
+  // e.g. door_bars_left/right's sill_bar toggle) to exactly the files that
+  // design uses -- shared by the AI-suggestion preview overlay and the
+  // picture "Edit rollcage elements" tagging overlay below, so both
   // highlight precisely one design, never every candidate/ghost alternate
   // sharing that element's category ownership. Mirrors the same per-value
   // resolution computeCageColors' main loop already uses to color each
-  // element's REAL answer, just callable with an arbitrary value instead
-  // of only the current one.
-  function filesForElementValue(elementId, value) {
+  // element's REAL answer, just callable with an arbitrary value (and
+  // extra) instead of only the current one.
+  function filesForElementValue(elementId, value, extra) {
     if (!value) return [];
     if (elementId.indexOf(GUSSET_TAG_PREFIX) === 0 && elementId.endsWith(GUSSET_TAG_SUFFIX)) {
       const rowId = elementId.slice(GUSSET_TAG_PREFIX.length, -GUSSET_TAG_SUFFIX.length);
@@ -3167,7 +3177,7 @@
     }
     const rule = ITEM_PART_RULES[elementId];
     if (!rule) return [];
-    const result = rule(value, { value });
+    const result = rule(value, { value, extra: extra || {} });
     return result ? result.files : [];
   }
 
@@ -4416,8 +4426,8 @@
     // it had a checklist answer) highlights nothing -- there's no single
     // "correct" shape to show yet.
     if (state.pictureSelectMode) {
-      state.pictureSelectMode.selected.forEach((value, elementId) => {
-        filesForElementValue(elementId, value).forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
+      state.pictureSelectMode.selected.forEach((tag, elementId) => {
+        filesForElementValue(elementId, tag.value, tag.extra).forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
       });
     }
 
@@ -4992,11 +5002,33 @@
     return null;
   }
   function handleCagePartDoubleClick(file, frac) {
-    // Picture "Edit rollcage elements" mode only recognizes single clicks (toggle
-    // this bar's element in/out of the tag set) -- ignore double-clicks
-    // entirely rather than letting them fall through to the normal
-    // default-fill/cycle behavior below, which would change a real answer.
-    if (state.pictureSelectMode) return;
+    // Picture "Edit rollcage elements" mode: double-click toggles a sill
+    // bar on/off for whichever door bar design is CURRENTLY tagged there --
+    // a sill bar is an extra sub-toggle on the door_bars_left/right answer
+    // itself (extraFields, see rules-data.js), not a design of its own, so
+    // it can't be reached by cycling through door_bars_left/right's own
+    // option list. Only offered when the tagged design actually has that
+    // sub-toggle (253-9 variants, 253-10, "single-bar" identification --
+    // 253-11/nascar already include an equivalent bar; extraFieldApplies
+    // reads the exact same showIf the checklist's own sill-bar field uses,
+    // so this can never drift out of sync with it). No-op for anything
+    // else, rather than falling through to the normal default-fill/cycle
+    // behavior below, which would change a real checklist answer.
+    if (state.pictureSelectMode) {
+      const tag = resolvePictureTagForFile(file);
+      if (!tag) return;
+      const path = RULES[state.vehicle.org].paths[state.pathId];
+      const elm = path.elements.find((e) => e.id === tag.elementId);
+      const sillField = elm && elm.extraFields && elm.extraFields.find((f) => f.key === "sill_bar");
+      if (!sillField) return;
+      const selected = state.pictureSelectMode.selected;
+      const current = selected.get(tag.elementId);
+      if (!current || !current.value || !extraFieldApplies(sillField, current.value)) return;
+      const hasSill = current.extra && current.extra.sill_bar === "yes";
+      selected.set(tag.elementId, { value: current.value, extra: hasSill ? {} : { sill_bar: "yes" } });
+      render();
+      return;
+    }
     // Part 2 (Tubing sizes & materials): double-click cycles that bar's own
     // primary/secondary tubing spec instead of anything Part-1-related --
     // matches how a single click already jumps to the tube-classification
@@ -5116,7 +5148,11 @@
   }
   function handleCagePartClick(file) {
     // Picture "Edit rollcage elements" mode overrides every other click
-    // behavior while active.
+    // behavior while active. selected's values are {value, extra} objects
+    // (extra mirrors a real answer's own extra sub-fields, e.g. door bars'
+    // sill_bar toggle -- see handleCagePartDoubleClick) -- a fresh cycle
+    // step always starts that design's extra fields over, since a sub-field
+    // from a different design may not even apply to the new one.
     if (state.pictureSelectMode) {
       const tag = resolvePictureTagForFile(file);
       if (!tag) return;
@@ -5126,18 +5162,18 @@
       if (!cycle.length) {
         // No option list to step through -- plain in/out toggle.
         if (selected.has(tag.elementId)) selected.delete(tag.elementId);
-        else selected.set(tag.elementId, tag.value);
+        else selected.set(tag.elementId, { value: tag.value, extra: {} });
         render();
         return;
       }
       if (!selected.has(tag.elementId)) {
         // First click: start from the checklist's own current answer if it
         // already has one for this element, otherwise the first option.
-        selected.set(tag.elementId, tag.value && cycle.includes(tag.value) ? tag.value : cycle[0]);
+        selected.set(tag.elementId, { value: tag.value && cycle.includes(tag.value) ? tag.value : cycle[0], extra: {} });
       } else {
-        const nextValue = cycle[cycle.indexOf(selected.get(tag.elementId)) + 1];
+        const nextValue = cycle[cycle.indexOf(selected.get(tag.elementId).value) + 1];
         if (nextValue === undefined) selected.delete(tag.elementId); // past the last option -- clear the tag
-        else selected.set(tag.elementId, nextValue);
+        else selected.set(tag.elementId, { value: nextValue, extra: {} });
       }
       render();
       return;
@@ -5243,8 +5279,16 @@
     const target = path && resolvePictureTagTarget(path, tag.elementId);
     if (!target) return null;
     const selected = state.pictureSelectMode.selected;
-    const value = selected.has(tag.elementId) ? selected.get(tag.elementId) : null;
-    return target.name + (value ? " — " + elementSummary(target, { value }) : " — click to tag (cycles through options)");
+    const current = selected.get(tag.elementId);
+    if (!current || !current.value) return target.name + " — click to tag (cycles through options)";
+    const elm = path.elements.find((e) => e.id === tag.elementId);
+    const sillField = elm && elm.extraFields && elm.extraFields.find((f) => f.key === "sill_bar");
+    const sillEligible = sillField && extraFieldApplies(sillField, current.value);
+    const sillOn = current.extra && current.extra.sill_bar === "yes";
+    let label = target.name + " — " + elementSummary(target, { value: current.value });
+    if (sillOn) label += " + sill bar (double-click to remove)";
+    else if (sillEligible) label += " (double-click to add a sill bar)";
+    return label;
   }
   function handleCagePartHover(file, frac, clientX, clientY) {
     const tooltip = document.getElementById("cageViewerTooltip");
@@ -5372,7 +5416,11 @@
     const pic = state.pictures.find((p) => p.id === mode.pictureId);
     state.pictureSelectMode = null;
     if (pic) {
-      pic.elements = [...mode.selected.entries()].map(([elementId, value]) => ({ elementId, value }));
+      pic.elements = [...mode.selected.entries()].map(([elementId, tag]) => ({
+        elementId,
+        value: tag.value,
+        extra: tag.extra && Object.keys(tag.extra).length ? tag.extra : undefined,
+      }));
       pic.hasScreenshot = !!screenshot;
       saveCurrent();
       if (screenshot) {
