@@ -18,6 +18,7 @@
     pathId: null,
     answers: {}, // elementId -> { value, note, photos: [{name, dataUrl}] }
     pictures: [], // { id, elements: [{elementId, value}], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot } -- image bytes live in IndexedDB, see picture storage below
+    homologationPhotos: [], // { id } -- FIA homologation paperwork photos (only relevant/shown when homologation_route === "homologated"); image bytes in the SAME IndexedDB store as pictures above, just a separate id list
     pictureSelectMode: null, // UI-only: { pictureId, selected: Map<elmId, value|null> } while "Edit rollcage elements" is active -- see renderPictures/computeCageColors
     resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
@@ -51,6 +52,7 @@
       pathId: state.pathId,
       answers: state.answers,
       pictures: state.pictures,
+      homologationPhotos: state.homologationPhotos,
       updatedAt: new Date().toISOString(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
@@ -62,6 +64,7 @@
     state.pathId = suggestPath(state.vehicle);
     state.answers = {};
     state.pictures = [];
+    state.homologationPhotos = [];
     state.pictureSelectMode = null;
     render();
   }
@@ -81,6 +84,7 @@
       ...p,
       elements: (p.elements || []).map((t) => (typeof t === "string" ? { elementId: t, value: null } : t)),
     }));
+    state.homologationPhotos = s.homologationPhotos || [];
     state.pictureSelectMode = null;
     render();
   }
@@ -192,6 +196,19 @@
     const cutoff = new Date(orgRules.logbookCutoffDate);
     const issued = new Date(vehicle.logbookDate);
     return issued >= cutoff ? "new_construction" : "grandfathered";
+  }
+  // Re-suggests state.pathId from the vehicle's current logbook status/date,
+  // but only actually applies it when suggestPath returns a real answer --
+  // e.g. switching "Logbook status" to "Existing logbook" before a date is
+  // entered yet has nothing to suggest (suggestPath returns null), and
+  // blanking state.pathId at that point would collapse the whole checklist
+  // (and the 3D model) back to the bootstrap screen even though nothing
+  // about the ALREADY-entered answers actually changed -- this info is
+  // meant to pick which ruleset to check against later, not to reset
+  // anything the moment it's touched.
+  function applySuggestedPath() {
+    const suggested = suggestPath(state.vehicle);
+    if (suggested) state.pathId = suggested;
   }
 
   function getAnswer(id) {
@@ -965,7 +982,65 @@
     return shots;
   }
 
-  async function generatePdfReport() {
+  // Every field appendLogbookFields() captures for the actual logbook
+  // paperwork (status/date, certificate #, sanctioning body, logbook
+  // number, which compliance path was checked, homologation route, notes)
+  // -- most of these already show up individually in buildReportVehicleLines
+  // (cover page), but the "Logbook application PDF" (generateLogbookApp
+  // licationPdf) wants them all grouped in their own section too, since
+  // that's the one meant to actually accompany a real logbook application.
+  function buildReportLogbookApplicationDetails(path) {
+    const orgRules = RULES[state.vehicle.org];
+    const lines = [
+      { label: "Logbook status", value: state.vehicle.logbookStatus === "new" ? "New build (logbook not yet issued)" : "Existing logbook" },
+    ];
+    if (state.vehicle.logbookDate) lines.push({ label: "Logbook issue date", value: state.vehicle.logbookDate });
+    const cert = getAnswer("vehicle_certificate_number").value;
+    if (cert) lines.push({ label: "Certificate #, ASN", value: cert });
+    lines.push({ label: "Sanctioning body", value: orgRules.orgFullName });
+    const logbookNumber = getAnswer("vehicle_logbook_number").value;
+    if (logbookNumber) lines.push({ label: "Logbook number", value: logbookNumber });
+    lines.push({ label: "Compliance path checked", value: orgRules.paths[state.pathId].label });
+    const routeElm = path.elements.find((e) => e.id === "homologation_route");
+    const routeAnswer = getAnswer("homologation_route");
+    if (routeElm && routeAnswer.value) {
+      const opt = (routeElm.options || []).find((o) => o.id === routeAnswer.value);
+      lines.push({ label: routeElm.name, value: opt ? opt.label + (opt.note ? " -- " + opt.note : "") : routeAnswer.value });
+    }
+    const notes = getAnswer("vehicle_description_notes").value;
+    if (notes) lines.push({ label: "Notes", value: notes });
+    return lines;
+  }
+
+  async function buildReportHomologationPhotos() {
+    const out = [];
+    for (const p of state.homologationPhotos) {
+      const rec = await getPictureRecord(p.id).catch(() => null);
+      if (rec && rec.photo) out.push(rec.photo);
+    }
+    return out;
+  }
+
+  // Shared by both PDF buttons -- everything the plain "PDF report" needs;
+  // generateLogbookApplicationPdf() below adds its own extra section on top
+  // rather than re-deriving any of this.
+  async function buildPdfReportData() {
+    const path = RULES[state.vehicle.org].paths[state.pathId];
+    const angleImages = await captureReportAngles();
+    const pictures = await buildReportPictures(path);
+    return {
+      generatedAt: new Date().toLocaleString(),
+      buildNumber: window.BUILD_NUMBER || "",
+      vehicleLines: buildReportVehicleLines(),
+      angleImages,
+      parts: buildReportParts(path),
+      logbook: buildReportLogbook(path),
+      pictures,
+      safetyScore: buildReportSafetyScore(path),
+    };
+  }
+
+  async function runPdfGeneration(buildExtra) {
     if (!state.pathId || !RULES[state.vehicle.org] || !RULES[state.vehicle.org].paths[state.pathId]) return;
     if (!window.jspdf || !window.PdfReport) {
       alert("PDF report library failed to load -- check your connection and reload the page.");
@@ -974,20 +1049,9 @@
     state.pdfReportStatus = "generating";
     render();
     try {
-      const path = RULES[state.vehicle.org].paths[state.pathId];
-      const angleImages = await captureReportAngles();
-      const pictures = await buildReportPictures(path);
-      window.PdfReport.generate({
-        filename: (state.vehicle.name || "rollcage") + "-report.pdf",
-        generatedAt: new Date().toLocaleString(),
-        buildNumber: window.BUILD_NUMBER || "",
-        vehicleLines: buildReportVehicleLines(),
-        angleImages,
-        parts: buildReportParts(path),
-        logbook: buildReportLogbook(path),
-        pictures,
-        safetyScore: buildReportSafetyScore(path),
-      });
+      const data = await buildPdfReportData();
+      await buildExtra(data);
+      window.PdfReport.generate(data);
     } catch (e) {
       console.error("PDF report generation failed", e);
       alert("Report generation failed: " + e.message);
@@ -995,6 +1059,28 @@
       state.pdfReportStatus = "idle";
       render();
     }
+  }
+
+  function generatePdfReport() {
+    return runPdfGeneration((data) => {
+      data.filename = (state.vehicle.name || "rollcage") + "-report.pdf";
+    });
+  }
+
+  // "For now" (per the user) this is the same report as generatePdfReport()
+  // plus the actual logbook paperwork fields appended at the end -- a real,
+  // separately-scoped "logbook application" report (asking for more detail
+  // than this checklist currently captures) is planned as its own later
+  // feature, not this one.
+  function generateLogbookApplicationPdf() {
+    return runPdfGeneration(async (data) => {
+      data.filename = (state.vehicle.name || "rollcage") + "-logbook-application.pdf";
+      const path = RULES[state.vehicle.org].paths[state.pathId];
+      data.logbookApplicationDetails = buildReportLogbookApplicationDetails(path);
+      if (getAnswer("homologation_route").value === "homologated") {
+        data.homologationPhotos = await buildReportHomologationPhotos();
+      }
+    });
   }
 
   function renderSessionBar(root) {
@@ -1207,6 +1293,73 @@
   // into an existing panel element. Shared by the bootstrap screen (no
   // pathId chosen yet, so no verdict to show) and the merged Logbook section
   // (renderResults) once a path is active.
+  const HOMOLOGATION_PHOTO_LIMIT = 15;
+  // Photos of the actual FIA/ASN homologation paperwork -- only relevant
+  // when homologation_route === "homologated" (see appendLogbookFields'
+  // call site below). Deliberately simpler than the cage Pictures feature
+  // (renderPictures) -- no element tagging, no AI analysis, just upload/
+  // view/delete -- but reuses the exact same IndexedDB-backed storage
+  // (putPictureRecord/getPictureRecord/deletePictureRecord, picUid,
+  // compressImageToDataUrl, pictureImageCache/loadPictureImage) since a
+  // photo is a photo regardless of which list its id lives in.
+  function renderHomologationPhotosField() {
+    const wrap = el("div", { class: "field" });
+    wrap.appendChild(el("label", {}, ["FIA homologation paperwork photos"]));
+    wrap.appendChild(
+      el("div", { class: "element-desc" }, [
+        "Upload up to " + HOMOLOGATION_PHOTO_LIMIT + " photos of the homologation papers -- included in the \"Logbook application PDF\" below.",
+      ])
+    );
+    const remaining = HOMOLOGATION_PHOTO_LIMIT - state.homologationPhotos.length;
+    const fileInput = el("input", {
+      type: "file",
+      accept: "image/*",
+      multiple: true,
+      disabled: remaining <= 0,
+      onchange: (e) => {
+        const files = [...(e.target.files || [])].slice(0, remaining);
+        if (!files.length) return;
+        Promise.all(files.map((f) => compressImageToDataUrl(f, 1600, 0.85))).then((dataUrls) => {
+          dataUrls.forEach((dataUrl) => {
+            const id = picUid();
+            state.homologationPhotos.push({ id });
+            putPictureRecord(id, { photo: dataUrl, screenshot: null });
+          });
+          saveCurrent();
+          render();
+        });
+      },
+    });
+    const fieldChildren = [fileInput];
+    if (remaining <= 0) fieldChildren.push(el("div", { class: "ai-status" }, ["Photo limit reached (" + HOMOLOGATION_PHOTO_LIMIT + ")."]));
+    wrap.appendChild(el("div", { class: "field" }, fieldChildren));
+
+    if (state.homologationPhotos.length) {
+      const row = el("div", { class: "photo-row" });
+      state.homologationPhotos.forEach((p) => {
+        loadPictureImage(p.id);
+        const cached = pictureImageCache[p.id] || {};
+        row.appendChild(
+          el("div", { class: "photo-thumb" }, [
+            cached.photo ? el("img", { src: cached.photo, alt: "" }) : null,
+            el("button", {
+              type: "button",
+              onclick: () => {
+                state.homologationPhotos = state.homologationPhotos.filter((x) => x.id !== p.id);
+                delete pictureImageCache[p.id];
+                deletePictureRecord(p.id);
+                saveCurrent();
+                render();
+              },
+            }, ["x"]),
+          ])
+        );
+      });
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }
+
   function appendLogbookFields(logbookPanel) {
     const statusField = el("div", { class: "field" }, [
       el("label", {}, ["Logbook status"]),
@@ -1214,13 +1367,13 @@
         radioOption("logbookStatus", "new", "New build (logbook not yet issued)", state.vehicle.logbookStatus === "new", (v) => {
           state.vehicle.logbookStatus = v;
           state.vehicle.logbookDate = "";
-          state.pathId = suggestPath(state.vehicle);
+          applySuggestedPath();
           saveCurrent();
           render();
         }),
         radioOption("logbookStatus", "existing", "Existing logbook", state.vehicle.logbookStatus === "existing", (v) => {
           state.vehicle.logbookStatus = v;
-          state.pathId = suggestPath(state.vehicle);
+          applySuggestedPath();
           saveCurrent();
           render();
         }),
@@ -1235,7 +1388,7 @@
         disabled: state.vehicle.logbookStatus !== "existing",
         oninput: (e) => {
           state.vehicle.logbookDate = e.target.value;
-          state.pathId = suggestPath(state.vehicle);
+          applySuggestedPath();
           saveCurrent();
           render();
         },
@@ -1251,15 +1404,21 @@
     const routeAnswer = getAnswer("homologation_route");
 
     const certAnswer = getAnswer("vehicle_certificate_number");
-    const certField = el("div", { class: "field" }, [
-      el("label", {}, ["Certificate #, ASN (if applicable)"]),
-      el("input", {
-        type: "text",
-        value: certAnswer.value || "",
-        disabled: routeAnswer.value !== "homologated",
-        onchange: (e) => setAnswer("vehicle_certificate_number", { value: e.target.value }),
-      }),
-    ]);
+    // Only meaningful for a homologated cage (the FIA/ASN certificate # is
+    // what ties it to its homologation papers) -- hidden rather than just
+    // disabled once that's no longer the selected route, since a route
+    // choice further down this same panel is what decides whether it
+    // applies at all.
+    const certField = routeAnswer.value === "homologated"
+      ? el("div", { class: "field" }, [
+          el("label", {}, ["Certificate #, ASN"]),
+          el("input", {
+            type: "text",
+            value: certAnswer.value || "",
+            onchange: (e) => setAnswer("vehicle_certificate_number", { value: e.target.value }),
+          }),
+        ])
+      : null;
 
     const orgSelect = el("select", {
       onchange: (e) => {
@@ -1345,6 +1504,10 @@
         routeField.appendChild(el("div", { class: "visual-flag" }, [chosenOpt.note]));
       }
       logbookPanel.appendChild(routeField);
+    }
+
+    if (routeAnswer.value === "homologated") {
+      logbookPanel.appendChild(renderHomologationPhotosField());
     }
 
     const notesAnswer = getAnswer("vehicle_description_notes");
@@ -3173,24 +3336,10 @@
 
     panel.appendChild(
       el("div", { class: "toolbar" }, [
-        el("button", { class: "btn secondary", onclick: () => window.print() }, ["Print / Save as PDF"]),
         el(
           "button",
-          {
-            class: "btn secondary",
-            onclick: () => {
-              const blob = new Blob([JSON.stringify({ vehicle: state.vehicle, pathId: state.pathId, answers: state.answers, results }, null, 2)], {
-                type: "application/json",
-              });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = (state.vehicle.name || "inspection") + ".json";
-              a.click();
-              URL.revokeObjectURL(url);
-            },
-          },
-          ["Export JSON"]
+          { class: "btn secondary", disabled: state.pdfReportStatus === "generating", onclick: generateLogbookApplicationPdf },
+          [state.pdfReportStatus === "generating" ? "Generating…" : "Logbook application PDF"]
         ),
       ])
     );

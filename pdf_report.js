@@ -258,6 +258,29 @@
     );
   }
 
+  // logbookApplicationDetails is optional -- only the "Logbook application
+  // PDF" button sets it (generateLogbookApplicationPdf in app.js); the
+  // plain "PDF report" button leaves it out and this section is skipped.
+  function renderLogbookApplicationDetails(w, lines) {
+    if (!lines || !lines.length) return;
+    w.newPage();
+    w.heading("Logbook Application Details");
+    lines.forEach((line) => w.row(line.label, line.value));
+  }
+
+  // homologationPhotos is optional -- only set (and only non-empty) when
+  // the logbook application PDF was generated with homologation_route ===
+  // "homologated" (see generateLogbookApplicationPdf in app.js).
+  function renderHomologationPhotos(w, photos) {
+    if (!photos || !photos.length) return;
+    w.newPage();
+    w.heading("Homologation Paperwork");
+    photos.forEach((dataUrl, i) => {
+      w.subheading("Page " + (i + 1));
+      w.image(dataUrl, { maxHeight: 220 });
+    });
+  }
+
   // data: {
   //   filename, generatedAt, buildNumber, vehicleLines: [{label,value}],
   //   angleImages: [{label, dataUrl}],
@@ -267,6 +290,8 @@
   //   logbook: {verdictLabel, verdictDetail, verdictLevel, requiredTotal, requiredSatisfied, failures, unresolved, advisories} | null,
   //   pictures: [{photoDataUrl, screenshotDataUrl, tags}],
   //   safetyScore: {rows:[{label,valueText,tier,points}], totalPoints, ratedRows} | null,
+  //   logbookApplicationDetails: [{label,value}] | undefined,
+  //   homologationPhotos: [dataUrl] | undefined,
   // }
   function build(data) {
     const w = new PdfReportWriter();
@@ -276,6 +301,8 @@
     renderLogbook(w, data.logbook);
     renderPictures(w, data.pictures);
     renderSafetyScore(w, data.safetyScore);
+    renderLogbookApplicationDetails(w, data.logbookApplicationDetails);
+    renderHomologationPhotos(w, data.homologationPhotos);
     return w;
   }
 
