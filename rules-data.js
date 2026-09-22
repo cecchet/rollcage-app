@@ -1580,7 +1580,7 @@
         });
         return rows;
       },
-      columns: [{ key: "value", label: "Value (mm)", type: "number" }],
+      columns: [{ key: "value", label: "Value", type: "length" }],
       visuallyVerifiable: false, hardFail: true,
     },
     {
@@ -2280,7 +2280,7 @@
       rows: [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }],
       columns: [
         { key: "backrest_angle", label: "Backrest angle with vertical (deg)", type: "number" },
-        { key: "backrest_distance", label: "Backrest distance from rollbar (mm, >=90)", type: "number", compare: { op: "gte", value: 90 } },
+        { key: "backrest_distance", label: "Backrest distance from rollbar (>=90mm)", type: "length", compare: { op: "gte", value: 90 } },
       ],
       visuallyVerifiable: false,
       hardFail: false,
@@ -2436,7 +2436,7 @@
       evaluationType: "table",
       rows: (getAnswer) => beltRows(getAnswer, [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }]),
       columns: [
-        { key: "pivot_distance", label: "Pivot point distance (mm, >90)", type: "number", compare: { op: "gt", value: 90 } },
+        { key: "pivot_distance", label: "Pivot point distance (>90mm)", type: "length", compare: { op: "gt", value: 90 } },
         { key: "horizontal_angle", label: "Horizontal angle -- 253-61c (0-20 deg)", type: "number", compare: { op: "between", min: 0, max: 20 } },
       ],
       visuallyVerifiable: false,
@@ -2491,7 +2491,12 @@
       evaluationType: "table",
       rows: (getAnswer) => beltRows(getAnswer, [{ id: "driver", label: "Driver" }, { id: "codriver", label: "Codriver" }]),
       columns: [
-        { key: "spacing", label: "Space between anchoring points (in, 4-6)", type: "number", compare: { op: "between", min: 4, max: 6 } },
+        // Rule is stated in inches (4-6in) -- compare is in mm like every
+        // other "length" column (tableCellStatus converts the entered
+        // value via toMM() before comparing), so the threshold here is the
+        // exact inch-to-mm conversion (4in=101.6mm, 6in=152.4mm), not a
+        // re-derived or rounded figure.
+        { key: "spacing", label: "Space between anchoring points (4-6in)", type: "length", compare: { op: "between", min: 101.6, max: 152.4 } },
         { key: "belt_angle", label: "Belt angle (0 to -20 deg)", type: "number" },
       ],
       visuallyVerifiable: false, hardFail: true,

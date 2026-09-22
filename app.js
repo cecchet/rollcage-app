@@ -789,7 +789,7 @@
     { label: "VIN", id: "vehicle_vin" },
     { label: "Rollcage builder", id: "vehicle_builder" },
     { label: "Build date", id: "vehicle_build_date" },
-    { label: "Vehicle weight", id: "vehicle_weight" },
+    { label: "Vehicle weight", id: "vehicle_weight", isWeight: true },
     { label: "Drive configuration", id: "vehicle_drive_side", map: { lhd: "Left-hand drive", rhd: "Right-hand drive" } },
     { label: "Occupants", id: "vehicle_codriver", map: { no: "Driver only", yes: "Driver + Codriver" } },
     { label: "Certificate number", id: "vehicle_certificate_number" },
@@ -802,8 +802,12 @@
       { label: "Logbook status", value: state.vehicle.logbookStatus === "new" ? "New build" : "Existing logbook" },
     ];
     if (state.vehicle.logbookDate) lines.push({ label: "Logbook issue date", value: state.vehicle.logbookDate });
-    VEHICLE_INFO_FIELDS.forEach(({ label, id, map }) => {
+    VEHICLE_INFO_FIELDS.forEach(({ label, id, map, isWeight }) => {
       const v = getAnswer(id).value;
+      if (isWeight) {
+        if (v && typeof v === "object" && v.value !== "" && v.value != null) lines.push({ label, value: v.value + " " + (v.unit || "kg") });
+        return;
+      }
       if (v) lines.push({ label, value: (map && map[v]) || v });
     });
     return lines;
@@ -822,7 +826,14 @@
       const opt = (col.options || []).find((o) => o.id === v);
       return opt ? opt.label : String(v);
     }
-    if (v && typeof v === "object" && "val" in v) return v.val === "" ? "" : v.val + (v.unit ? " " + v.unit : "");
+    // "length"/"area" cells store {value, unit} (renderTableCellInput) --
+    // NOT {val, unit} (that shape is tubing3's own diameter/thickness sub-
+    // fields, a different convention this same codebase also uses).
+    if (col.type === "length" || col.type === "area") {
+      if (v == null || v.value === "" || v.value == null) return "";
+      const unitLabel = col.type === "area" ? (v.unit === "in2" ? "in²" : "cm²") : v.unit || "mm";
+      return v.value + " " + unitLabel;
+    }
     return String(v);
   }
   function buildReportRow(elm) {
@@ -1078,6 +1089,32 @@
     ]);
   }
 
+  // A number + kg/lb unit select, same {value, unit} shape and cell-number/
+  // length-unit-select styling the "length" table-column type already uses
+  // (renderTableCellInput) -- not a table cell itself (vehicle_weight is a
+  // standalone field, not part of path.elements), just the same pattern for
+  // a free-choice-of-unit measurement.
+  function weightAnswerField(label, id) {
+    const answer = getAnswer(id);
+    const v = answer.value && typeof answer.value === "object" ? answer.value : {};
+    const unit = v.unit || "kg";
+    const numInput = el("input", {
+      type: "number", step: "any", class: "cell-number",
+      value: v.value ?? "",
+      onchange: (e) => setAnswer(id, { value: Object.assign({}, v, { value: e.target.value, unit }) }),
+    });
+    const unitSelect = el("select", {
+      class: "length-unit-select",
+      onchange: (e) => setAnswer(id, { value: Object.assign({}, v, { unit: e.target.value }) }),
+    });
+    [{ id: "kg", label: "kg" }, { id: "lb", label: "lb" }].forEach((u) => {
+      const o = el("option", { value: u.id }, [u.label]);
+      if (unit === u.id) o.selected = true;
+      unitSelect.appendChild(o);
+    });
+    return el("div", { class: "field" }, [el("label", {}, [label]), el("div", { class: "cell-answer-row" }, [numInput, unitSelect])]);
+  }
+
   // A small 2-3-option radio field wired to a checklist answer (getAnswer/
   // setAnswer), same access pattern as textAnswerField -- unlike
   // state.vehicle.* fields (name/org/logbookStatus), which drive app
@@ -1136,7 +1173,7 @@
           // Some sanctioning bodies' minimum tubing spec varies by vehicle
           // weight class -- captured here for that, even though the actual
           // weight-based tubing rule isn't implemented yet.
-          textAnswerField("Vehicle weight", "vehicle_weight", "e.g. 1200 kg or 2650 lb"),
+          weightAnswerField("Vehicle weight", "vehicle_weight"),
         ])
       );
       vehiclePanel.appendChild(
