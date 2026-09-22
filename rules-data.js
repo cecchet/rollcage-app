@@ -935,6 +935,40 @@
     return rows;
   }
 
+  // Some of the position groups above only need ONE of a few valid
+  // combinations gusseted, not every position -- e.g. 253-7's X-crossing is
+  // satisfied by EITHER the left+right pair OR the upper+lower pair
+  // (opposite corners of the X, not any 2 of the 4), and 253-15's 2-piece
+  // build needs at least one upper gusset (front OR rear) AND at least one
+  // lower gusset (front OR rear) per side. GUSSET_DESIGN_OPTIONS' "None" is
+  // the same id ("") as an unanswered cell (see gusset_dimensions' rows()
+  // comment above), so a flat "every row must have a real value" check
+  // can't tell a deliberate, valid "None" here apart from "not looked at
+  // yet" -- this lets the OTHER rows in a satisfied group stay blank
+  // without showing as needing verification, whichever of the two that
+  // blank actually means. Read by tableCellStatus's radio-column check in
+  // app.js; each group's `rows` lists every position it covers, `anyOf`
+  // lists the valid fully-filled combinations that satisfy it.
+  function gussetRowGroups(getAnswer) {
+    const groups = [];
+    function xGroup(prefix, secondPairSuffixes) {
+      const a = prefix + "_left", b = prefix + "_right", c = prefix + secondPairSuffixes[0], d = prefix + secondPairSuffixes[1];
+      groups.push({ rows: [a, b, c, d], anyOf: [[a, b], [c, d]] });
+    }
+    if (getAnswer("main_hoop_diagonals").value) xGroup("main_hoop_diag", ["_upper", "_lower"]);
+    if (getAnswer("backstay_diagonals").value === "253-21-1" || getAnswer("backstay_diagonals").value === "253-21-2") xGroup("backstay_diag", ["_upper", "_lower"]);
+    if (getAnswer("roof_bars").value === "253-12-1" || getAnswer("roof_bars").value === "253-12-2") xGroup("roof", ["_front", "_rear"]);
+    if (getAnswer("a_pillar_reinforcement").value === "two_bars") {
+      ["left", "right"].forEach((side) => {
+        const upperFront = "a_pillar_2pc_" + side + "_upper_front", upperRear = "a_pillar_2pc_" + side + "_upper_rear";
+        const lowerFront = "a_pillar_2pc_" + side + "_lower_front", lowerRear = "a_pillar_2pc_" + side + "_lower_rear";
+        groups.push({ rows: [upperFront, upperRear], anyOf: [[upperFront], [upperRear]] });
+        groups.push({ rows: [lowerFront, lowerRear], anyOf: [[lowerFront], [lowerRear]] });
+      });
+    }
+    return groups;
+  }
+
   // 253-15's own taco gussets (the side gusset on a continuous build, and
   // all 8 of the 2-piece build's) have no corner-cutout/hole feature at
   // all, unlike the bigger structural taco gussets elsewhere (253-7/
@@ -2091,6 +2125,7 @@
       description: "Minimum 2 gussets required at main-rollbar diagonal junctions, roof-bar junctions, door-bar junctions, and (where present) windshield-bar and rear-lower-X junctions. Each is built either as a taco (a sleeve wrapped around the two tubes) or a single flat plate spanning them. Material/thickness and dimensions are captured in Part 2 and Part 3.",
       evaluationType: "table",
       rows: (getAnswer) => gussetJunctionRows(getAnswer),
+      rowGroups: (getAnswer) => gussetRowGroups(getAnswer),
       columns: [{ key: "design", label: "Design", type: "radio", options: GUSSET_DESIGN_OPTIONS }],
       visuallyVerifiable: true,
       hardFail: true,

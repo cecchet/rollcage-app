@@ -493,6 +493,21 @@
     }
     return compareOk(v, compare);
   }
+  // Some tables (currently just gusset_design, see rules-data.js's
+  // gussetRowGroups) declare rowGroups(getAnswer) -- position groups where
+  // only ONE of a few valid combinations needs a real value, e.g. 253-7's
+  // X-crossing gusset is satisfied by EITHER the left+right pair OR the
+  // upper+lower pair, not all 4 positions. True whenever rowId belongs to
+  // a group whose requirement is already met by some OTHER combo, meaning
+  // this particular blank cell is a legitimate "None"/not-needed rather
+  // than an unanswered required field.
+  function rowGroupExcusesBlank(elm, rowId) {
+    return elm.rowGroups(getAnswer).some((group) => {
+      if (group.rows.indexOf(rowId) === -1) return false;
+      const hasValue = (id) => !!getAnswer(tableCellId(elm, { id }, elm.columns[0])).value;
+      return group.anyOf.some((combo) => combo.every(hasValue));
+    });
+  }
   function tableCellStatus(col, answer, row, elm) {
     // A row can mark specific columns as not applicable to it at all (e.g.
     // a single-plate gusset has no corner-cutout/hole-diameter concept) --
@@ -543,7 +558,10 @@
       // option with its own `outcome`, same convention a standalone
       // "choice" element's own options already use -- respected here if
       // present, otherwise falls back to "just needs an entry".
-      if (!answer.value) return "warn";
+      if (!answer.value) {
+        if (row && elm && elm.rowGroups && rowGroupExcusesBlank(elm, row.id)) return "pass";
+        return "warn";
+      }
       const opt = (col.options || []).find((o) => o.id === answer.value);
       if (opt && opt.outcome) return opt.outcome === "fail" ? "fail" : "pass";
       return "pass";
