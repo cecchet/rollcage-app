@@ -625,6 +625,11 @@
             name: el.name + " — " + sub.label,
             reference: sub.reference,
             hardFailMessage: "Tubing does not meet the minimum " + sub.classification + " spec.",
+            // Not a real path.elements entry (tubing is a sub-spec of the
+            // parent element, rendered inside the SAME card) -- points the
+            // "Needs verification"/"Failing" links in renderResults back at
+            // that parent's own section rather than nowhere.
+            elementId: el.id,
           };
           requiredTotal++;
           if (subStatus === "pass") requiredSatisfied++;
@@ -3082,6 +3087,16 @@
     lastSafetyScoreSummary = { totalPoints, ratedRows };
   }
 
+  // A "Failing"/"Needs verification"/"Advisory" row from renderResults --
+  // clickable straight to that item's own section (jumpToElementSection)
+  // when it resolves to a real one. f is either a real path.elements entry
+  // (its own .id) or a tubing sub-spec's pseudoEl (elementId points at its
+  // parent element instead -- see computeResults), so either works here.
+  function issueListItem(f, text) {
+    const elmId = f.id || f.elementId;
+    if (!elmId) return el("li", {}, [text]);
+    return el("li", { class: "issue-list-link", onclick: () => jumpToElementSection(elmId) }, [text]);
+  }
   function renderResults(root, path) {
     const results = computeResults(path);
 
@@ -3130,7 +3145,7 @@
         el(
           "ul",
           { class: "issue-list" },
-          results.failures.map((f) => el("li", {}, [f.name + " — " + (f.hardFailMessage || "") + " (" + f.reference + ")"]))
+          results.failures.map((f) => issueListItem(f, f.name + " — " + (f.hardFailMessage || "") + " (" + f.reference + ")"))
         )
       );
     }
@@ -3140,7 +3155,7 @@
         el(
           "ul",
           { class: "issue-list" },
-          results.unresolved.map((f) => el("li", {}, [f.name + " (" + f.reference + ")"]))
+          results.unresolved.map((f) => issueListItem(f, f.name + " (" + f.reference + ")"))
         )
       );
     }
@@ -3150,7 +3165,7 @@
         el(
           "ul",
           { class: "issue-list" },
-          results.advisories.map((f) => el("li", {}, [f.name + " (" + f.reference + ")"]))
+          results.advisories.map((f) => issueListItem(f, f.name + " (" + f.reference + ")"))
         )
       );
     }
@@ -4768,6 +4783,23 @@
   // flashes it the same way a clicked table row flashes.
   function jumpToSection(elmId) {
     state.activeTab = 1;
+    state.expandedIds[elmId] = true;
+    render();
+    const target = document.getElementById("section-" + elmId);
+    if (!target) return;
+    scrollBelowViewer(target);
+    flashCard(target);
+  }
+  // General-purpose version of jumpToSection for the Logbook/results panel's
+  // "Failing"/"Needs verification"/"Advisory" lists -- those can point at an
+  // element from ANY part (installation constraints, welds, seats/belts...),
+  // not just Part 1's design choices, so unlike jumpToSection this looks up
+  // the element's own real phase (elementPhase) rather than assuming Part 1.
+  function jumpToElementSection(elmId) {
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    const elm = path && path.elements.find((e) => e.id === elmId);
+    if (!elm) return;
+    state.activeTab = elementPhase(elm);
     state.expandedIds[elmId] = true;
     render();
     const target = document.getElementById("section-" + elmId);
