@@ -60,6 +60,8 @@ body {
 .brand-link a { color: var(--muted); text-decoration: none; }
 .brand-link a:hover { color: var(--accent); text-decoration: underline; }
 
+.build-number { font-size: 0.75rem; font-weight: 400; color: var(--muted); margin-left: 4px; opacity: 0.7; }
+
 .disclaimer {
   background: var(--warn-bg);
   color: var(--warn);

@@ -980,6 +980,7 @@
       window.PdfReport.generate({
         filename: (state.vehicle.name || "rollcage") + "-report.pdf",
         generatedAt: new Date().toLocaleString(),
+        buildNumber: window.BUILD_NUMBER || "",
         vehicleLines: buildReportVehicleLines(),
         angleImages,
         parts: buildReportParts(path),
@@ -5818,6 +5819,8 @@
   // ---- Boot -------------------------------------------------------
 
   function boot() {
+    const buildEl = document.getElementById("buildNumber");
+    if (buildEl && window.BUILD_NUMBER) buildEl.textContent = "Build " + window.BUILD_NUMBER;
     const all = loadAll();
     const ids = Object.keys(all);
     if (ids.length) {

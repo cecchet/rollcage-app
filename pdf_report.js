@@ -157,7 +157,8 @@
     w.spacer(6);
     (data.vehicleLines || []).forEach((line) => w.row(line.label, line.value));
     w.spacer(2);
-    w.text("Generated " + data.generatedAt, { size: 8.5, color: COLOR.faint, italic: true });
+    const generatedLine = "Generated " + data.generatedAt + (data.buildNumber ? "  --  Build " + data.buildNumber : "");
+    w.text(generatedLine, { size: 8.5, color: COLOR.faint, italic: true });
   }
 
   function renderAngleImages(w, angleImages) {
@@ -258,12 +259,12 @@
   }
 
   // data: {
-  //   filename, generatedAt, vehicleLines: [{label,value}],
+  //   filename, generatedAt, buildNumber, vehicleLines: [{label,value}],
   //   angleImages: [{label, dataUrl}],
   //   parts: [{ phaseLabel, categories: [{ name, rows: [
   //     {kind:"element", label, value} | {kind:"table", label, subRows:[{label,value}]}
   //   ]}]}],
-  //   logbook: {verdictLabel, verdictDetail, verdictColor, requiredTotal, requiredSatisfied, failures, unresolved, advisories} | null,
+  //   logbook: {verdictLabel, verdictDetail, verdictLevel, requiredTotal, requiredSatisfied, failures, unresolved, advisories} | null,
   //   pictures: [{photoDataUrl, screenshotDataUrl, tags}],
   //   safetyScore: {rows:[{label,valueText,tier,points}], totalPoints, ratedRows} | null,
   // }
