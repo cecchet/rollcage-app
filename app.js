@@ -187,9 +187,13 @@
   // UI-only caches, never persisted: pictureImageCache holds whatever
   // getPictureRecord() last resolved for a picture id (populated lazily as
   // cards render, see loadPictureImage in renderPictures); pictureUiState
-  // holds each picture's own AI-analysis loading/error status.
+  // holds each picture's own AI-analysis loading/error status;
+  // pictureTriageState holds the "sorting..." flag for a photo uploaded via
+  // the batch auto-sort input while its category classification is pending
+  // (see triagePictureCategory).
   let pictureImageCache = {};
   let pictureUiState = {};
+  let pictureTriageState = {};
 
   function getAnswer(id) {
     return state.answers[id] || { value: "", note: "", photos: [], extra: {} };
@@ -1681,15 +1685,75 @@
   // conventionally use one particular shape by design convention, which is
   // worth asking about even when the gusset itself isn't clearly visible.
   const AI_SKIP_TABLE_IDS = new Set(["roof_corner_gussets", "mounting_feet_design", "gusset_design"]);
+  // Never offered to the vision model, in any category -- these bars sit
+  // low in the forward footwell/intrusion area, a spot a typical installed-
+  // cage photo essentially never frames, so asking just produces guesses
+  // rather than omissions.
+  const AI_NEVER_IDS = new Set(["anti_intrusion_present"]);
   // The prefix/suffix a gusset row's synthetic catalog id (and picture tag
   // id) uses -- the exact same "gusset_design__<row>__design" shape the
   // real checklist answer already uses for that row (see rules-data.js's
   // gusset_design table), so setAnswer/getAnswer work on it unchanged.
   const GUSSET_TAG_PREFIX = "gusset_design__";
   const GUSSET_TAG_SUFFIX = "__design";
-  function buildAiElementCatalog(path) {
+  // Picture categories -- lets the user tag which part of the cage a photo
+  // shows before running AI analysis, so the catalog/prompt sent to the
+  // vision model can be narrowed to just the bar(s) actually expected in
+  // that shot instead of the full Part 1 list every time. "overview" keeps
+  // the original full-catalog behavior (including gusset rows) for
+  // whole-cage context shots -- matching the FIA/ARA logbook's own front
+  // 3/4, rear 3/4, and side overview photos -- and is also the fallback
+  // for anyone who doesn't categorize at all. The other categories are
+  // deliberately narrow: welds, junction distances, and mounting-point
+  // detail stay out of scope (those need a borescope, not a photo), and a
+  // few elements (dash bar, windshield/temple reinforcement, transverse
+  // members) are only reachable via "overview" since they're rarely
+  // identifiable from a close-up angle but are fair game from a full
+  // diagram/context shot.
+  const PICTURE_CATEGORIES = [
+    { id: "overview", label: "Overview / whole-cage" },
+    { id: "roof_bars", label: "Roof bars", elementIds: ["roof_bars"] },
+    // Door bars are split left/right rather than one combined category --
+    // the model has no reliable way to know which physical side a close-up
+    // photo shows (no consistent left/right visual cue like a steering
+    // wheel is guaranteed to be in frame or even meaningful, since LHD/RHD
+    // varies), so the user states the side instead of the model guessing it.
+    {
+      id: "door_bars_left",
+      label: "Door bars — Left",
+      elementIds: ["door_bars_left", "a_pillar_reinforcement"],
+      sillBar: "left",
+    },
+    {
+      id: "door_bars_right",
+      label: "Door bars — Right",
+      elementIds: ["door_bars_right", "a_pillar_reinforcement"],
+      sillBar: "right",
+    },
+    {
+      id: "main_rollbar",
+      label: "Main rollbar (diagonal, harness bar)",
+      elementIds: ["main_hoop_diagonals", "harness_bar_present", "lower_main_hoop_bar_present"],
+    },
+    {
+      id: "backstay_diagonals",
+      label: "Backstay diagonals",
+      elementIds: ["backstay_diagonals", "rear_transversal_present", "rear_lateral_reinforcement_present", "rear_lower_x_present"],
+    },
+  ];
+  function pictureCategoryDef(categoryId) {
+    return PICTURE_CATEGORIES.find((c) => c.id === categoryId) || PICTURE_CATEGORIES[0];
+  }
+  function buildAiElementCatalog(path, categoryId) {
+    const categoryDef = pictureCategoryDef(categoryId);
+    const isOverview = !categoryDef.elementIds;
+    const idFilter = categoryDef.elementIds ? new Set(categoryDef.elementIds) : null;
     const flat = path.elements
-      .filter((elm) => PHASE_1_DESIGN_CHOICE_IDS.has(elm.id) && !AI_SKIP_TABLE_IDS.has(elm.id) && elementVisible(elm))
+      .filter((elm) => {
+        if (AI_NEVER_IDS.has(elm.id)) return false;
+        if (!PHASE_1_DESIGN_CHOICE_IDS.has(elm.id) || AI_SKIP_TABLE_IDS.has(elm.id) || !elementVisible(elm)) return false;
+        return idFilter ? idFilter.has(elm.id) : true;
+      })
       .map((elm) => {
         const entry = { id: elm.id, name: elm.name, description: elm.description || "" };
         if (elm.evaluationType === "boolean") entry.boolean = true;
@@ -1698,24 +1762,47 @@
       })
       .filter((entry) => entry.boolean || (entry.options && entry.options.length));
 
-    const gussetElm = path.elements.find((e) => e.id === "gusset_design");
-    if (gussetElm) {
-      const options = gussetElm.columns[0].options;
-      resolveRows(gussetElm).forEach((row) => {
-        let description = "Gusset (bracing plate or wrap-around sleeve) at this specific tube junction.";
-        if (row.restrictOptionIds && row.restrictOptionIds.length === 1) {
-          description += ' This junction only ever uses a "' + row.restrictOptionIds[0] + '" gusset by design -- default to that if a gusset is visible there at all, unless the photo clearly shows otherwise.';
-        } else if (/^(main_hoop_diag_|door_front_|door_rear_|roof_|backstay_diag_)/.test(row.id)) {
-          description += ' This type of junction (253-7/253-9/253-12/253-21) conventionally uses a taco (wrap-around sleeve) gusset -- default to "taco" if a gusset is visible there but its exact shape is unclear.';
-        }
-        description += ' Omit entirely if this specific junction isn\'t visible in any photo at all -- do not guess presence, only shape, when it is visible.';
-        flat.push({
-          id: GUSSET_TAG_PREFIX + row.id + GUSSET_TAG_SUFFIX,
-          name: row.label,
-          description,
-          options: options.map((o) => ({ id: o.id, label: o.label })),
-        });
+    // Sill bar is a boolean extra on the door-bar element (see
+    // rules-data.js's extraFields), not its own top-level element -- offer
+    // it as its own synthetic catalog entry for the category's side;
+    // analyzePictureElements merges a suggestion for it back into that
+    // side's door-bar tag as `.extra.sill_bar`, the same shape manual
+    // tagging already uses.
+    if (categoryDef.sillBar) {
+      const side = categoryDef.sillBar;
+      flat.push({
+        id: "door_bars_" + side + "__sill_bar",
+        name: (side === "left" ? "Left" : "Right") + " sill bar",
+        description: "Optional extra bar running along the bottom of the door opening, roughly horizontal and low near the sill/rocker panel -- separate from the door bar design above it. Only applies alongside a 253-9, 253-10, or single-bar door design (253-11 and NASCAR-style designs already include a sill-like bar as part of their own shape, so don't answer this for those). Omit if this side's lower sill area isn't visible in any photo.",
+        boolean: true,
       });
+    }
+
+    // Junction gussets are a mounting/weld detail, not a design-choice
+    // element, so they're only offered in the broad "overview" category
+    // (preserving today's original whole-checklist behavior there) --
+    // the narrower per-category buckets stay focused on the bars
+    // themselves.
+    if (isOverview) {
+      const gussetElm = path.elements.find((e) => e.id === "gusset_design");
+      if (gussetElm) {
+        const options = gussetElm.columns[0].options;
+        resolveRows(gussetElm).forEach((row) => {
+          let description = "Gusset (bracing plate or wrap-around sleeve) at this specific tube junction.";
+          if (row.restrictOptionIds && row.restrictOptionIds.length === 1) {
+            description += ' This junction only ever uses a "' + row.restrictOptionIds[0] + '" gusset by design -- default to that if a gusset is visible there at all, unless the photo clearly shows otherwise.';
+          } else if (/^(main_hoop_diag_|door_front_|door_rear_|roof_|backstay_diag_)/.test(row.id)) {
+            description += ' This type of junction (253-7/253-9/253-12/253-21) conventionally uses a taco (wrap-around sleeve) gusset -- default to "taco" if a gusset is visible there but its exact shape is unclear.';
+          }
+          description += ' Omit entirely if this specific junction isn\'t visible in any photo at all -- do not guess presence, only shape, when it is visible.';
+          flat.push({
+            id: GUSSET_TAG_PREFIX + row.id + GUSSET_TAG_SUFFIX,
+            name: row.label,
+            description,
+            options: options.map((o) => ({ id: o.id, label: o.label })),
+          });
+        });
+      }
     }
     return flat;
   }
@@ -1768,8 +1855,9 @@
   // Newly suggested elements are merged into whatever was already tagged
   // (manually, or from an earlier AI run), updating the value for any
   // element re-suggested this run but leaving every other existing tag
-  // untouched.
-  async function analyzePictureElements(pictureId, path) {
+  // untouched. `categoryId` (see PICTURE_CATEGORIES) narrows the catalog
+  // sent to the model -- see buildAiElementCatalog.
+  async function analyzePictureElements(pictureId, path, categoryId) {
     pictureUiState[pictureId] = { status: "loading", error: null };
     render();
     try {
@@ -1777,27 +1865,76 @@
       if (!rec || !rec.photo) throw new Error("Picture not found");
       const suggestions = await callAnalyzeCageApi(
         [{ mimeType: "image/jpeg", data: rec.photo.split(",")[1] }],
-        buildAiElementCatalog(path)
+        buildAiElementCatalog(path, categoryId)
       );
       const pic = state.pictures.find((p) => p.id === pictureId);
       if (pic) {
         const byId = new Map(pic.elements.map((t) => [t.elementId, t]));
-        // Keeps a prior manual extra (e.g. a sill-bar tag) when the AI
-        // re-suggests the same element with a new value -- the AI itself
-        // never suggests extra sub-fields, so overwriting wholesale would
-        // silently drop it.
+        // Sill-bar suggestions (see buildAiElementCatalog's synthetic
+        // "door_bars_<side>__sill_bar" catalog entries) aren't their own
+        // tag -- they merge into that side's door-bar tag as `.extra`,
+        // the same shape manual double-click tagging already uses.
+        // Handled in a second pass so it lands correctly whether or not
+        // this same run also suggested that side's door bar design.
+        const sillBarSuggestions = [];
         suggestions.forEach((s) => {
+          if (/__sill_bar$/.test(s.elementId)) { sillBarSuggestions.push(s); return; }
           const prior = byId.get(s.elementId);
+          // Keeps a prior manual extra (e.g. a sill-bar tag) when the AI
+          // re-suggests the same element with a new value, so overwriting
+          // wholesale doesn't silently drop it.
           byId.set(s.elementId, { elementId: s.elementId, value: s.value, extra: prior && prior.extra });
         });
+        sillBarSuggestions.forEach((s) => {
+          const parentId = s.elementId.replace(/__sill_bar$/, "");
+          const prior = byId.get(parentId) || { elementId: parentId, value: undefined, extra: undefined };
+          byId.set(parentId, Object.assign({}, prior, { extra: Object.assign({}, prior.extra, { sill_bar: s.value }) }));
+        });
         pic.elements = [...byId.values()];
-        pic.aiSuggestions = suggestions;
+        pic.aiSuggestions = suggestions.filter((s) => !/__sill_bar$/.test(s.elementId));
         saveCurrent();
       }
       pictureUiState[pictureId] = { status: "done", error: null };
     } catch (e) {
       pictureUiState[pictureId] = { status: "error", error: e.message };
     }
+    render();
+  }
+
+  // Classifies a freshly batch-uploaded photo into one of PICTURE_CATEGORIES,
+  // via the same analyze-cage endpoint used for element analysis -- just
+  // offered a single synthetic "which area does this show" choice instead
+  // of a bar-design catalog, so no server-side change was needed. Runs
+  // after the picture is already visible (defaulted to "overview") so the
+  // UI never blocks on this; on failure, or an unrecognized answer, it's
+  // simply left in that default category for the user to move manually,
+  // same as any other misplaced photo.
+  async function triagePictureCategory(pictureId) {
+    pictureTriageState[pictureId] = "sorting";
+    render();
+    try {
+      const rec = await getPictureRecord(pictureId);
+      if (!rec || !rec.photo) return;
+      const catalog = [{
+        id: "photo_category",
+        name: "Which part of the cage does this photo show?",
+        description: "\"overview\" = a wide shot showing most/all of the cage (front 3/4, rear 3/4, side, or a full blueprint/diagram), not a close-up of one bar. \"roof_bars\" = a close-up of the bar(s) across the roof/ceiling. \"door_bars_left\"/\"door_bars_right\" = a close-up of the diagonal/cross bars between the main hoop and the door sill on that side -- use whichever side is actually visible, pick either if you can't tell left from right. \"main_rollbar\" = a close-up of the rearmost/tallest hoop showing its diagonal cross-bracing. \"backstay_diagonals\" = a close-up from a rear-interior angle showing the two backstays and any bracing between them. Pick the single best match for what this specific photo actually shows.",
+        options: PICTURE_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
+      }];
+      const suggestions = await callAnalyzeCageApi(
+        [{ mimeType: "image/jpeg", data: rec.photo.split(",")[1] }],
+        catalog
+      );
+      const pic = state.pictures.find((p) => p.id === pictureId);
+      const choice = suggestions.find((s) => s.elementId === "photo_category");
+      if (pic && choice && PICTURE_CATEGORIES.some((c) => c.id === choice.value)) {
+        pic.category = choice.value;
+        saveCurrent();
+      }
+    } catch (e) {
+      // Leave it in its default category -- see comment above.
+    }
+    delete pictureTriageState[pictureId];
     render();
   }
 
@@ -1814,138 +1951,207 @@
   }
 
   const PICTURE_LIMIT = 20;
+  // Soft cap per category -- enforced on direct category uploads and on
+  // the batch auto-sort uploader, but NOT when moving a picture in
+  // manually via "Move to" (an explicit correction shouldn't be blocked by
+  // it -- see renderPictureCard).
+  const PICTURE_CATEGORY_LIMIT = 3;
+
+  function picturesInCategory(categoryId) {
+    return state.pictures.filter((p) => (p.category || "overview") === categoryId);
+  }
+
+  // One picture card: photo, delete, a "Move to" control (any category
+  // other than the one it's already in), tagged-element chips, and the
+  // Edit/AI-analysis actions. Shared by every category section below.
+  function renderPictureCard(pic, path) {
+    loadPictureImage(pic.id);
+    const cached = pictureImageCache[pic.id] || {};
+    const card = el("div", { class: "picture-card" });
+    card.appendChild(
+      cached.photo
+        ? el("img", { class: "picture-card-photo", src: cached.photo, alt: "" })
+        : el("div", { class: "picture-card-photo picture-card-loading" }, ["Loading..."])
+    );
+    card.appendChild(
+      el(
+        "button",
+        {
+          class: "btn small secondary picture-card-delete",
+          disabled: !!state.pictureSelectMode,
+          onclick: () => {
+            state.pictures = state.pictures.filter((p) => p.id !== pic.id);
+            delete pictureImageCache[pic.id];
+            delete pictureUiState[pic.id];
+            delete pictureTriageState[pic.id];
+            deletePictureRecord(pic.id);
+            saveCurrent();
+            render();
+          },
+        },
+        ["Delete photo"]
+      )
+    );
+
+    const moveSelect = el("select", {
+      class: "picture-category-select",
+      disabled: !!state.pictureSelectMode,
+      onchange: (e) => {
+        if (!e.target.value) return;
+        pic.category = e.target.value;
+        saveCurrent();
+        render();
+      },
+    });
+    moveSelect.appendChild(el("option", { value: "" }, ["Move to…"]));
+    PICTURE_CATEGORIES.filter((c) => c.id !== (pic.category || "overview")).forEach((c) => {
+      moveSelect.appendChild(el("option", { value: c.id }, [c.label]));
+    });
+    card.appendChild(moveSelect);
+
+    if (pictureTriageState[pic.id] === "sorting") card.appendChild(el("div", { class: "ai-status" }, ["Sorting into a category…"]));
+
+    // A tagged element shows its specific value (same granularity Part
+    // 1's own answers show, via elementSummary) when one is known --
+    // e.g. "Roof bar design: 253-12: ..." rather than just "Roof bar
+    // design". A tag's value is known when the AI supplied it, or when
+    // it was manually tagged while that element already had a
+    // checklist answer -- see resolvePictureTagForFile. Falls back to
+    // just the category/row name otherwise.
+    const chips = el("div", { class: "picture-elements" });
+    if (pic.elements.length) {
+      pic.elements.forEach((tag) => {
+        const target = resolvePictureTagTarget(path, tag.elementId);
+        let label = target ? (tag.value ? target.name + ": " + elementSummary(target, { value: tag.value }) : target.name) : tag.elementId;
+        if (tag.extra && tag.extra.sill_bar === "yes") label += " + sill bar";
+        chips.appendChild(el("span", { class: "picture-element-chip" }, [label]));
+      });
+    } else {
+      chips.appendChild(el("span", { class: "picture-elements-empty" }, ["No elements tagged yet"]));
+    }
+    card.appendChild(chips);
+
+    const ui = pictureUiState[pic.id] || { status: "idle" };
+    card.appendChild(
+      el("div", { class: "toolbar" }, [
+        el(
+          "button",
+          {
+            class: "btn small secondary",
+            // Disabled for every card (not just the others) while any
+            // picture is being edited -- the sticky viewer's Done/Cancel
+            // is the only way in or out of that mode; re-clicking this
+            // for the SAME picture would silently reset in-progress,
+            // unsaved edits back to its last-saved tags.
+            disabled: !!state.pictureSelectMode,
+            onclick: () => {
+              state.pictureSelectMode = { pictureId: pic.id, selected: new Map(pic.elements.map((t) => [t.elementId, { value: t.value, extra: t.extra || {} }])) };
+              render();
+            },
+          },
+          ["Edit rollcage elements"]
+        ),
+        el(
+          "button",
+          {
+            class: "btn small secondary",
+            disabled: ui.status === "loading" || !!state.pictureSelectMode,
+            onclick: () => analyzePictureElements(pic.id, path, pic.category || "overview"),
+          },
+          [ui.status === "loading" ? "Analyzing..." : "AI analysis"]
+        ),
+      ])
+    );
+    if (ui.status === "error") card.appendChild(el("div", { class: "ai-status ai-error" }, ["Analysis failed: " + ui.error]));
+
+    if (pic.hasScreenshot && cached.screenshot) {
+      card.appendChild(el("div", { class: "picture-screenshot-label" }, ["Selected parts:"]));
+      card.appendChild(el("img", { class: "picture-card-screenshot", src: cached.screenshot, alt: "" }));
+    }
+    return card;
+  }
 
   function renderPictures(root, path) {
     const panel = el("div", { class: "panel pictures-panel" });
     panel.appendChild(el("h2", {}, ["Pictures"]));
     panel.appendChild(
       el("div", { class: "element-desc" }, [
-        "Upload up to " + PICTURE_LIMIT + " photos of the installed cage (or a blueprint/diagram). For each picture, " +
-          '"Edit rollcage elements" lets you click parts of the 3D model to tag which design it shows -- clicking an ' +
-          "area with more than one possible design (roof bars, door bars, ...) cycles through its options one click " +
-          "at a time, so you can pick the exact one even before answering it in the checklist; double-click a door " +
-          'bar to add/remove a sill bar where that design allows one. "AI analysis" has a vision model suggest that ' +
-          "(and a value for each) automatically. Tagging a picture never changes the checklist by itself -- review " +
-          'AI suggestions against your answers so far in "Compare with checklist" below.',
+        "Each category below holds up to " + PICTURE_CATEGORY_LIMIT + " photos of that specific area, so \"AI analysis\" " +
+          'can send a tighter, more accurate catalog to the vision model than one covering the whole cage -- "Overview" ' +
+          "is for whole-cage or blueprint shots instead. Not sure where a photo belongs? Use \"Upload & auto-sort\" " +
+          'below and a vision model will place it for you; if it lands in the wrong spot, use that photo\'s own ' +
+          '"Move to" to fix it. For each picture, "Edit rollcage elements" lets you click parts of the 3D model to ' +
+          "tag which design it shows -- clicking an area with more than one possible design cycles through its " +
+          "options one click at a time, so you can pick the exact one even before answering it in the checklist; " +
+          "double-click a door bar to add/remove a sill bar where that design allows one. Tagging a picture never " +
+          'changes the checklist by itself -- review AI suggestions against your answers so far in "Compare with ' +
+          'checklist" below.',
       ])
     );
 
-    const remaining = PICTURE_LIMIT - state.pictures.length;
-    const fileInput = el("input", {
+    const totalRemaining = PICTURE_LIMIT - state.pictures.length;
+    const sortInput = el("input", {
       type: "file",
       accept: "image/*",
       multiple: true,
-      disabled: remaining <= 0 || !!state.pictureSelectMode,
+      disabled: totalRemaining <= 0 || !!state.pictureSelectMode,
       onchange: (e) => {
-        const files = [...(e.target.files || [])].slice(0, remaining);
+        const files = [...(e.target.files || [])].slice(0, totalRemaining);
         if (!files.length) return;
         Promise.all(files.map((f) => compressImageToDataUrl(f, 1600, 0.85))).then((dataUrls) => {
+          const ids = [];
           dataUrls.forEach((dataUrl) => {
             const id = picUid();
-            state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false });
+            state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false, category: "overview" });
             putPictureRecord(id, { photo: dataUrl, screenshot: null });
+            ids.push(id);
           });
           saveCurrent();
           render();
+          ids.forEach((id) => triagePictureCategory(id));
         });
       },
     });
-    const fieldChildren = [fileInput];
-    if (remaining <= 0) fieldChildren.push(el("div", { class: "ai-status" }, ["Picture limit reached (" + PICTURE_LIMIT + ")."]));
-    panel.appendChild(el("div", { class: "field" }, fieldChildren));
+    const sortFieldChildren = [el("label", { class: "picture-autosort-label" }, ["Upload & auto-sort into categories:"]), sortInput];
+    if (totalRemaining <= 0) sortFieldChildren.push(el("div", { class: "ai-status" }, ["Picture limit reached (" + PICTURE_LIMIT + ")."]));
+    panel.appendChild(el("div", { class: "field picture-autosort-field" }, sortFieldChildren));
 
-    if (state.pictures.length) {
-      const grid = el("div", { class: "pictures-grid" });
-      state.pictures.forEach((pic) => {
-        loadPictureImage(pic.id);
-        const cached = pictureImageCache[pic.id] || {};
-        const card = el("div", { class: "picture-card" });
-        card.appendChild(
-          cached.photo
-            ? el("img", { class: "picture-card-photo", src: cached.photo, alt: "" })
-            : el("div", { class: "picture-card-photo picture-card-loading" }, ["Loading..."])
-        );
-        card.appendChild(
-          el(
-            "button",
-            {
-              class: "btn small secondary picture-card-delete",
-              disabled: !!state.pictureSelectMode,
-              onclick: () => {
-                state.pictures = state.pictures.filter((p) => p.id !== pic.id);
-                delete pictureImageCache[pic.id];
-                delete pictureUiState[pic.id];
-                deletePictureRecord(pic.id);
-                saveCurrent();
-                render();
-              },
-            },
-            ["Delete photo"]
-          )
-        );
+    PICTURE_CATEGORIES.forEach((cat) => {
+      const picsInCat = picturesInCategory(cat.id);
+      const section = el("div", { class: "picture-category-section" });
+      section.appendChild(el("h3", { class: "picture-category-heading" }, [cat.label + " (" + picsInCat.length + "/" + PICTURE_CATEGORY_LIMIT + ")"]));
 
-        // A tagged element shows its specific value (same granularity Part
-        // 1's own answers show, via elementSummary) when one is known --
-        // e.g. "Roof bar design: 253-12: ..." rather than just "Roof bar
-        // design". A tag's value is known when the AI supplied it, or when
-        // it was manually tagged while that element already had a
-        // checklist answer -- see resolvePictureTagForFile. Falls back to
-        // just the category/row name otherwise.
-        const chips = el("div", { class: "picture-elements" });
-        if (pic.elements.length) {
-          pic.elements.forEach((tag) => {
-            const target = resolvePictureTagTarget(path, tag.elementId);
-            let label = target ? (tag.value ? target.name + ": " + elementSummary(target, { value: tag.value }) : target.name) : tag.elementId;
-            if (tag.extra && tag.extra.sill_bar === "yes") label += " + sill bar";
-            chips.appendChild(el("span", { class: "picture-element-chip" }, [label]));
+      const catRemaining = Math.min(PICTURE_CATEGORY_LIMIT - picsInCat.length, PICTURE_LIMIT - state.pictures.length);
+      const catInput = el("input", {
+        type: "file",
+        accept: "image/*",
+        multiple: true,
+        disabled: catRemaining <= 0 || !!state.pictureSelectMode,
+        onchange: (e) => {
+          const files = [...(e.target.files || [])].slice(0, catRemaining);
+          if (!files.length) return;
+          Promise.all(files.map((f) => compressImageToDataUrl(f, 1600, 0.85))).then((dataUrls) => {
+            dataUrls.forEach((dataUrl) => {
+              const id = picUid();
+              state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false, category: cat.id });
+              putPictureRecord(id, { photo: dataUrl, screenshot: null });
+            });
+            saveCurrent();
+            render();
           });
-        } else {
-          chips.appendChild(el("span", { class: "picture-elements-empty" }, ["No elements tagged yet"]));
-        }
-        card.appendChild(chips);
-
-        const ui = pictureUiState[pic.id] || { status: "idle" };
-        card.appendChild(
-          el("div", { class: "toolbar" }, [
-            el(
-              "button",
-              {
-                class: "btn small secondary",
-                // Disabled for every card (not just the others) while any
-                // picture is being edited -- the sticky viewer's Done/Cancel
-                // is the only way in or out of that mode; re-clicking this
-                // for the SAME picture would silently reset in-progress,
-                // unsaved edits back to its last-saved tags.
-                disabled: !!state.pictureSelectMode,
-                onclick: () => {
-                  state.pictureSelectMode = { pictureId: pic.id, selected: new Map(pic.elements.map((t) => [t.elementId, { value: t.value, extra: t.extra || {} }])) };
-                  render();
-                },
-              },
-              ["Edit rollcage elements"]
-            ),
-            el(
-              "button",
-              {
-                class: "btn small secondary",
-                disabled: ui.status === "loading" || !!state.pictureSelectMode,
-                onclick: () => analyzePictureElements(pic.id, path),
-              },
-              [ui.status === "loading" ? "Analyzing..." : "AI analysis"]
-            ),
-          ])
-        );
-        if (ui.status === "error") card.appendChild(el("div", { class: "ai-status ai-error" }, ["Analysis failed: " + ui.error]));
-
-        if (pic.hasScreenshot && cached.screenshot) {
-          card.appendChild(el("div", { class: "picture-screenshot-label" }, ["Selected parts:"]));
-          card.appendChild(el("img", { class: "picture-card-screenshot", src: cached.screenshot, alt: "" }));
-        }
-
-        grid.appendChild(card);
+        },
       });
-      panel.appendChild(grid);
-    }
+      const catFieldChildren = [catInput];
+      if (catRemaining <= 0) catFieldChildren.push(el("div", { class: "ai-status" }, ["Category full -- delete or move a photo to add another."]));
+      section.appendChild(el("div", { class: "field" }, catFieldChildren));
+
+      if (picsInCat.length) {
+        const grid = el("div", { class: "pictures-grid" });
+        picsInCat.forEach((pic) => grid.appendChild(renderPictureCard(pic, path)));
+        section.appendChild(grid);
+      }
+      panel.appendChild(section);
+    });
 
     if (state.pictures.some((p) => p.aiSuggestions && p.aiSuggestions.length)) {
       panel.appendChild(renderPictureComparePanel(path));

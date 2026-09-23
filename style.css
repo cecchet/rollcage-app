@@ -562,6 +562,17 @@ textarea { resize: vertical; min-height: 50px; }
   color: var(--muted);
 }
 .picture-card-delete { align-self: flex-start; }
+.picture-category-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+}
+.picture-category-section { margin-top: 18px; }
+.picture-category-heading { margin: 0 0 4px; font-size: 1rem; }
+.picture-autosort-field { margin-top: 10px; }
+.picture-autosort-label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
 .picture-elements { display: flex; flex-wrap: wrap; gap: 5px; }
 .picture-element-chip {
   font-size: 0.72rem;
