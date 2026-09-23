@@ -727,10 +727,14 @@
   // an uploaded picture (see renderPictures) and, stripped of its
   // "data:...base64," prefix, as the AI photo-analysis upload (see
   // analyzePictureElements). A phone photo straight off a camera can be
-  // several MB; several of those easily blow past a serverless function's
-  // request-body size limit (and cost more in vision-API tokens, and more
-  // IndexedDB space for 20 of them) for no real accuracy benefit at full
-  // resolution.
+  // several MB, well past what's worth keeping in IndexedDB for 20 of
+  // them -- but the maxDim callers pass (see renderPictures) still needs to
+  // be high enough to keep fine detail the AI catalog actually asks about
+  // (gusset plate count, a mid-span bend/weld joint vs. a clean corner),
+  // since real-world testing showed those specific calls going wrong on an
+  // over-compressed image. One image per analysis call stays well under a
+  // serverless function's request-body size limit even at the higher end
+  // of what's used here.
   function compressImageToDataUrl(file, maxDim, quality) {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -1344,7 +1348,7 @@
       onchange: (e) => {
         const files = [...(e.target.files || [])].slice(0, remaining);
         if (!files.length) return;
-        Promise.all(files.map((f) => compressImageToDataUrl(f, 1600, 0.85))).then((dataUrls) => {
+        Promise.all(files.map((f) => compressImageToDataUrl(f, 2048, 0.85))).then((dataUrls) => {
           dataUrls.forEach((dataUrl) => {
             const id = picUid();
             state.homologationPhotos.push({ id });
@@ -2098,7 +2102,7 @@
       onchange: (e) => {
         const files = [...(e.target.files || [])].slice(0, totalRemaining);
         if (!files.length) return;
-        Promise.all(files.map((f) => compressImageToDataUrl(f, 1600, 0.85))).then((dataUrls) => {
+        Promise.all(files.map((f) => compressImageToDataUrl(f, 2048, 0.85))).then((dataUrls) => {
           const ids = [];
           dataUrls.forEach((dataUrl) => {
             const id = picUid();
@@ -2130,7 +2134,7 @@
         onchange: (e) => {
           const files = [...(e.target.files || [])].slice(0, catRemaining);
           if (!files.length) return;
-          Promise.all(files.map((f) => compressImageToDataUrl(f, 1600, 0.85))).then((dataUrls) => {
+          Promise.all(files.map((f) => compressImageToDataUrl(f, 2048, 0.85))).then((dataUrls) => {
             dataUrls.forEach((dataUrl) => {
               const id = picUid();
               state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false, category: cat.id });
