@@ -1818,7 +1818,10 @@
   // identifiable from a close-up angle but are fair game from a full
   // diagram/context shot.
   const PICTURE_CATEGORIES = [
-    { id: "overview", label: "Overview / whole-cage" },
+    // Overview gets a higher cap than the close-up categories -- it covers
+    // several genuinely different whole-cage shots (front 3/4, rear 3/4,
+    // side, a blueprint/diagram, ...), not just repeats of the same view.
+    { id: "overview", label: "Overview / whole-cage", limit: 5 },
     { id: "roof_bars", label: "Roof bars", elementIds: ["roof_bars"] },
     // Door bars are split left/right rather than one combined category --
     // the model has no reliable way to know which physical side a close-up
@@ -2061,8 +2064,12 @@
   // Soft cap per category -- enforced on direct category uploads and on
   // the batch auto-sort uploader, but NOT when moving a picture in
   // manually via "Move to" (an explicit correction shouldn't be blocked by
-  // it -- see renderPictureCard).
+  // it -- see renderPictureCard). Most categories use this default; a
+  // category can override it with its own `limit` (see "overview" above).
   const PICTURE_CATEGORY_LIMIT = 3;
+  function categoryPictureLimit(cat) {
+    return cat.limit || PICTURE_CATEGORY_LIMIT;
+  }
 
   function picturesInCategory(categoryId) {
     return state.pictures.filter((p) => (p.category || "overview") === categoryId);
@@ -2183,9 +2190,10 @@
     panel.appendChild(el("h2", {}, ["Pictures"]));
     panel.appendChild(
       el("div", { class: "element-desc" }, [
-        "Each category below holds up to " + PICTURE_CATEGORY_LIMIT + " photos of that specific area, so \"AI analysis\" " +
-          'can send a tighter, more accurate catalog to the vision model than one covering the whole cage -- "Overview" ' +
-          "is for whole-cage or blueprint shots instead. Not sure where a photo belongs? Use \"Upload & auto-sort\" " +
+        "Each close-up category below holds a few photos of that specific area, so \"AI analysis\" can send a " +
+          'tighter, more accurate catalog to the vision model than one covering the whole cage -- "Overview" is for ' +
+          "whole-cage or blueprint shots instead (front 3/4, rear 3/4, side, a diagram, ...), and holds more since " +
+          "those are genuinely different views rather than repeats. Not sure where a photo belongs? Use \"Upload & auto-sort\" " +
           'below and a vision model will place it for you; if it lands in the wrong spot, use that photo\'s own ' +
           '"Move to" to fix it. For each picture, "Edit rollcage elements" lets you click parts of the 3D model to ' +
           "tag which design it shows -- clicking an area with more than one possible design cycles through its " +
@@ -2225,10 +2233,11 @@
 
     PICTURE_CATEGORIES.forEach((cat) => {
       const picsInCat = picturesInCategory(cat.id);
+      const catLimit = categoryPictureLimit(cat);
       const section = el("div", { class: "picture-category-section" });
-      section.appendChild(el("h3", { class: "picture-category-heading" }, [cat.label + " (" + picsInCat.length + "/" + PICTURE_CATEGORY_LIMIT + ")"]));
+      section.appendChild(el("h3", { class: "picture-category-heading" }, [cat.label + " (" + picsInCat.length + "/" + catLimit + ")"]));
 
-      const catRemaining = Math.min(PICTURE_CATEGORY_LIMIT - picsInCat.length, PICTURE_LIMIT - state.pictures.length);
+      const catRemaining = Math.min(catLimit - picsInCat.length, PICTURE_LIMIT - state.pictures.length);
       const catInput = el("input", {
         type: "file",
         accept: "image/*",
