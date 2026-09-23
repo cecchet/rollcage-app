@@ -19,12 +19,14 @@
     answers: {}, // elementId -> { value, note, photos: [{name, dataUrl}] }
     pictures: [], // { id, elements: [{elementId, value}], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot } -- image bytes live in IndexedDB, see picture storage below
     homologationPhotos: [], // { id } -- FIA homologation paperwork photos (only relevant/shown when homologation_route === "homologated"); image bytes in the SAME IndexedDB store as pictures above, just a separate id list
+    vehiclePhotos: { front: null, rear: null }, // { id } | null per slot -- 3/4 front & rear vehicle photos on the Vehicle description panel; image bytes in the SAME IndexedDB store as pictures above
     pictureSelectMode: null, // UI-only: { pictureId, selected: Map<elmId, value|null> } while "Edit rollcage elements" is active -- see renderPictures/computeCageColors
     resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
     activeTab: 1, // UI-only: which phase (Part 1-7) tab is currently shown -- see PHASE_LABELS
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
+    dirty: false, // UI-only: true once something has changed since the last explicit Save -- see markDirty/confirmDiscardIfDirty. Nothing auto-persists anymore; this is what gates switching/starting a rollcage with unsaved work.
     showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
     showDriver: true, // UI-only: whether the driver/codriver mannequins show, or are hidden to see the cage behind them
     aiAnalysis: { accepted: {} }, // UI-only, never persisted -- checked-but-not-yet-applied rows in renderPictureComparePanel()
@@ -53,9 +55,40 @@
       answers: state.answers,
       pictures: state.pictures,
       homologationPhotos: state.homologationPhotos,
+      vehiclePhotos: state.vehiclePhotos,
       updatedAt: new Date().toISOString(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  }
+
+  // Every edit marks the rollcage dirty instead of persisting immediately --
+  // saveWithFlash (the Save button) is the only place that actually calls
+  // saveCurrent() now. See confirmDiscardIfDirty for what happens when the
+  // user tries to switch away from a dirty rollcage.
+  function markDirty() {
+    state.dirty = true;
+  }
+
+  // Gates any action that would replace the current in-memory rollcage
+  // (switching to a different saved one, starting a new one, importing a
+  // file) behind a save-or-discard choice when there's unsaved work --
+  // native confirm() only gives 2 options, so a 3-way Save/Discard/Cancel
+  // is composed from 2 of them in sequence rather than building a custom
+  // modal for just this. Calls proceedFn() if it's safe to continue (either
+  // nothing was dirty, the user saved first, or they chose to discard);
+  // otherwise re-renders so any UI that already reflects the not-yet-taken
+  // action (e.g. the session <select>'s new value) resets to the truth.
+  function confirmDiscardIfDirty(proceedFn) {
+    if (!state.dirty) { proceedFn(); return; }
+    const wantsSave = confirm("This rollcage has unsaved changes.\n\nClick OK to save them first, or Cancel to choose whether to discard them instead.");
+    if (wantsSave) {
+      saveWithFlash();
+      proceedFn();
+      return;
+    }
+    const wantsDiscard = confirm("Discard the unsaved changes without saving?\n\nClick OK to discard them and continue, or Cancel to go back and keep working.");
+    if (wantsDiscard) proceedFn();
+    else render();
   }
 
   function startNew() {
@@ -65,7 +98,9 @@
     state.answers = {};
     state.pictures = [];
     state.homologationPhotos = [];
+    state.vehiclePhotos = { front: null, rear: null };
     state.pictureSelectMode = null;
+    state.dirty = false;
     render();
   }
 
@@ -88,7 +123,9 @@
       elements: (p.elements || []).map((t) => (typeof t === "string" ? { elementId: t, value: null } : t)),
     }));
     state.homologationPhotos = s.homologationPhotos || [];
+    state.vehiclePhotos = s.vehiclePhotos || { front: null, rear: null };
     state.pictureSelectMode = null;
+    state.dirty = false;
     render();
   }
 
@@ -201,7 +238,7 @@
 
   function setAnswer(id, patch) {
     state.answers[id] = Object.assign({}, getAnswer(id), patch);
-    saveCurrent();
+    markDirty();
     render();
   }
 
@@ -673,7 +710,7 @@
     } else if (unresolved.length > 0) {
       verdict = { level: "warn", label: "INCOMPLETE — needs verification before a call can be made", detail: unresolved.length + " required item(s) not yet answered or unsure." };
     } else {
-      verdict = { level: "pass", label: "MEETS MINIMUM REQUIREMENTS (as entered)", detail: "All required items satisfied based on your answers." };
+      verdict = { level: "pass", label: "MEETS REQUIREMENTS", detail: "All required items satisfied based on your answers." };
     }
 
     return {
@@ -761,6 +798,7 @@
   let saveFlashTimeout = null;
   function saveWithFlash() {
     saveCurrent();
+    state.dirty = false;
     state.justSaved = true;
     render();
     clearTimeout(saveFlashTimeout);
@@ -799,7 +837,7 @@
       state.vehicle = data.vehicle;
       state.pathId = data.pathId || "new_construction";
       state.answers = data.answers || {};
-      saveCurrent();
+      markDirty();
       render();
     };
     reader.readAsText(file);
@@ -822,8 +860,6 @@
     { label: "Model", id: "vehicle_model" },
     { label: "Year", id: "vehicle_year" },
     { label: "VIN", id: "vehicle_vin" },
-    { label: "Rollcage builder", id: "vehicle_builder" },
-    { label: "Build date", id: "vehicle_build_date" },
     { label: "Vehicle weight", id: "vehicle_weight", isWeight: true },
     { label: "Drive configuration", id: "vehicle_drive_side", map: { lhd: "Left-hand drive", rhd: "Right-hand drive" } },
     { label: "Occupants", id: "vehicle_codriver", map: { no: "Driver only", yes: "Driver + Codriver" } },
@@ -1117,8 +1153,11 @@
     const all = loadAll();
     const select = el("select", {
       onchange: (e) => {
-        if (e.target.value === "__new__") startNew();
-        else loadSession(e.target.value);
+        const nextValue = e.target.value;
+        confirmDiscardIfDirty(() => {
+          if (nextValue === "__new__") startNew();
+          else loadSession(nextValue);
+        });
       },
     });
     select.appendChild(el("option", { value: "__new__" }, ["New rollcage..."]));
@@ -1149,7 +1188,7 @@
       value: state.vehicle.name,
       oninput: (e) => {
         state.vehicle.name = e.target.value;
-        saveCurrent();
+        markDirty();
       },
     });
 
@@ -1171,7 +1210,7 @@
             [state.pdfReportStatus === "generating" ? "Generating report…" : "PDF report"]
           ),
           el("button", { class: "btn small secondary", onclick: exportSessionToFile }, ["Export to file"]),
-          el("button", { class: "btn small secondary", onclick: () => importInput.click() }, ["Import from file"]),
+          el("button", { class: "btn small secondary", onclick: () => confirmDiscardIfDirty(() => importInput.click()) }, ["Import from file"]),
           importInput,
           el(
             "button",
@@ -1271,7 +1310,7 @@
           value: state.vehicle.name,
           oninput: (e) => {
             state.vehicle.name = e.target.value;
-            saveCurrent();
+            markDirty();
           },
         }),
       ]);
@@ -1286,8 +1325,6 @@
       vehiclePanel.appendChild(
         el("div", { class: "field-row" }, [
           textAnswerField("VIN", "vehicle_vin"),
-          textAnswerField("Rollcage builder (name & address)", "vehicle_builder"),
-          textAnswerField("Build date", "vehicle_build_date"),
         ])
       );
       vehiclePanel.appendChild(
@@ -1314,8 +1351,69 @@
           ]),
         ])
       );
+      vehiclePanel.appendChild(
+        el("div", { class: "field-row" }, [
+          renderVehiclePhotoSlot("front", "3/4 Front photo"),
+          renderVehiclePhotoSlot("rear", "3/4 Rear photo"),
+        ])
+      );
     }
     root.appendChild(vehiclePanel);
+  }
+
+  // One of the 2 fixed vehicle-photo slots (3/4 front, 3/4 rear) on the
+  // Vehicle description panel -- deliberately simpler than the cage
+  // Pictures feature (renderPictures): exactly one photo per named slot,
+  // no tagging, no AI analysis. Reuses the same IndexedDB-backed picture
+  // storage as renderPictures/renderHomologationPhotosField.
+  function renderVehiclePhotoSlot(slotKey, label) {
+    const photo = state.vehiclePhotos[slotKey];
+    const wrap = el("div", { class: "field vehicle-photo-slot" });
+    wrap.appendChild(el("label", {}, [label]));
+    if (photo) {
+      loadPictureImage(photo.id);
+      const cached = pictureImageCache[photo.id] || {};
+      wrap.appendChild(
+        cached.photo
+          ? el("img", { class: "vehicle-photo-thumb", src: cached.photo, alt: label })
+          : el("div", { class: "vehicle-photo-thumb picture-card-loading" }, ["Loading..."])
+      );
+      wrap.appendChild(
+        el(
+          "button",
+          {
+            class: "btn small secondary",
+            onclick: () => {
+              deletePictureRecord(photo.id);
+              delete pictureImageCache[photo.id];
+              state.vehiclePhotos[slotKey] = null;
+              markDirty();
+              render();
+            },
+          },
+          ["Delete photo"]
+        )
+      );
+    } else {
+      wrap.appendChild(
+        el("input", {
+          type: "file",
+          accept: "image/*",
+          onchange: (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            compressImageToDataUrl(file, 2048, 0.85).then((dataUrl) => {
+              const id = picUid();
+              putPictureRecord(id, { photo: dataUrl, screenshot: null });
+              state.vehiclePhotos[slotKey] = { id };
+              markDirty();
+              render();
+            });
+          },
+        })
+      );
+    }
+    return wrap;
   }
 
   // Logbook paperwork fields (sanctioning body, homologation route,
@@ -1354,7 +1452,7 @@
             state.homologationPhotos.push({ id });
             putPictureRecord(id, { photo: dataUrl, screenshot: null });
           });
-          saveCurrent();
+          markDirty();
           render();
         });
       },
@@ -1377,7 +1475,7 @@
                 state.homologationPhotos = state.homologationPhotos.filter((x) => x.id !== p.id);
                 delete pictureImageCache[p.id];
                 deletePictureRecord(p.id);
-                saveCurrent();
+                markDirty();
                 render();
               },
             }, ["x"]),
@@ -1409,9 +1507,12 @@
     ["Inspection date", "vehicle_inspection_date"], ["Inspection location", "vehicle_inspection_location"],
   ];
 
-  function appendLogbookFields(logbookPanel) {
-    const orgRules = RULES[state.vehicle.org];
-
+  // Its own field, rendered above the verdict banner in renderResults --
+  // picking the sanctioning body is the natural first step of Part 6, and
+  // it affects the verdict itself (re-validates existing answers against
+  // the new org's rules), so it reads better before the verdict than
+  // buried inside the paperwork fields below it.
+  function renderSanctioningBodyField() {
     const orgSelect = el("select", {
       onchange: (e) => {
         state.vehicle.org = e.target.value;
@@ -1425,8 +1526,6 @@
           state.pathId = "new_construction";
         }
         setAnswer("vehicle_logbook_body", { value: e.target.value });
-        saveCurrent();
-        render();
       },
     });
     Object.keys(RULES).forEach((orgKey) => {
@@ -1434,7 +1533,11 @@
       if (state.vehicle.org === orgKey) opt.selected = true;
       orgSelect.appendChild(opt);
     });
-    logbookPanel.appendChild(el("div", { class: "field" }, [el("label", {}, ["Sanctioning body"]), orgSelect]));
+    return el("div", { class: "field" }, [el("label", {}, ["Sanctioning body"]), orgSelect]);
+  }
+
+  function appendLogbookFields(logbookPanel) {
+    const orgRules = RULES[state.vehicle.org];
 
     // This app only checks new-construction compliance now -- grandfathering
     // and cross-sanctioning-body compliance are handled in PassTech instead,
@@ -1536,7 +1639,7 @@
         value: state.vehicle.logbookDate || "",
         oninput: (e) => {
           state.vehicle.logbookDate = e.target.value;
-          saveCurrent();
+          markDirty();
         },
       }),
     ]);
@@ -1896,7 +1999,7 @@
         });
         pic.elements = [...byId.values()];
         pic.aiSuggestions = suggestions.filter((s) => !/__sill_bar$/.test(s.elementId));
-        saveCurrent();
+        markDirty();
       }
       pictureUiState[pictureId] = { status: "done", error: null };
     } catch (e) {
@@ -1933,7 +2036,7 @@
       const choice = suggestions.find((s) => s.elementId === "photo_category");
       if (pic && choice && PICTURE_CATEGORIES.some((c) => c.id === choice.value)) {
         pic.category = choice.value;
-        saveCurrent();
+        markDirty();
       }
     } catch (e) {
       // Leave it in its default category -- see comment above.
@@ -1989,7 +2092,7 @@
             delete pictureUiState[pic.id];
             delete pictureTriageState[pic.id];
             deletePictureRecord(pic.id);
-            saveCurrent();
+            markDirty();
             render();
           },
         },
@@ -2003,7 +2106,7 @@
       onchange: (e) => {
         if (!e.target.value) return;
         pic.category = e.target.value;
-        saveCurrent();
+        markDirty();
         render();
       },
     });
@@ -2110,7 +2213,7 @@
             putPictureRecord(id, { photo: dataUrl, screenshot: null });
             ids.push(id);
           });
-          saveCurrent();
+          markDirty();
           render();
           ids.forEach((id) => triagePictureCategory(id));
         });
@@ -2140,7 +2243,7 @@
               state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false, category: cat.id });
               putPictureRecord(id, { photo: dataUrl, screenshot: null });
             });
-            saveCurrent();
+            markDirty();
             render();
           });
         },
@@ -3536,6 +3639,7 @@
         ),
       ])
     );
+    panel.appendChild(renderSanctioningBodyField());
     panel.appendChild(el("div", { class: "verdict " + results.verdict.level }, [results.verdict.label]));
     panel.appendChild(el("div", {}, [results.verdict.detail]));
 
@@ -3577,6 +3681,9 @@
       );
     }
 
+    panel.appendChild(el("div", { class: "category-heading" }, ["Logbook details"]));
+    appendLogbookFields(panel);
+
     panel.appendChild(
       el("div", { class: "toolbar" }, [
         el(
@@ -3586,9 +3693,6 @@
         ),
       ])
     );
-
-    panel.appendChild(el("div", { class: "category-heading" }, ["Logbook details"]));
-    appendLogbookFields(panel);
 
     root.appendChild(panel);
   }
@@ -6142,7 +6246,7 @@
         extra: tag.extra && Object.keys(tag.extra).length ? tag.extra : undefined,
       }));
       pic.hasScreenshot = !!screenshot;
-      saveCurrent();
+      markDirty();
       if (screenshot) {
         patchPictureRecord(pic.id, { screenshot }).then(() => {
           pictureImageCache[pic.id] = Object.assign({}, pictureImageCache[pic.id], { screenshot });
@@ -6172,6 +6276,16 @@
   }
 
   function render() {
+    // This rebuilds the whole tree from scratch (root.innerHTML = "" below)
+    // rather than diffing, which loses the focused element AND the page's
+    // scroll position -- e.g. typing into a Part 6 contact field commits on
+    // blur (setAnswer), which re-renders and otherwise jumps the page back
+    // to the top of the section, forcing a re-scroll for every single
+    // field. Restoring scrollY after the rebuild fixes that regardless of
+    // which interaction triggered the render; an explicit jump (see
+    // scrollBelowViewer's callers) still wins since it runs its own
+    // window.scrollTo after this function returns.
+    const scrollY = window.scrollY;
     const root = document.getElementById("app");
     root.innerHTML = "";
 
@@ -6194,6 +6308,7 @@
     }
     renderSafetyScore(root, path);
     syncCageView();
+    window.scrollTo(0, scrollY);
   }
 
   // ---- Boot -------------------------------------------------------

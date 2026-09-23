@@ -264,6 +264,18 @@ body {
 
 .field label { font-size: 0.82rem; color: var(--muted); }
 
+.vehicle-photo-slot { flex: 1 1 220px; }
+.vehicle-photo-thumb {
+  width: 100%;
+  max-width: 280px;
+  height: 160px;
+  object-fit: cover;
+  display: block;
+  border-radius: 6px;
+  background: var(--bg);
+  margin-bottom: 4px;
+}
+
 input[type="text"], input[type="date"], select, textarea {
   padding: 8px 10px;
   border-radius: 8px;
