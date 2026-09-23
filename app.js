@@ -23,6 +23,7 @@
     pictureSelectMode: null, // UI-only: { pictureId, selected: Map<elmId, value|null> } while "Edit rollcage elements" is active -- see renderPictures/computeCageColors
     resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
+    picturesExpanded: true, // UI-only: Pictures panel starts expanded (unlike Vehicle description/Results) since it's an actively-used feature, not a rarely-touched summary -- same collapsiblePanelHeader toggle either way
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
     activeTab: 1, // UI-only: which phase (Part 1-7) tab is currently shown -- see PHASE_LABELS
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
@@ -883,6 +884,21 @@
     return lines;
   }
 
+  // Resolves the 2 fixed vehicle-photo slots (see renderVehiclePhotoSlot)
+  // into report-ready {label, dataUrl} pairs, skipping any empty slot --
+  // rendered at the end of the cover/vehicle-description section.
+  async function buildReportVehiclePhotos() {
+    const slots = [["front", "3/4 Front"], ["rear", "3/4 Rear"]];
+    const out = [];
+    for (const [key, label] of slots) {
+      const photo = state.vehiclePhotos[key];
+      if (!photo) continue;
+      const rec = await getPictureRecord(photo.id).catch(() => null);
+      if (rec && rec.photo) out.push({ label, dataUrl: rec.photo });
+    }
+    return out;
+  }
+
   // Generic per-cell value formatter for a table row, reusing the same
   // col.type/col.options conventions every table element already uses
   // (tableCellStatus, renderTableElement) -- a "boolean"/"radio"/"select"
@@ -961,8 +977,12 @@
     const { rows, totalPoints, ratedRows } = computeSafetyScoreRows(path);
     return { rows: rows.map((r) => ({ label: r.label, valueText: r.valueText, tier: r.tier, points: r.points })), totalPoints, ratedRows };
   }
+  // Groups pictures by category (PICTURE_CATEGORIES, defined below) in that
+  // same array's order, so the report's picture pages are organized the
+  // same way as the on-screen Pictures section: overview, main rollbar,
+  // backstay, roof, then doors. Empty categories are skipped entirely.
   async function buildReportPictures(path) {
-    const out = [];
+    const byCategory = {};
     for (const pic of state.pictures) {
       const rec = await getPictureRecord(pic.id).catch(() => null);
       const tags = pic.elements.map((tag) => {
@@ -970,9 +990,12 @@
         if (!target) return tag.elementId;
         return tag.value ? target.name + ": " + elementSummary(target, { value: tag.value }) : target.name;
       });
-      out.push({ photoDataUrl: rec && rec.photo, screenshotDataUrl: rec && rec.screenshot, tags });
+      const categoryId = pic.category || "overview";
+      (byCategory[categoryId] = byCategory[categoryId] || []).push({ photoDataUrl: rec && rec.photo, screenshotDataUrl: rec && rec.screenshot, tags });
     }
-    return out;
+    return PICTURE_CATEGORIES
+      .filter((cat) => byCategory[cat.id] && byCategory[cat.id].length)
+      .map((cat) => ({ categoryLabel: cat.label, pictures: byCategory[cat.id] }));
   }
 
   // Repaint timing after setOrbit() turns out not to be reliably fast (or
@@ -1017,11 +1040,12 @@
   // orbit -- ghost bars and the driver/co-driver hidden throughout, per the
   // user's request, using the same toggles the header's own "Hide ghost
   // bars"/"Hide driver" buttons already drive (state.showGhostBars/
-  // showDriver), and the SAME canvas.toDataURL() technique the picture-
-  // tagging "Select element" screenshot capture already uses (see
+  // showDriver), a white background (less ink than the app's own dark
+  // theme when printed), and the SAME canvas.toDataURL() technique the
+  // picture-tagging "Select element" screenshot capture already uses (see
   // finishPictureSelectMode). Restores the viewer to exactly how it was
-  // (toggles + camera) once done, so generating a report never leaves the
-  // live view in a different state than before.
+  // (toggles + background + camera) once done, so generating a report
+  // never leaves the live view in a different state than before.
   async function captureReportAngles() {
     if (!window.CageView) return [];
     const canvas = document.querySelector("#cageViewerContainer canvas");
@@ -1030,6 +1054,7 @@
     const prevDriver = state.showDriver;
     state.showGhostBars = false;
     state.showDriver = false;
+    window.CageView.setBackground(0xffffff); // white -- less ink than the app's dark theme when the report is printed
     syncCageView();
     let lastDataUrl = await waitForCanvasRepaint(canvas, canvas.toDataURL("image/png"));
     const shots = [];
@@ -1040,6 +1065,7 @@
     }
     state.showGhostBars = prevGhost;
     state.showDriver = prevDriver;
+    window.CageView.resetBackground();
     syncCageView();
     window.CageView.resetView();
     return shots;
@@ -1094,10 +1120,12 @@
     const path = RULES[state.vehicle.org].paths[state.pathId];
     const angleImages = await captureReportAngles();
     const pictures = await buildReportPictures(path);
+    const vehiclePhotos = await buildReportVehiclePhotos();
     return {
       generatedAt: new Date().toLocaleString(),
       buildNumber: window.BUILD_NUMBER || "",
       vehicleLines: buildReportVehicleLines(),
+      vehiclePhotos,
       angleImages,
       parts: buildReportParts(path),
       logbook: buildReportLogbook(path),
@@ -1817,11 +1845,26 @@
   // members) are only reachable via "overview" since they're rarely
   // identifiable from a close-up angle but are fair game from a full
   // diagram/context shot.
+  // Order here drives both the on-screen section order (renderPictures)
+  // and the PDF report's picture pages (buildReportPictures/
+  // renderPictures in pdf_report.js) -- front-to-back around the car:
+  // whole-cage context, then main rollbar, backstay, roof, and finally
+  // the doors.
   const PICTURE_CATEGORIES = [
     // Overview gets a higher cap than the close-up categories -- it covers
     // several genuinely different whole-cage shots (front 3/4, rear 3/4,
     // side, a blueprint/diagram, ...), not just repeats of the same view.
     { id: "overview", label: "Overview / whole-cage", limit: 5 },
+    {
+      id: "main_rollbar",
+      label: "Main rollbar (diagonal, harness bar)",
+      elementIds: ["main_hoop_diagonals", "harness_bar_present", "lower_main_hoop_bar_present"],
+    },
+    {
+      id: "backstay_diagonals",
+      label: "Backstay diagonals",
+      elementIds: ["backstay_diagonals", "rear_transversal_present", "rear_lateral_reinforcement_present", "rear_lower_x_present"],
+    },
     { id: "roof_bars", label: "Roof bars", elementIds: ["roof_bars"] },
     // Door bars are split left/right rather than one combined category --
     // the model has no reliable way to know which physical side a close-up
@@ -1839,16 +1882,6 @@
       label: "Door bars — Right",
       elementIds: ["door_bars_right", "a_pillar_reinforcement"],
       sillBar: "right",
-    },
-    {
-      id: "main_rollbar",
-      label: "Main rollbar (diagonal, harness bar)",
-      elementIds: ["main_hoop_diagonals", "harness_bar_present", "lower_main_hoop_bar_present"],
-    },
-    {
-      id: "backstay_diagonals",
-      label: "Backstay diagonals",
-      elementIds: ["backstay_diagonals", "rear_transversal_present", "rear_lateral_reinforcement_present", "rear_lower_x_present"],
     },
   ];
   function pictureCategoryDef(categoryId) {
@@ -2187,7 +2220,16 @@
 
   function renderPictures(root, path) {
     const panel = el("div", { class: "panel pictures-panel" });
-    panel.appendChild(el("h2", {}, ["Pictures"]));
+    panel.appendChild(
+      collapsiblePanelHeader("Pictures", state.picturesExpanded, () => {
+        state.picturesExpanded = !state.picturesExpanded;
+        render();
+      })
+    );
+    if (!state.picturesExpanded) {
+      root.appendChild(panel);
+      return;
+    }
     panel.appendChild(
       el("div", { class: "element-desc" }, [
         "Each close-up category below holds a few photos of that specific area, so \"AI analysis\" can send a " +
@@ -2295,7 +2337,7 @@
     const panel = el("div", { class: "picture-compare-panel" });
     panel.appendChild(el("h3", {}, ["Compare with checklist"]));
 
-    const rows = aggregatePictureSuggestions()
+    const evaluated = aggregatePictureSuggestions()
       .map((s) => ({ s, target: resolvePictureTagTarget(path, s.elementId) }))
       .filter((r) => r.target)
       .map(({ s, target }) => {
@@ -2308,12 +2350,21 @@
           blank: !current,
           matches: current === s.value,
         };
-      })
-      .filter((r) => !r.matches);
+      });
+    const rows = evaluated.filter((r) => !r.matches);
+    // Suggestions that already match the checklist are correctly left out
+    // of the review list below -- nothing to accept -- but silently
+    // dropping some while showing others (e.g. an Overview photo tagging 9
+    // elements when 5 already match Part 1 answers) can look like the AI
+    // simply missed those 5 instead of quietly agreeing with them.
+    const matchedCount = evaluated.length - rows.length;
 
     if (!rows.length) {
       panel.appendChild(el("div", { class: "ai-status" }, ["Pictures agree with the checklist so far -- nothing to review."]));
       return panel;
+    }
+    if (matchedCount) {
+      panel.appendChild(el("div", { class: "ai-status" }, [matchedCount + " other item(s) already matched your answers -- not shown here."]));
     }
 
     const list = el("div", { class: "ai-suggestion-list" });

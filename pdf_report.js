@@ -159,13 +159,19 @@
     w.spacer(2);
     const generatedLine = "Generated " + data.generatedAt + (data.buildNumber ? "  --  Build " + data.buildNumber : "");
     w.text(generatedLine, { size: 8.5, color: COLOR.faint, italic: true });
+    if (data.vehiclePhotos && data.vehiclePhotos.length) {
+      w.spacer(4);
+      data.vehiclePhotos.forEach((p) => {
+        w.subheading(p.label);
+        w.image(p.dataUrl, { maxWidth: 120, maxHeight: 90 });
+      });
+    }
   }
 
   function renderAngleImages(w, angleImages) {
     if (!angleImages || !angleImages.length) return;
-    w.heading("3D Model Overview");
-    w.text("Ghost (unconfirmed) bars and the driver/co-driver are hidden in every view below.", { size: 9, italic: true, color: COLOR.muted });
-    w.spacer(2);
+    w.newPage();
+    w.heading("Rollcage 3D Model overview");
     angleImages.forEach((shot) => {
       w.subheading(shot.label);
       w.image(shot.dataUrl, { maxHeight: 95 });
@@ -190,6 +196,7 @@
 
   function renderParts(w, parts) {
     parts.forEach((part) => {
+      w.newPage();
       w.heading(part.phaseLabel);
       part.categories.forEach((cat) => {
         w.categoryLabel(cat.name);
@@ -201,6 +208,7 @@
   const LEVEL_COLOR = { pass: COLOR.green, fail: COLOR.red, warn: COLOR.amber };
   function renderLogbook(w, logbook) {
     if (!logbook) return;
+    w.newPage();
     w.heading("Logbook / Compliance");
     w.text(logbook.verdictLabel, { size: 11, bold: true, color: LEVEL_COLOR[logbook.verdictLevel] || COLOR.text });
     if (logbook.verdictDetail) w.text(logbook.verdictDetail, { size: 9, color: COLOR.muted });
@@ -220,22 +228,30 @@
     }
   }
 
-  function renderPictures(w, pictures) {
-    if (!pictures || !pictures.length) return;
+  // categories: [{ categoryLabel, pictures: [{photoDataUrl, screenshotDataUrl, tags}] }],
+  // already grouped and ordered by app.js's buildReportPictures to match
+  // PICTURE_CATEGORIES' order (overview, main rollbar, backstay, roof,
+  // doors) -- the same order the on-screen Pictures section uses.
+  function renderPictures(w, categories) {
+    if (!categories || !categories.length) return;
+    w.newPage();
     w.heading("Pictures");
-    pictures.forEach((pic, idx) => {
-      w.subheading("Picture " + (idx + 1));
-      if (pic.photoDataUrl) w.image(pic.photoDataUrl, { maxWidth: 90, maxHeight: 70 });
-      if (pic.tags && pic.tags.length) {
-        w.text("Tagged elements: " + pic.tags.join("; "), { size: 8.5, color: COLOR.muted });
-      } else {
-        w.text("No elements tagged.", { size: 8.5, italic: true, color: COLOR.faint });
-      }
-      if (pic.screenshotDataUrl) {
-        w.text("Selected parts (3D):", { size: 8.5, color: COLOR.muted });
-        w.image(pic.screenshotDataUrl, { maxWidth: 90, maxHeight: 60 });
-      }
-      w.spacer(3);
+    categories.forEach((cat) => {
+      w.categoryLabel(cat.categoryLabel);
+      cat.pictures.forEach((pic, idx) => {
+        w.subheading("Picture " + (idx + 1));
+        if (pic.photoDataUrl) w.image(pic.photoDataUrl, { maxWidth: 90, maxHeight: 70 });
+        if (pic.tags && pic.tags.length) {
+          w.text("Tagged elements: " + pic.tags.join("; "), { size: 8.5, color: COLOR.muted });
+        } else {
+          w.text("No elements tagged.", { size: 8.5, italic: true, color: COLOR.faint });
+        }
+        if (pic.screenshotDataUrl) {
+          w.text("Selected parts (3D):", { size: 8.5, color: COLOR.muted });
+          w.image(pic.screenshotDataUrl, { maxWidth: 90, maxHeight: 60 });
+        }
+        w.spacer(3);
+      });
     });
   }
 
@@ -283,12 +299,13 @@
 
   // data: {
   //   filename, generatedAt, buildNumber, vehicleLines: [{label,value}],
+  //   vehiclePhotos: [{label, dataUrl}],
   //   angleImages: [{label, dataUrl}],
   //   parts: [{ phaseLabel, categories: [{ name, rows: [
   //     {kind:"element", label, value} | {kind:"table", label, subRows:[{label,value}]}
   //   ]}]}],
   //   logbook: {verdictLabel, verdictDetail, verdictLevel, requiredTotal, requiredSatisfied, failures, unresolved, advisories} | null,
-  //   pictures: [{photoDataUrl, screenshotDataUrl, tags}],
+  //   pictures: [{ categoryLabel, pictures: [{photoDataUrl, screenshotDataUrl, tags}] }],
   //   safetyScore: {rows:[{label,valueText,tier,points}], totalPoints, ratedRows} | null,
   //   logbookApplicationDetails: [{label,value}] | undefined,
   //   homologationPhotos: [dataUrl] | undefined,

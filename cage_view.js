@@ -21,6 +21,7 @@
   // under that same URL. Bump this whenever any file in cage_parts/ changes,
   // even if PARTS itself doesn't.
   const CAGE_PARTS_VERSION = 7;
+  const DEFAULT_BACKGROUND = 0x1b1e22;
 
   const PARTS = [
     "Main rollbar.stl", "Front left lateral.stl", "Front right lateral.stl", "Transverse member.stl",
@@ -327,7 +328,7 @@
     if (scene) return; // idempotent
     wrap = container;
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1b1e22);
+    scene.background = new THREE.Color(DEFAULT_BACKGROUND);
     camera = new THREE.PerspectiveCamera(45, container.clientWidth / Math.max(1, container.clientHeight), 0.1, 100000);
     renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -1086,7 +1087,18 @@
     const mesh = meshes[file];
     return mesh ? meshAxisBounds(mesh) : null;
   }
-  window.CageView = { init, applyState, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles };
+  // Overrides the scene background -- used by the PDF report to capture
+  // white-background screenshots (less ink when printed) without touching
+  // the live viewer's own dark theme; resetBackground() restores it. Takes
+  // effect on the next animation frame via the existing render loop, no
+  // explicit render() call needed.
+  function setBackground(color) {
+    if (scene) scene.background = new THREE.Color(color);
+  }
+  function resetBackground() {
+    if (scene) scene.background = new THREE.Color(DEFAULT_BACKGROUND);
+  }
+  window.CageView = { init, applyState, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setBackground, resetBackground };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
