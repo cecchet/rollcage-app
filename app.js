@@ -3538,11 +3538,11 @@
       if (roofVal && backstayVal) {
         const roofIs14 = roofVal === "253-14";
         const backstayIs22 = backstayVal === "253-22";
-        if (roofIs14 || backstayIs22) {
-          const matched = roofIs14 && backstayIs22;
-          const label = "253-14 roof bar / 253-22 backstay pairing";
-          if (matched) addRow("roof_backstay_pairing", label, "green", "Matched");
-          else addRow("roof_backstay_pairing", label, "red", roofIs14 ? "Unsafe design -- 253-14 requires 253-22" : "Unsafe design -- 253-22 requires 253-14", UNSAFE_POINTS);
+        // Penalty only -- a correct pairing is already credited through the
+        // roof and backstay rows' own points, so it gets no row of its own.
+        if (roofIs14 !== backstayIs22) {
+          addRow("roof_backstay_pairing", "253-14 roof bar / 253-22 backstay pairing", "red",
+            roofIs14 ? "Unsafe design -- 253-14 requires 253-22" : "Unsafe design -- 253-22 requires 253-14", UNSAFE_POINTS);
         }
       }
     }
