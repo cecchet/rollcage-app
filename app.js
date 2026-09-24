@@ -23,6 +23,8 @@
     pictureSelectMode: null, // UI-only: { pictureId, selected: Map<elmId, value|null> } while "Edit rollcage elements" is active -- see renderPictures/computeCageColors
     resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
+    libraryOpen: false, // UI-only: the "Rollcage library" window (renderLibrary) is showing
+    librarySelectedId: null, // UI-only: sessionId of the card selected in that window, if any
     safetyScoreExpanded: false, // UI-only: Safety score panel starts collapsed (the sticky viewer's badge still shows the total, and clicking it expands this)
     picturesExpanded: true, // UI-only: Pictures panel starts expanded (unlike Vehicle description/Results) since it's an actively-used feature, not a rarely-touched summary -- same collapsiblePanelHeader toggle either way
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
@@ -72,24 +74,23 @@
   }
 
   // Gates any action that would replace the current in-memory rollcage
-  // (switching to a different saved one, starting a new one, importing a
-  // file) behind a save-or-discard choice when there's unsaved work --
-  // native confirm() only gives 2 options, so a 3-way Save/Discard/Cancel
-  // is composed from 2 of them in sequence rather than building a custom
-  // modal for just this. Calls proceedFn() if it's safe to continue (either
-  // nothing was dirty, the user saved first, or they chose to discard);
-  // otherwise re-renders so any UI that already reflects the not-yet-taken
-  // action (e.g. the session <select>'s new value) resets to the truth.
+  // (loading a different saved one, starting a new one) behind a single
+  // Save / Discard / Cancel dialog when there's unsaved work (see
+  // renderUnsavedDialog). proceedFn runs right away when nothing is dirty,
+  // otherwise once the user picks Save or Discard; Cancel drops it.
+  // Module-level rather than in `state`, since it holds a function.
+  let pendingUnsavedProceed = null;
   function confirmDiscardIfDirty(proceedFn) {
     if (!state.dirty) { proceedFn(); return; }
-    const wantsSave = confirm("This rollcage has unsaved changes.\n\nClick OK to save them first, or Cancel to choose whether to discard them instead.");
-    if (wantsSave) {
-      saveWithFlash();
-      proceedFn();
-      return;
-    }
-    const wantsDiscard = confirm("Discard the unsaved changes without saving?\n\nClick OK to discard them and continue, or Cancel to go back and keep working.");
-    if (wantsDiscard) proceedFn();
+    pendingUnsavedProceed = proceedFn;
+    render();
+  }
+  function resolveUnsavedDialog(action) {
+    const proceed = pendingUnsavedProceed;
+    pendingUnsavedProceed = null;
+    if (!proceed) return;
+    if (action === "save") { saveWithFlash(); proceed(); }
+    else if (action === "discard") proceed();
     else render();
   }
 
@@ -801,9 +802,22 @@
     });
   }
 
+  // A saved rollcage's 3D snapshot lives in the picture store under this id
+  // (captured on every Save -- see saveSessionThumbnail), not in
+  // localStorage, since even a small JPEG per rollcage adds up there.
+  function sessionThumbId(sessionId) { return "thumb_" + sessionId; }
+  function saveSessionThumbnail(sessionId) {
+    const shot = window.CageView && window.CageView.snapshot ? window.CageView.snapshot(360) : null;
+    if (!shot) return;
+    const id = sessionThumbId(sessionId);
+    delete pictureImageCache[id];
+    putPictureRecord(id, { photo: shot, screenshot: null });
+  }
+
   let saveFlashTimeout = null;
   function saveWithFlash() {
     saveCurrent();
+    saveSessionThumbnail(state.sessionId);
     state.dirty = false;
     state.justSaved = true;
     render();
@@ -811,20 +825,25 @@
     saveFlashTimeout = setTimeout(() => { state.justSaved = false; render(); }, 1200);
   }
 
-  function exportSessionToFile() {
-    const data = { sessionId: state.sessionId, vehicle: state.vehicle, pathId: state.pathId, answers: state.answers };
+  // Exports a rollcage as last SAVED (from the library), not whatever
+  // unsaved edits the open one may have on top.
+  function exportSavedSessionToFile(sessionId) {
+    const s = loadAll()[sessionId];
+    if (!s) return;
+    const data = { sessionId: s.sessionId, vehicle: s.vehicle, pathId: s.pathId, answers: s.answers };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = (state.vehicle.name || "rollcage") + ".json";
+    a.download = (s.vehicle.name || "rollcage") + ".json";
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  // Always lands as a new, separate saved rollcage (a fresh sessionId)
-  // rather than silently overwriting whatever's currently open or
-  // colliding with an existing save that happens to reuse an old id.
+  // Adds the file to the saved-rollcages list as a new, separate entry (a
+  // fresh sessionId, so it never collides with an existing save that
+  // happens to reuse an old id) -- the rollcage currently open is left
+  // untouched, so there's no unsaved work to put at risk here.
   function importSessionFromFile(file) {
     const reader = new FileReader();
     reader.onload = () => {
@@ -839,11 +858,19 @@
         alert("That file isn't a valid rollcage export.");
         return;
       }
-      state.sessionId = uid();
-      state.vehicle = data.vehicle;
-      state.pathId = data.pathId || "new_construction";
-      state.answers = data.answers || {};
-      markDirty();
+      const all = loadAll();
+      const sessionId = uid();
+      all[sessionId] = {
+        sessionId,
+        vehicle: data.vehicle,
+        pathId: data.pathId || "new_construction",
+        answers: data.answers || {},
+        pictures: [],
+        homologationPhotos: [],
+        vehiclePhotos: { front: null, rear: null },
+        updatedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
       render();
     };
     reader.readAsText(file);
@@ -1182,38 +1209,11 @@
     });
   }
 
-  function renderSessionBar(root) {
-    const all = loadAll();
-    const select = el("select", {
-      onchange: (e) => {
-        const nextValue = e.target.value;
-        confirmDiscardIfDirty(() => {
-          if (nextValue === "__new__") startNew();
-          else loadSession(nextValue);
-        });
-      },
-    });
-    select.appendChild(el("option", { value: "__new__" }, ["New rollcage..."]));
-    Object.values(all)
-      .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
-      .forEach((s) => {
-        const label = (s.vehicle.name || "Unnamed vehicle") + " — " + new Date(s.updatedAt).toLocaleString();
-        const opt = el("option", { value: s.sessionId }, [label]);
-        if (s.sessionId === state.sessionId) opt.selected = true;
-        select.appendChild(opt);
-      });
-
-    const importInput = el("input", {
-      type: "file",
-      accept: "application/json",
-      class: "visually-hidden",
-      onchange: (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (file) importSessionFromFile(file);
-        e.target.value = "";
-      },
-    });
-
+  // Rendered into the sticky 3D-viewer panel (above the Part dropdown)
+  // rather than #app, so the rollcage name and its actions stay reachable
+  // however far down the checklist the user has scrolled.
+  function renderSessionBar(holder) {
+    holder.innerHTML = "";
     const nameInput = el("input", {
       type: "text",
       class: "session-bar-name-input",
@@ -1225,12 +1225,8 @@
       },
     });
 
-    root.appendChild(
-      el("div", { class: "panel session-bar" }, [
-        el("div", { class: "session-bar-group" }, [
-          el("div", {}, ["Saved Rollcages (this browser only): "]),
-          select,
-        ]),
+    holder.appendChild(
+      el("div", { class: "session-bar" }, [
         el("div", { class: "session-bar-group" }, [
           el("label", { for: "rollcageNameInput" }, ["Rollcage name: "]),
           Object.assign(nameInput, { id: "rollcageNameInput" }),
@@ -1242,25 +1238,138 @@
             { class: "btn small secondary", disabled: state.pdfReportStatus === "generating" || !state.pathId, onclick: generatePdfReport },
             [state.pdfReportStatus === "generating" ? "Generating report…" : "PDF report"]
           ),
-          el("button", { class: "btn small secondary", onclick: exportSessionToFile }, ["Export to file"]),
-          el("button", { class: "btn small secondary", onclick: () => confirmDiscardIfDirty(() => importInput.click()) }, ["Import from file"]),
-          importInput,
-          el(
-            "button",
-            {
-              class: "btn small secondary",
-              onclick: () => {
-                const all2 = loadAll();
-                delete all2[state.sessionId];
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(all2));
-                startNew();
-              },
-            },
-            ["Delete this rollcage"]
-          ),
+          el("button", { class: "btn small secondary", onclick: () => { state.libraryOpen = true; state.librarySelectedId = null; render(); } }, ["Rollcage library"]),
         ]),
       ])
     );
+  }
+
+  function deleteSavedRollcage(sessionId) {
+    const s = loadAll()[sessionId];
+    if (!s) return;
+    const name = s.vehicle.name || "this unnamed rollcage";
+    if (!confirm('Delete "' + name + '"? This removes it from your saved rollcages and can\'t be undone.')) return;
+    const all = loadAll();
+    delete all[sessionId];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+    deletePictureRecord(sessionThumbId(sessionId));
+    state.librarySelectedId = null;
+    // The open rollcage no longer exists as a save -- start a blank one
+    // rather than leaving an orphan that a later Save would silently revive.
+    if (sessionId === state.sessionId) startNew();
+    else render();
+  }
+
+  // Both dialogs share #modalHolder; the unsaved-changes one is appended
+  // last, so it sits on top when opened from inside the library.
+  function renderModals(holder) {
+    holder.innerHTML = "";
+    renderLibrary(holder);
+    renderUnsavedDialog(holder);
+  }
+
+  function renderUnsavedDialog(holder) {
+    if (!pendingUnsavedProceed) return;
+    const saveBtn = el("button", { class: "btn small", onclick: () => resolveUnsavedDialog("save") }, ["Save"]);
+    const dialog = el("div", { class: "load-dialog confirm-dialog", role: "alertdialog", "aria-modal": "true", "aria-labelledby": "unsavedDialogTitle" }, [
+      el("h2", { id: "unsavedDialogTitle" }, ["Unsaved changes"]),
+      el("p", {}, ['"' + (state.vehicle.name || "This rollcage") + '" has changes that haven\'t been saved. Save them before continuing?']),
+      el("div", { class: "toolbar confirm-dialog-actions" }, [
+        saveBtn,
+        el("button", { class: "btn small secondary", onclick: () => resolveUnsavedDialog("discard") }, ["Discard"]),
+        el("button", { class: "btn small secondary", onclick: () => resolveUnsavedDialog("cancel") }, ["Cancel"]),
+      ]),
+    ]);
+    const overlay = el("div", { class: "modal-overlay" }, [dialog]);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) resolveUnsavedDialog("cancel"); });
+    holder.appendChild(overlay);
+    saveBtn.focus();
+  }
+
+  // "Rollcage library" window: every saved rollcage as a card (its 3D
+  // snapshot from its last Save, plus its 3/4 front photo if it has one).
+  // Clicking a card selects it; Load / Export to file / Delete then act on
+  // that selection. Also the home of "new" and "import from file".
+  function renderLibrary(holder) {
+    if (!state.libraryOpen) return;
+    const close = () => { state.libraryOpen = false; render(); };
+    const importInput = el("input", {
+      type: "file",
+      accept: "application/json",
+      class: "visually-hidden",
+      onchange: (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) importSessionFromFile(file);
+        e.target.value = "";
+      },
+    });
+
+    const sessions = Object.values(loadAll()).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    const list = el("div", { class: "load-dialog-list" });
+    if (!sessions.length) list.appendChild(el("div", { class: "ai-status" }, ["No saved rollcages yet."]));
+    sessions.forEach((s) => {
+      const thumbId = sessionThumbId(s.sessionId);
+      loadPictureImage(thumbId);
+      const thumb = (pictureImageCache[thumbId] || {}).photo;
+      const frontId = s.vehiclePhotos && s.vehiclePhotos.front && s.vehiclePhotos.front.id;
+      if (frontId) loadPictureImage(frontId);
+      const front = frontId && (pictureImageCache[frontId] || {}).photo;
+      const isOpen = s.sessionId === state.sessionId;
+      const isSelected = s.sessionId === state.librarySelectedId;
+      list.appendChild(
+        el(
+          "button",
+          {
+            type: "button",
+            class: "load-dialog-card" + (isSelected ? " selected" : ""),
+            "aria-pressed": isSelected ? "true" : "false",
+            onclick: () => { state.librarySelectedId = s.sessionId; render(); },
+          },
+          [
+            el("div", { class: "load-dialog-images" }, [
+              thumb
+                ? el("img", { class: "load-dialog-model", src: thumb, alt: "3D model" })
+                : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["No 3D snapshot yet -- open and Save it to create one"]),
+              front ? el("img", { class: "load-dialog-photo", src: front, alt: "3/4 front photo" }) : null,
+            ]),
+            el("div", { class: "load-dialog-name" }, [(s.vehicle.name || "Unnamed vehicle") + (isOpen ? " (open)" : "")]),
+            el("div", { class: "load-dialog-date" }, ["Saved " + new Date(s.updatedAt).toLocaleString()]),
+          ]
+        )
+      );
+    });
+
+    const selected = state.librarySelectedId && sessions.find((s) => s.sessionId === state.librarySelectedId);
+    const selectedId = selected ? selected.sessionId : null;
+    const actions = el("div", { class: "toolbar library-actions" }, [
+      el("span", { class: "library-selection" }, [
+        selected ? "Selected: " + (selected.vehicle.name || "Unnamed vehicle") : sessions.length ? "Select a rollcage below" : "",
+      ]),
+      el("button", {
+        class: "btn small", disabled: !selectedId,
+        onclick: () => confirmDiscardIfDirty(() => { state.libraryOpen = false; loadSession(selectedId); }),
+      }, ["Load"]),
+      el("button", { class: "btn small secondary", disabled: !selectedId, onclick: () => exportSavedSessionToFile(selectedId) }, ["Export to file"]),
+      el("button", { class: "btn small secondary", disabled: !selectedId, onclick: () => deleteSavedRollcage(selectedId) }, ["Delete"]),
+    ]);
+
+    const dialog = el("div", { class: "load-dialog", role: "dialog", "aria-modal": "true", "aria-label": "Rollcage library" }, [
+      el("div", { class: "load-dialog-header" }, [
+        el("h2", {}, ["Rollcage library"]),
+        el("button", { class: "btn small secondary", onclick: close }, ["Close"]),
+      ]),
+      el("div", { class: "element-desc" }, ["Saved in this browser only."]),
+      el("div", { class: "toolbar" }, [
+        el("button", { class: "btn small secondary", onclick: () => confirmDiscardIfDirty(() => { state.libraryOpen = false; startNew(); }) }, ["Start a new rollcage"]),
+        el("button", { class: "btn small secondary", onclick: () => importInput.click() }, ["Import a rollcage from file"]),
+        importInput,
+      ]),
+      actions,
+      list,
+    ]);
+    const overlay = el("div", { class: "modal-overlay" }, [dialog]);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    holder.appendChild(overlay);
   }
 
   function collapsiblePanelHeader(title, isExpanded, onToggle) {
@@ -6445,7 +6554,8 @@
     const root = document.getElementById("app");
     root.innerHTML = "";
 
-    renderSessionBar(root);
+    renderSessionBar(document.getElementById("sessionBarHolder"));
+    renderModals(document.getElementById("modalHolder"));
 
     renderVehicleDescription(root);
 
@@ -6500,6 +6610,11 @@
     if (pmDone) pmDone.addEventListener("click", finishPictureSelectMode);
     const pmCancel = document.getElementById("cageViewerPictureModeCancel");
     if (pmCancel) pmCancel.addEventListener("click", cancelPictureSelectMode);
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (pendingUnsavedProceed) resolveUnsavedDialog("cancel");
+      else if (state.libraryOpen) { state.libraryOpen = false; render(); }
+    });
   }
 
   if (document.readyState === "loading") {

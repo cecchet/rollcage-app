@@ -7,7 +7,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="images/favicon-192.png">
 <link rel="apple-touch-icon" href="images/favicon-192.png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 <header class="app-header">
@@ -21,6 +21,7 @@
 
 <div class="cage-viewer-row">
   <div id="cage-viewer-panel" class="panel cage-viewer-panel">
+    <div id="sessionBarHolder"></div>
     <div id="cageViewerPartDropdown" class="cage-viewer-part-dropdown"></div>
     <div class="cage-viewer-header" title="Bars light up as you confirm them below. Click a bar with more than one possible design to cycle its options directly; double-click for a quick default fill/jump. Drag to rotate, scroll to zoom, shift+drag to pan.">
       <strong>Live cage model</strong>
@@ -47,6 +48,7 @@
 </div>
 
 <main id="app"></main>
+<div id="modalHolder"></div>
 
 <footer class="app-footer">
   <p>Rules encoded from each sanctioning body's own published technical regulations and grandfathering
@@ -57,10 +59,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="version.js?v=1"></script>
-<script src="cage_view.js?v=108"></script>
+<script src="cage_view.js?v=110"></script>
 <script src="diagrams.js?v=30"></script>
 <script src="rules-data.js?v=90"></script>
 <script src="pdf_report.js?v=3"></script>
-<script src="app.js?v=246"></script>
+<script src="app.js?v=249"></script>
 </body>
 </html>

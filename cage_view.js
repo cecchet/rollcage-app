@@ -278,6 +278,7 @@
   let scene, camera, renderer, wrap;
   let target, radius, theta, phi, roll;
   const meshes = {}; // filename -> THREE.Mesh
+  const ghostFiles = new Set(); // files applyState() last drew as dim ghosts (see snapshot())
   let loadedCount = 0;
   let onReadyCbs = [];
   let ready = false;
@@ -949,6 +950,8 @@
         const arr = colorAttr.array;
         const n = posAttr.count;
 
+        if (spec) ghostFiles.delete(file);
+        else ghostFiles.add(file);
         if (!spec) {
           const [r, g, b] = colorToRGB(GHOST_COLOR);
           for (let i = 0; i < n; i++) { arr[i * 3] = r; arr[i * 3 + 1] = g; arr[i * 3 + 2] = b; }
@@ -1107,7 +1110,43 @@
   function resetBackground() {
     if (scene) scene.background = new THREE.Color(DEFAULT_BACKGROUND);
   }
-  window.CageView = { init, applyState, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setBackground, resetBackground };
+  // A still of the model for the saved-rollcages list: the default 3/4
+  // view with ghost bars and the occupants hidden. Rendered synchronously
+  // and restored within the same call, so the live view (camera, visible
+  // parts) never visibly changes. Returns a JPEG data URL at most maxWidth
+  // wide, or null before the model has loaded.
+  function snapshot(maxWidth) {
+    if (!ready || !renderer) return null;
+    const saved = { theta, phi, roll, radius, target: target.clone() };
+    const hiddenForShot = [];
+    Object.keys(meshes).forEach((file) => {
+      const m = meshes[file];
+      if (m.visible && (ghostFiles.has(file) || /^(Driver|Codriver)/.test(file))) {
+        m.visible = false;
+        hiddenForShot.push(m);
+      }
+    });
+    theta = Math.PI / 4; phi = Math.PI / 4; roll = 0;
+    fitCamera();
+    // fitCamera frames every mesh, occupants and hidden alternates
+    // included -- closer in so the cage itself fills a small thumbnail.
+    radius *= 0.6;
+    updateCamera();
+    renderer.render(scene, camera);
+    const src = renderer.domElement;
+    const scale = Math.min(1, maxWidth / Math.max(1, src.width));
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, Math.round(src.width * scale));
+    out.height = Math.max(1, Math.round(src.height * scale));
+    out.getContext("2d").drawImage(src, 0, 0, out.width, out.height);
+    hiddenForShot.forEach((m) => { m.visible = true; });
+    theta = saved.theta; phi = saved.phi; roll = saved.roll; radius = saved.radius;
+    target.copy(saved.target);
+    updateCamera();
+    renderer.render(scene, camera);
+    return out.toDataURL("image/jpeg", 0.85);
+  }
+  window.CageView = { init, applyState, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setBackground, resetBackground, snapshot };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
