@@ -23,6 +23,7 @@
     pictureSelectMode: null, // UI-only: { pictureId, selected: Map<elmId, value|null> } while "Edit rollcage elements" is active -- see renderPictures/computeCageColors
     resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
+    safetyScoreExpanded: false, // UI-only: Safety score panel starts collapsed (the sticky viewer's badge still shows the total, and clicking it expands this)
     picturesExpanded: true, // UI-only: Pictures panel starts expanded (unlike Vehicle description/Results) since it's an actively-used feature, not a rarely-touched summary -- same collapsiblePanelHeader toggle either way
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
     activeTab: 1, // UI-only: which phase (Part 1-7) tab is currently shown -- see PHASE_LABELS
@@ -588,6 +589,10 @@
       // "choice" element's own options already use -- respected here if
       // present, otherwise falls back to "just needs an entry".
       if (!answer.value) {
+        // An optional row (e.g. the B-pillar gusset) treats blank as a
+        // deliberate "None" -- that option shares the blank id "", so the
+        // two can't be told apart, and neither needs verifying here.
+        if (row && row.optional) return "pass";
         if (row && elm && elm.rowGroups && rowGroupExcusesBlank(elm, row.id)) return "pass";
         return "warn";
       }
@@ -3334,51 +3339,89 @@
     if (!v || v === "no" || v === "none") return null;
     return "green";
   }
-  // Shared by main_hoop_diagonals/roof_bars/backstay_diagonals below -- a
-  // lone bar's own single-diagonal option only reads as "acceptable, half
-  // credit" (orange) when it's part of a genuinely complete single-
-  // diagonal SYSTEM across all 3 bars, correctly sided for the driver.
-  // Returns null if the 3 answers don't even form a coherent single-
-  // diagonal system (so each bar's own rule falls back to its normal
-  // tier instead), "correct"/"wrong" once drive side confirms which, or
-  // "unknown" when the system is complete but drive side isn't set yet
-  // (treated as an unconfirmed pass, not a failure, by the callers below).
-  function singleDiagonalSystemMatch(getAnswer) {
+  // Which top corner(s) of the main rollbar (car left/right) each diagonal
+  // option actually reaches -- measured from the 3D model's own parts: the
+  // 253-7 and 253-21 X's reach both, a single diagonal reaches one, and
+  // the center V's (diag-v-center, 253-22) peak at the hoop's center, not
+  // at a corner. A single roof diagonal lands on the main rollbar at the
+  // corner OPPOSITE its own front foot ("front left" runs front-left to
+  // rear-right).
+  const MAIN_HOOP_DIAG_TOP_CORNERS = { "253-7-1": ["left", "right"], "253-7-2": ["left", "right"], "diag-left": ["left"], "diag-right": ["right"] };
+  const BACKSTAY_DIAG_TOP_CORNERS = { "253-20": ["left"], "253-20-right": ["right"], "253-21-1": ["left", "right"], "253-21-2": ["left", "right"] };
+  const SINGLE_ROOF_REAR_CORNER = { "single-front-left": "right", "single-front-right": "left" };
+  // Whether a main rollbar diagonal or backstay diagonal braces that top
+  // corner of the main rollbar: true/false, or null while either of those
+  // two is still unanswered (support can't be ruled out yet).
+  function mainHoopTopCornerSupported(side, getAnswer) {
     const mainHoop = getAnswer("main_hoop_diagonals").value;
-    const roof = getAnswer("roof_bars").value;
     const backstay = getAnswer("backstay_diagonals").value;
-    const mainHoopSingle = mainHoop === "diag-left" || mainHoop === "diag-right";
-    const roofSingle = roof === "single-front-left" || roof === "single-front-right";
-    const backstaySingle = backstay === "253-20" || backstay === "253-20-right";
-    if (!mainHoopSingle || !roofSingle || !backstaySingle) return null;
-    const driveSide = getAnswer("vehicle_drive_side").value;
-    if (!driveSide) return "unknown";
-    // Verified against the user's own reference diagram for a LHD car:
-    // the roof bar's single front foot sits on the PASSENGER side (its
-    // rear end lands on the driver side, joining the main hoop diagonal's
-    // own top and the backstay's own top there) -- RHD mirrors it.
-    const combo = driveSide === "lhd"
-      ? { roof: "single-front-right", mainHoop: "diag-left", backstay: "253-20" }
-      : { roof: "single-front-left", mainHoop: "diag-right", backstay: "253-20-right" };
-    return roof === combo.roof && mainHoop === combo.mainHoop && backstay === combo.backstay ? "correct" : "wrong";
+    if ((MAIN_HOOP_DIAG_TOP_CORNERS[mainHoop] || []).includes(side) || (BACKSTAY_DIAG_TOP_CORNERS[backstay] || []).includes(side)) return true;
+    return mainHoop && backstay ? false : null;
   }
+  // A lone diagonal roof bar needs its main-rollbar corner braced by a
+  // main rollbar or backstay diagonal, or that corner is left unsupported.
+  function singleRoofCornerUnsupported(v, getAnswer) {
+    const corner = SINGLE_ROOF_REAR_CORNER[v];
+    return !!corner && mainHoopTopCornerSupported(corner, getAnswer) === false;
+  }
+  // Main rollbar "diagonals" that don't actually brace the hoop against
+  // lateral collapse (a horizontal bar, 2 short lower bars, a center V) --
+  // or no diagonal at all -- are a known-unsafe main hoop, worth far below
+  // red's own 0-point floor. See SAFETY_UNSAFE_NOTES.
+  const UNSAFE_MAIN_HOOP_DIAGONALS = new Set(["diag-horizontal", "diag-lower-half", "diag-v-center", "none"]);
+  // Same idea for the roof: no front roof-corner support (253-13), a lone
+  // center bar, or no roof bar at all.
+  const UNSAFE_ROOF_BARS = new Set(["253-13", "single-center", "none"]);
+  // ...and the doors: one lone bar, or none at all.
+  const UNSAFE_DOOR_BARS = new Set(["single-bar", "none"]);
+  function isSingleDiagonalRoof(v) { return v === "single-front-left" || v === "single-front-right"; }
+  // Per-element known-unsafe answers: each returns the note to append to
+  // that row's value text, or null if the answer isn't one of them. Any
+  // non-null note scores the row at UNSAFE_POINTS instead of its tier's
+  // usual TIER_POINTS value. A single diagonal roof bar is never
+  // acceptable with a codriver (one occupant's side has no bar at all),
+  // and solo only when its main-rollbar corner is braced.
+  const UNSAFE_POINTS = -50;
+  // The main rollbar, roof and backstay bracing are worth more than the
+  // standard TIER_POINTS: a full design (253-7, 253-12/253-14, 253-21/
+  // 253-22) is green at 10, a single diagonal orange at 5.
+  const DIAGONAL_TIER_POINTS = { green: 10, orange: 5, red: 0 };
+  const ELEMENT_TIER_POINTS = {
+    main_hoop_diagonals: DIAGONAL_TIER_POINTS,
+    roof_bars: DIAGONAL_TIER_POINTS,
+    backstay_diagonals: DIAGONAL_TIER_POINTS,
+  };
+  const SAFETY_UNSAFE_NOTES = {
+    main_hoop_diagonals: (v) => (UNSAFE_MAIN_HOOP_DIAGONALS.has(v) ? "unsafe main rollbar diagonal" : null),
+    roof_bars: (v, getAnswer) => {
+      if (UNSAFE_ROOF_BARS.has(v)) return "unsafe roof bar configuration";
+      if (isSingleDiagonalRoof(v) && getAnswer("vehicle_codriver").value === "yes") return "unsafe roof bar configuration";
+      if (singleRoofCornerUnsupported(v, getAnswer)) return "unsupported roof bar corner";
+      return null;
+    },
+    door_bars_left: (v) => (UNSAFE_DOOR_BARS.has(v) ? "unsafe door bar configuration" : null),
+    door_bars_right: (v) => (UNSAFE_DOOR_BARS.has(v) ? "unsafe door bar configuration" : null),
+  };
   const SAFETY_TIER_RULES = {
     main_rollbar_present: (v) => (v === "yes" ? "green" : v === "no" ? "red" : null),
-    // 253-7 (X or V) is mandatory with a codriver -- no exceptions, so a
+    // 253-7 (the X) is mandatory with a codriver -- no exceptions, so a
     // single diagonal always escalates straight to red there. Solo, it's
-    // only ever half credit (orange) at best, same as the other 2 bars.
+    // half credit (orange); whether the driver's side of the main rollbar
+    // is actually braced is its own separate check (see
+    // mainHoopTopCornerSupported's caller in computeSafetyScoreRows).
     main_hoop_diagonals: (v, getAnswer) => {
-      const base = { "253-7-1": "green", "253-7-2": "green", "diag-left": "orange", "diag-right": "orange", "diag-horizontal": "red", "diag-lower-half": "red", "diag-v-center": "red" }[v];
+      if (UNSAFE_MAIN_HOOP_DIAGONALS.has(v)) return "red";
+      const base = { "253-7-1": "green", "253-7-2": "green", "diag-left": "orange", "diag-right": "orange" }[v];
       if (base !== "orange") return base || null;
-      if (getAnswer("vehicle_codriver").value === "yes") return "red";
-      return singleDiagonalSystemMatch(getAnswer) === "wrong" ? "red" : "orange";
+      return getAnswer("vehicle_codriver").value === "yes" ? "red" : "orange";
     },
     roof_bars: (v, getAnswer) => {
-      if (v === "single-front-left" || v === "single-front-right") {
+      if (UNSAFE_ROOF_BARS.has(v)) return "red";
+      if (isSingleDiagonalRoof(v)) {
         if (getAnswer("vehicle_codriver").value === "yes") return "red";
-        return singleDiagonalSystemMatch(getAnswer) === "wrong" ? "red" : "orange";
+        return singleRoofCornerUnsupported(v, getAnswer) ? "red" : "orange";
       }
-      return { "253-12-1": "green", "253-12-2": "green", "253-14": "green", "253-13": "red", "single-center": "red", "none": "red" }[v] || null;
+      return { "253-12-1": "green", "253-12-2": "green", "253-14": "green" }[v] || null;
     },
     // 253-12 (X roof bar) paired with a single 253-20 backstay is its own
     // accepted-but-lesser-score exception -- explicitly allowed even with
@@ -3387,8 +3430,7 @@
       if (v === "253-20" || v === "253-20-right") {
         const roof = getAnswer("roof_bars").value;
         if (roof === "253-12-1" || roof === "253-12-2") return "orange";
-        if (getAnswer("vehicle_codriver").value === "yes") return "red";
-        return singleDiagonalSystemMatch(getAnswer) === "wrong" ? "red" : "orange";
+        return getAnswer("vehicle_codriver").value === "yes" ? "red" : "orange";
       }
       return { "253-21-1": "green", "253-21-2": "green", "253-22": "green", "none": "red" }[v] || null;
     },
@@ -3449,8 +3491,22 @@
       if (!elm || !elementVisible(elm)) return;
       const answer = getAnswer(elmId);
       const tier = SAFETY_TIER_RULES[elmId](answer.value, getAnswer);
-      addRow(elmId, elm.name, tier, answer.value ? elementSummary(elm, answer) : "Not yet answered");
+      const unsafeNote = SAFETY_UNSAFE_NOTES[elmId] ? SAFETY_UNSAFE_NOTES[elmId](answer.value, getAnswer) : null;
+      let valueText = answer.value ? elementSummary(elm, answer) : "Not yet answered";
+      if (unsafeNote) valueText += " -- " + unsafeNote;
+      const tierPoints = ELEMENT_TIER_POINTS[elmId] && tier ? ELEMENT_TIER_POINTS[elmId][tier] : undefined;
+      addRow(elmId, elm.name, tier, valueText, unsafeNote ? UNSAFE_POINTS : tierPoints);
     });
+
+    // Solo, the driver's side of the main rollbar has to be braced at its
+    // top by at least one main rollbar or backstay diagonal -- otherwise
+    // that corner can fold in a rollover, right next to the driver's head.
+    // Only rated once drive side and both diagonals are answered.
+    const mainHoopDiagElm = path.elements.find((e) => e.id === "main_hoop_diagonals");
+    if (driverSide && mainHoopDiagElm && elementVisible(mainHoopDiagElm) && mainHoopTopCornerSupported(driverSide, getAnswer) === false) {
+      addRow("main_rollbar_driver_support", "Main rollbar support (driver side)", "red",
+        "No main rollbar or backstay diagonal reaches the top of the main rollbar on the driver side -- unsafe rollbar support on driver side", UNSAFE_POINTS);
+    }
 
     // An identified base structure (253-1/253-2/253-3) is worth its own
     // standalone bonus -- bigger than the standard green tier, since it's
@@ -3462,7 +3518,7 @@
     if (structureElm && elementVisible(structureElm)) {
       const structureAnswer = getAnswer("main_structure_layout");
       if (["253-1", "253-2", "253-3"].includes(structureAnswer.value)) {
-        addRow("main_structure_layout", structureElm.name, "green", elementSummary(structureElm, structureAnswer), 10);
+        addRow("main_structure_layout", structureElm.name, "green", elementSummary(structureElm, structureAnswer), 20);
       }
     }
 
@@ -3484,17 +3540,16 @@
         const backstayIs22 = backstayVal === "253-22";
         if (roofIs14 || backstayIs22) {
           const matched = roofIs14 && backstayIs22;
-          addRow(
-            "roof_backstay_pairing", "253-14 roof bar / 253-22 backstay pairing", matched ? "green" : "red",
-            matched ? "Matched" : "Mismatched -- 253-14 requires a 253-22 backstay diagonal, and vice versa"
-          );
+          const label = "253-14 roof bar / 253-22 backstay pairing";
+          if (matched) addRow("roof_backstay_pairing", label, "green", "Matched");
+          else addRow("roof_backstay_pairing", label, "red", roofIs14 ? "Unsafe design -- 253-14 requires 253-22" : "Unsafe design -- 253-22 requires 253-14", UNSAFE_POINTS);
         }
       }
     }
 
     // Required gussets at 253-7 (main rollbar diagonal), 253-12 (roof bar),
-    // 253-9 (door bar), and 253-15's own junctions (both the lateral-to-
-    // A-pillar gusset and the A-pillar's own side/2-piece gussets) -- reads
+    // 253-9 (door bar), the lateral-to-A-pillar gusset, and 253-15's own
+    // side/2-piece gussets -- reads
     // the real, already-captured per-junction gusset_design table (each
     // row's own label, so this can never drift from what that table
     // actually shows) rather than a separate generic yes/no question. A
@@ -3546,10 +3601,17 @@
         (id) => id.indexOf("door_front_") === 0 || id.indexOf("door_rear_") === 0,
         (id) => id === "a_pillar_left" || id === "a_pillar_right" || id.indexOf("a_pillar_side_") === 0,
       ];
+      // A missing lateral-to-A-pillar gusset scores below red's own 0 floor.
+      const MISSING_GUSSET_POINTS = { a_pillar_left: -5, a_pillar_right: -5 };
       rows.forEach((row) => {
         if (!REQUIRED_SINGLE_GUSSETS.some((match) => match(row.id))) return;
         const design = getAnswer("gusset_design__" + row.id + "__design").value;
-        addRow(row.id, row.label, design ? "green" : "red", design ? optionLabel(row.id) : "Missing");
+        addRow(row.id, row.label, design ? "green" : "red", design ? optionLabel(row.id) : "Missing", design ? undefined : MISSING_GUSSET_POINTS[row.id]);
+      });
+      // The B-pillar gusset is optional -- a small bonus when fitted, and no
+      // row at all (0 points) without one, same as an absent optional bar.
+      ["b_pillar_left", "b_pillar_right"].forEach((id) => {
+        if (rowsById.has(id) && hasGusset(id)) addRow(id, rowsById.get(id).label, "green", optionLabel(id), 2);
       });
     }
 
@@ -3612,14 +3674,30 @@
 
   function renderSafetyScore(root, path) {
     const panel = el("div", { class: "panel", id: "safety-score-panel" });
-    panel.appendChild(el("h2", {}, ["Safety score"]));
+    const { rows, totalPoints, ratedRows, driveSide, driverSide } = computeSafetyScoreRows(path);
+    // Read by syncSafetyScoreBadge() to keep the sticky 3D-viewer badge in
+    // sync -- module-level rather than threaded through a return value,
+    // same convention CAGE_FILE_OWNER already uses for cross-cutting state
+    // computed during a render pass. Set even while collapsed, since the
+    // badge keeps showing the total either way.
+    lastSafetyScoreSummary = { totalPoints, ratedRows };
+    const title = "Safety score" + (ratedRows ? ": " + (totalPoints > 0 ? "+" : "") + totalPoints : "");
+    panel.appendChild(
+      collapsiblePanelHeader(title, state.safetyScoreExpanded, () => {
+        state.safetyScoreExpanded = !state.safetyScoreExpanded;
+        render();
+      })
+    );
+    if (!state.safetyScoreExpanded) {
+      root.appendChild(panel);
+      return;
+    }
     panel.appendChild(
       el("div", { class: "safety-score-placeholder" }, [
         "First-pass, provisional ratings below (green/orange/red, worth 5/2/0 points) per a set of safety rules of thumb -- independent of any specific sanctioning body's requirements. A few known-bad designs are worth negative points instead of the flat red floor. Not every element is rated yet, and the point values themselves are still early and subject to change.",
       ])
     );
 
-    const { rows, totalPoints, ratedRows, driveSide, driverSide } = computeSafetyScoreRows(path);
     if (driverSide) {
       panel.appendChild(
         el("div", { class: "safety-score-placeholder" }, [
@@ -3650,11 +3728,6 @@
       );
     }
     root.appendChild(panel);
-    // Read by syncSafetyScoreBadge() to keep the sticky 3D-viewer badge in
-    // sync -- module-level rather than threaded through a return value,
-    // same convention CAGE_FILE_OWNER already uses for cross-cutting state
-    // computed during a render pass.
-    lastSafetyScoreSummary = { totalPoints, ratedRows };
   }
 
   // A "Failing"/"Needs verification"/"Advisory" row from renderResults --
@@ -3844,6 +3917,8 @@
     { row: "door_rear_right", file: "Door bar gusset rear right.stl" },
     { row: "a_pillar_left", file: "A-pillar gusset left.stl" },
     { row: "a_pillar_right", file: "A-pillar gusset right.stl" },
+    { row: "b_pillar_left", file: "B-pillar gusset left.stl" },
+    { row: "b_pillar_right", file: "B-pillar gusset right.stl" },
     { row: "a_pillar_side_left", file: "253-15 side gusset left.stl" },
     { row: "a_pillar_side_right", file: "253-15 side gusset right.stl" },
     { row: "a_pillar_2pc_left_upper_front", file: "253-15 gusset left upper front.stl" },
@@ -6146,6 +6221,23 @@
     const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
     const elm = path && path.elements.find((e) => e.id === elmId);
     if (!elm) return null;
+    // Gussets are all owned by one shared table element, whose own name
+    // ("Gusset design") says nothing about which gusset this is -- name the
+    // specific table row instead, plus its current design if picked.
+    const tableRowId = elmId === "gusset_design" ? gussetRowForFile(file)
+      : elmId === "roof_corner_gussets" ? ROOF_CORNER_GUSSET_FILE_TO_ROW.get(file) : null;
+    if (tableRowId) {
+      const row = resolveRows(elm).find((r) => r.id === tableRowId);
+      if (row) {
+        const col = elm.columns[0];
+        const v = getAnswer(tableCellId(elm, row, col)).value;
+        const opt = (col.options || []).find((o) => o.id === v);
+        const valueLabel = opt ? opt.label : v === "yes" ? "Present" : v === "no" ? "Not present" : "";
+        // roof_corner_gussets' own row labels are just the position.
+        const name = elmId === "roof_corner_gussets" ? "Roof corner gusset - " + row.label.toLowerCase() : row.label;
+        return name + (v && valueLabel ? " — " + valueLabel : "");
+      }
+    }
     const answer = getAnswer(elmId);
     const base = elm.name + (answer.value ? " — " + elementSummary(elm, answer) : "");
     return elementValueCycle(path, elmId).length ? base + " (click to cycle options)" : base;
@@ -6249,6 +6341,10 @@
     btn.textContent = "Safety score: " + (totalPoints > 0 ? "+" : "") + totalPoints;
     btn.className = "cage-viewer-safety-score " + (totalPoints > 0 ? "tier-green" : totalPoints < 0 ? "tier-red" : "tier-orange");
     btn.onclick = () => {
+      if (!state.safetyScoreExpanded) {
+        state.safetyScoreExpanded = true;
+        render();
+      }
       const target = document.getElementById("safety-score-panel");
       if (!target) return;
       scrollBelowViewer(target);

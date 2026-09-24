@@ -420,6 +420,7 @@
         { id: "diag-horizontal", label: "1 horizontal bar", diagram: "diag-horizontal", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
         { id: "diag-lower-half", label: "2 lower half bars", diagram: "diag-lower-half", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
         { id: "diag-v-center", label: "V bar in the center", diagram: "diag-v-center", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
+        { id: "none", label: "None present", outcome: "fail" },
       ],
       tubing: null,
       visuallyVerifiable: true,
@@ -729,6 +730,7 @@
   // older non-X layout) have no such ambiguity, so they keep the original
   // generic left/right rows.
   function mainDiagonalTubeRows(value) {
+    if (value === "none") return []; // no diagonal -- nothing to classify
     if (value === "253-7-1" || value === "253-7-2") {
       return [
         { id: "main_diagonal_continuous", label: "253-7: Main rollbar diagonal -- Continuous" },
@@ -841,16 +843,17 @@
 
   // Gusset junctions -- only the ones that actually exist given what was
   // picked upstream (e.g. no door-bar gussets on a car with no door bars).
-  // main_hoop_diagonals has no "none" option -- every choice there is some
-  // form of diagonal meeting the hoop, so it's gated on an answer existing
-  // at all rather than a specific non-empty value like the others.
+  function hasMainHoopDiagonal(getAnswer) {
+    const v = getAnswer("main_hoop_diagonals").value;
+    return !!v && v !== "none";
+  }
   function gussetJunctionRows(getAnswer) {
     const rows = [];
     // 253-7's X-crossing has 4 possible gusset positions (left/right/
     // upper/lower) -- most cars only gusset one opposite pair, but some use
     // all 4, so all 4 are offered as independent rows rather than assuming
     // which pair applies.
-    if (getAnswer("main_hoop_diagonals").value) {
+    if (hasMainHoopDiagonal(getAnswer)) {
       rows.push(
         { id: "main_hoop_diag_left", label: "253-7: Main rollbar diagonal gusset - left" },
         { id: "main_hoop_diag_right", label: "253-7: Main rollbar diagonal gusset - right" },
@@ -902,17 +905,28 @@
         { id: "door_rear_right", label: "253-9: Door bar junction gusset - rear right" }
       );
     }
-    // Lateral-to-A-pillar gusset -- where the front lateral joins the top of
-    // the A-pillar (253-15) bar, one per side. This is a lateral/A-pillar
-    // junction gusset, not a property of 253-15 itself. Always a single
-    // plate.
-    const aPillarValue = getAnswer("a_pillar_reinforcement").value;
-    if (aPillarValue) {
+    // Lateral-to-A-pillar gusset -- bracing the front lateral to the body's
+    // A-pillar, one per side. Independent of 253-15 (the windscreen pillar
+    // reinforcement bar), so it only needs a front lateral to exist -- i.e.
+    // any layout except a half rollcage. Always a single plate.
+    const layout = getAnswer("main_structure_layout").value;
+    if (layout && layout !== "half-rollcage") {
       rows.push(
         { id: "a_pillar_left", label: "Lateral to A-pillar gusset - left", restrictOptionIds: ["single_plate"] },
         { id: "a_pillar_right", label: "Lateral to A-pillar gusset - right", restrictOptionIds: ["single_plate"] }
       );
     }
+    // B-pillar gusset -- bracing the main rollbar's side leg to the B-pillar,
+    // one per side. Optional (not an FIA-required junction), so "None" is a
+    // legitimate final answer here rather than a blank still to verify.
+    // Same main-rollbar-exists gate as main_hoop_diagonals' own showIf.
+    if (getAnswer("main_rollbar_present").value === "yes" || ["253-1", "253-2", "253-3"].indexOf(layout) !== -1) {
+      rows.push(
+        { id: "b_pillar_left", label: "B-pillar gusset - left", optional: true },
+        { id: "b_pillar_right", label: "B-pillar gusset - right", optional: true }
+      );
+    }
+    const aPillarValue = getAnswer("a_pillar_reinforcement").value;
     // The 2 side gussets only apply to the single-continuous-bar build of
     // 253-15 -- the 2-bar build (where it's split to meet the door bar) gets
     // its own 4-gusset-per-side set instead (below). Always a taco.
@@ -966,7 +980,7 @@
       const a = prefix + "_left", b = prefix + "_right", c = prefix + secondPairSuffixes[0], d = prefix + secondPairSuffixes[1];
       groups.push({ rows: [a, b, c, d], anyOf: [[a, b], [c, d]] });
     }
-    if (getAnswer("main_hoop_diagonals").value) xGroup("main_hoop_diag", ["_upper", "_lower"]);
+    if (hasMainHoopDiagonal(getAnswer)) xGroup("main_hoop_diag", ["_upper", "_lower"]);
     if (getAnswer("backstay_diagonals").value === "253-21-1" || getAnswer("backstay_diagonals").value === "253-21-2") xGroup("backstay_diag", ["_upper", "_lower"]);
     if (getAnswer("roof_bars").value === "253-12-1" || getAnswer("roof_bars").value === "253-12-2") xGroup("roof", ["_front", "_rear"]);
     if (getAnswer("a_pillar_reinforcement").value === "two_bars") {
@@ -1016,10 +1030,12 @@
     if (gussetRowId === "door_front_right" || gussetRowId === "door_rear_right") {
       return doorBarTubeRowsForSide(getAnswer("door_bars_right").value, "right").map((r) => r.id);
     }
-    // Lateral-to-A-pillar gusset -- the bigger of the front lateral and the
-    // A-pillar reinforcement (253-15) tube.
-    if (gussetRowId === "a_pillar_left") return ["front_laterals_left", "a_pillar_left"];
-    if (gussetRowId === "a_pillar_right") return ["front_laterals_right", "a_pillar_right"];
+    // Lateral-to-A-pillar gusset -- ties the front lateral to the body, no
+    // second tube (independent of the 253-15 bar).
+    if (gussetRowId === "a_pillar_left") return ["front_laterals_left"];
+    if (gussetRowId === "a_pillar_right") return ["front_laterals_right"];
+    // B-pillar gusset -- ties the main rollbar to the body, no second tube.
+    if (gussetRowId === "b_pillar_left" || gussetRowId === "b_pillar_right") return ["main_rollbar"];
     // 253-15's own side/2-piece gussets -- the A-pillar reinforcement tube
     // meeting that side's door bar.
     if (gussetRowId === "a_pillar_side_left" || gussetRowId.indexOf("a_pillar_2pc_left") === 0) {
@@ -1218,6 +1234,7 @@
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1.1(a)",
       description: "Lower ends must join the main rollbar within 100mm of the mounting feet; upper ends must be within 100mm of the backstay junctions.",
+      showIf: { id: "main_hoop_diagonals", notEquals: "none" },
       evaluationType: "table",
       rows: [
         { id: "foot_left", label: "253-7 main diagonal -- foot left" },
@@ -1243,6 +1260,7 @@
       requirement: "required",
       reference: "",
       description: "The 4 far ends (at the mounting feet and backstay junctions) plus, where the diagonals aren't both one continuous piece, the 2 crossing points of whichever leg is cut into half-bars.",
+      showIf: { id: "main_hoop_diagonals", notEquals: "none" },
       evaluationType: "table",
       rows: [
         { id: "foot_left", label: "253-7 main diagonal -- foot left" }, { id: "foot_right", label: "253-7 main diagonal -- foot right" },

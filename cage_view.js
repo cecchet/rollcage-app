@@ -123,6 +123,13 @@
     // main hoop bar.stl" is a new independent optional bar.
     "253-26,27 harness bar.stl", "253-28,66 rear harness bar.stl",
     "253-30 lower main hoop bar.stl",
+    // Extracted (2026-09-24) from "rollcage full options.3mf"'s 3rd plate
+    // (its "Assembly" object -- the first 2 plates predate these parts).
+    // Same MASTER_OFFSET pipeline, recalibrated against 7 unchanged parts on
+    // that plate (253-7/door-bar/roof-corner gussets, both harness bars):
+    // a pure translation, consistent to within 0.002mm. Left/right verified
+    // by Y-sign against "Front left/right lateral.stl". No Z_FIXUPS entry.
+    "B-pillar gusset left.stl", "B-pillar gusset right.stl",
     // Occupant mannequins (2026-09-16) -- Driver (holding the steering
     // wheel) and Codriver (holding a book). Each is split into 3 separately
     // colorable meshes (seat shell+cushions, mannequin body, held prop)
@@ -254,6 +261,8 @@
     { row: "door_rear_right", file: "Door bar gusset rear right.stl" },
     { row: "a_pillar_left", file: "A-pillar gusset left.stl" },
     { row: "a_pillar_right", file: "A-pillar gusset right.stl" },
+    { row: "b_pillar_left", file: "B-pillar gusset left.stl" },
+    { row: "b_pillar_right", file: "B-pillar gusset right.stl" },
     { row: "a_pillar_side_left", file: "253-15 side gusset left.stl" },
     { row: "a_pillar_side_right", file: "253-15 side gusset right.stl" },
     { row: "a_pillar_2pc_left_upper_front", file: "253-15 gusset left upper front.stl" },
