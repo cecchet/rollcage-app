@@ -656,7 +656,15 @@ textarea { resize: vertical; min-height: 50px; }
   border-radius: var(--radius);
   background: var(--panel);
   border: 1px solid var(--border);
+  /* A <button> (each row links to its item) -- reset the native look. */
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
 }
+.safety-tier-row:hover, .safety-tier-row:focus-visible { border-color: var(--accent); }
+.safety-tier-row:hover .safety-tier-label { color: var(--accent); text-decoration: underline; }
 .safety-tier-dot { width: 10px; height: 10px; min-width: 10px; border-radius: 50%; }
 .safety-tier-row.tier-green .safety-tier-dot { background: var(--pass); }
 .safety-tier-row.tier-orange .safety-tier-dot { background: var(--warn); }

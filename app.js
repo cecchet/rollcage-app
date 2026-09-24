@@ -3185,7 +3185,12 @@
     if (col.type === "select") {
       const select = el("select", { onchange: (e) => setAnswer(cellId, { value: e.target.value }) });
       select.appendChild(el("option", { value: "" }, ["--"]));
-      (col.options || []).forEach((opt) => {
+      // Same per-row restrictOptionIds as the radio branch below (e.g. the
+      // backstay feet can't be a 253-55/56 rocker plate).
+      const options = row && row.restrictOptionIds && col.key === "design"
+        ? (col.options || []).filter((o) => row.restrictOptionIds.includes(o.id))
+        : (col.options || []);
+      options.forEach((opt) => {
         const o = el("option", { value: opt.id }, [opt.label]);
         if (cellAnswer.value === opt.id) o.selected = true;
         select.appendChild(o);
@@ -3491,6 +3496,8 @@
   // acceptable with a codriver (one occupant's side has no bar at all),
   // and solo only when its main-rollbar corner is braced.
   const UNSAFE_POINTS = -50;
+  // Per foot -- see the mounting-feet rule in computeSafetyScoreRows.
+  const UNSAFE_FOOT_POINTS = -25;
   // The main rollbar, roof and backstay bracing are worth more than the
   // standard TIER_POINTS: a full design (253-7, 253-12/253-14, 253-21/
   // 253-22) is green at 10, a single diagonal orange at 5.
@@ -3584,15 +3591,17 @@
     const rows = [];
     let totalPoints = 0;
     let ratedRows = 0;
-    // pointsOverride lets a future rule (a known-bad design, per the user)
-    // score below red's own flat 0 floor -- omitted, a row just uses its
-    // tier's own TIER_POINTS value.
-    function addRow(id, label, tier, valueText, pointsOverride) {
+    // pointsOverride lets a known-bad design score below red's own flat 0
+    // floor -- omitted, a row just uses its tier's own TIER_POINTS value.
+    // target is where clicking the row jumps to (see jumpToSafetyTarget):
+    // {elementId, rowId?} -- defaults to the element whose id is the row's
+    // own id, which covers every per-element rule.
+    function addRow(id, label, tier, valueText, pointsOverride, target) {
       if (!tier) return; // unrated (unanswered, or no rule yet) -- omit rather than show a meaningless row
       const points = pointsOverride !== undefined ? pointsOverride : TIER_POINTS[tier];
       totalPoints += points;
       ratedRows += 1;
-      rows.push({ id, label: label + driverSideSuffix(id), tier, valueText, points });
+      rows.push({ id, label: label + driverSideSuffix(id), tier, valueText, points, target: target || { elementId: id } });
     }
 
     Object.keys(SAFETY_TIER_RULES).forEach((elmId) => {
@@ -3614,7 +3623,8 @@
     const mainHoopDiagElm = path.elements.find((e) => e.id === "main_hoop_diagonals");
     if (driverSide && mainHoopDiagElm && elementVisible(mainHoopDiagElm) && mainHoopTopCornerSupported(driverSide, getAnswer) === false) {
       addRow("main_rollbar_driver_support", "Main rollbar support (driver side)", "red",
-        "No main rollbar or backstay diagonal reaches the top of the main rollbar on the driver side -- unsafe rollbar support on driver side", UNSAFE_POINTS);
+        "No main rollbar or backstay diagonal reaches the top of the main rollbar on the driver side -- unsafe rollbar support on driver side", UNSAFE_POINTS,
+        { elementId: "main_hoop_diagonals" });
     }
 
     // An identified base structure (253-1/253-2/253-3) is worth its own
@@ -3651,7 +3661,8 @@
         // roof and backstay rows' own points, so it gets no row of its own.
         if (roofIs14 !== backstayIs22) {
           addRow("roof_backstay_pairing", "253-14 roof bar / 253-22 backstay pairing", "red",
-            roofIs14 ? "Unsafe design -- 253-14 requires 253-22" : "Unsafe design -- 253-22 requires 253-14", UNSAFE_POINTS);
+            roofIs14 ? "Unsafe design -- 253-14 requires 253-22" : "Unsafe design -- 253-22 requires 253-14", UNSAFE_POINTS,
+            { elementId: roofIs14 ? "backstay_diagonals" : "roof_bars" });
         }
       }
     }
@@ -3691,10 +3702,11 @@
       function addOppositePairGusset(anchorId, label, pairs) {
         if (!rowsById.has(anchorId)) return;
         const satisfied = pairs.find(([a, b]) => hasGusset(a) && hasGusset(b));
+        const target = { elementId: "gusset_design", rowId: anchorId };
         if (satisfied) {
-          addRow(anchorId, label, "green", tag(satisfied[0]) + "/" + tag(satisfied[1]) + " (" + optionLabel(satisfied[0]) + ")");
+          addRow(anchorId, label, "green", tag(satisfied[0]) + "/" + tag(satisfied[1]) + " (" + optionLabel(satisfied[0]) + ")", undefined, target);
         } else {
-          addRow(anchorId, label, "red", "Missing (need " + pairs.map(([a, b]) => tag(a) + "/" + tag(b)).join(" or ") + ")");
+          addRow(anchorId, label, "red", "Missing (need " + pairs.map(([a, b]) => tag(a) + "/" + tag(b)).join(" or ") + ")", undefined, target);
         }
       }
       addOppositePairGusset("main_hoop_diag_left", "253-7: Main rollbar diagonal gusset", [["main_hoop_diag_left", "main_hoop_diag_right"], ["main_hoop_diag_upper", "main_hoop_diag_lower"]]);
@@ -3715,31 +3727,46 @@
       rows.forEach((row) => {
         if (!REQUIRED_SINGLE_GUSSETS.some((match) => match(row.id))) return;
         const design = getAnswer("gusset_design__" + row.id + "__design").value;
-        addRow(row.id, row.label, design ? "green" : "red", design ? optionLabel(row.id) : "Missing", design ? undefined : MISSING_GUSSET_POINTS[row.id]);
+        addRow(row.id, row.label, design ? "green" : "red", design ? optionLabel(row.id) : "Missing", design ? undefined : MISSING_GUSSET_POINTS[row.id],
+          { elementId: "gusset_design", rowId: row.id });
       });
       // The B-pillar gusset is optional -- a small bonus when fitted, and no
       // row at all (0 points) without one, same as an absent optional bar.
       ["b_pillar_left", "b_pillar_right"].forEach((id) => {
-        if (rowsById.has(id) && hasGusset(id)) addRow(id, rowsById.get(id).label, "green", optionLabel(id), 2);
+        if (rowsById.has(id) && hasGusset(id)) addRow(id, rowsById.get(id).label, "green", optionLabel(id), 2, { elementId: "gusset_design", rowId: id });
       });
     }
 
-    // Front/main-hoop mounting feet: a plain single-plane plate (253-50/51/
-    // 52) is the weakest of the real options there. Backstay feet aren't
-    // rated yet -- no rule of thumb given for those.
+    // Mounting feet: every foot the cage actually has (resolveRows -- a half
+    // rollcage has no front pair) is rated, and one with no design picked
+    // is a red flag rather than silently unrated, since a cage leg without
+    // a proper foot is a real hazard -- worst at the backstays (-25), where
+    // there's nothing else nearby to share the load. On the front and
+    // main-hoop feet, a plain single-plane plate (253-50/51/52) is
+    // known-unsafe: it spreads the load over too small an area and punches
+    // through the floor. Any real backstay foot design is fine (+5).
     const feetElm = path.elements.find((e) => e.id === "mounting_feet_design");
-    const feetOptions = feetElm ? ((feetElm.columns.find((c) => c.key === "design") || {}).options || []) : [];
-    const FOOT_ROW_LABELS = {
-      front_left: "Mounting foot — front left", front_right: "Mounting foot — front right",
-      main_hoop_left: "Mounting foot — main hoop left", main_hoop_right: "Mounting foot — main hoop right",
-    };
-    FOOT_LOCATIONS.forEach(({ row }) => {
-      if (!FRONT_FOOT_ROWS.has(row)) return;
-      const design = getAnswer("mounting_feet_design__" + row + "__design").value;
-      if (!design) return;
-      const optLabel = (feetOptions.find((o) => o.id === design) || {}).label || design;
-      addRow(row, FOOT_ROW_LABELS[row], design === "single_plane" ? "red" : "green", optLabel);
-    });
+    if (feetElm && elementVisible(feetElm)) {
+      const feetOptions = (feetElm.columns.find((c) => c.key === "design") || {}).options || [];
+      resolveRows(feetElm).forEach((footRow) => {
+        let design = getAnswer("mounting_feet_design__" + footRow.id + "__design").value;
+        // A value the row no longer offers (a rocker plate saved on a
+        // backstay foot before that option was removed there) reads as
+        // unanswered, same as the gusset table does for its own rows.
+        if (design && footRow.restrictOptionIds && footRow.restrictOptionIds.indexOf(design) === -1) design = "";
+        const label = "Mounting foot — " + footRow.label.toLowerCase();
+        const target = { elementId: "mounting_feet_design", rowId: footRow.id };
+        const isFront = FRONT_FOOT_ROWS.has(footRow.id);
+        if (!design) { addRow(footRow.id, label, "red", "Missing", isFront ? undefined : UNSAFE_FOOT_POINTS, target); return; }
+        const optLabel = (feetOptions.find((o) => o.id === design) || {}).label || design;
+        if (!isFront) { addRow(footRow.id, label, "green", optLabel, undefined, target); return; }
+        if (design === "single_plane") {
+          addRow(footRow.id, label, "red", optLabel + " -- unsafe single plane plate will go through the floor", UNSAFE_FOOT_POINTS, target);
+        } else {
+          addRow(footRow.id, label, "green", optLabel, undefined, target);
+        }
+      });
+    }
 
     // A car built before 2002 gets 253-25 anti-intrusion bars recommended
     // -- best-effort: vehicle_year is free text (the car's own manufacture
@@ -3748,7 +3775,8 @@
     // out of it, and only while anti-intrusion bars aren't already "yes".
     const yearMatch = /\b(19|20)\d{2}\b/.exec(getAnswer("vehicle_year").value || "");
     if (yearMatch && parseInt(yearMatch[0], 10) < 2002 && getAnswer("anti_intrusion_present").value !== "yes") {
-      addRow("anti_intrusion_pre_2002", "253-25 anti-intrusion bars (pre-2002 car)", "orange", "Recommended for cars built before " + yearMatch[0]);
+      addRow("anti_intrusion_pre_2002", "253-25 anti-intrusion bars (pre-2002 car)", "orange", "Recommended for cars built before " + yearMatch[0], undefined,
+        { elementId: "anti_intrusion_present" });
     }
 
     // Driver+codriver cars need matching door-bar designs on both sides --
@@ -3762,7 +3790,8 @@
       if (leftVal && rightVal) {
         addRow(
           "door_bars_symmetry", "Door bar symmetry (left/right)", leftVal === rightVal ? "green" : "red",
-          leftVal === rightVal ? "Matched" : "Mismatched -- left and right door bar design should be the same with a codriver"
+          leftVal === rightVal ? "Matched" : "Mismatched -- left and right door bar design should be the same with a codriver",
+          undefined, { elementId: "door_bars_left" }
         );
       }
     }
@@ -3774,7 +3803,7 @@
       const doorElm = path.elements.find((e) => e.id === "door_bars_" + side);
       if (!doorElm || !elementVisible(doorElm)) return;
       if (getAnswer("door_bars_" + side).extra.sill_bar === "yes") {
-        addRow("sill_bar_" + side, "Sill bar (" + side + ")", "green", "Present");
+        addRow("sill_bar_" + side, "Sill bar (" + side + ")", "green", "Present", undefined, { elementId: "door_bars_" + side });
       }
     });
 
@@ -3803,7 +3832,7 @@
     }
     panel.appendChild(
       el("div", { class: "safety-score-placeholder" }, [
-        "First-pass, provisional ratings below (green/orange/red, worth 5/2/0 points) per a set of safety rules of thumb -- independent of any specific sanctioning body's requirements. A few known-bad designs are worth negative points instead of the flat red floor. Not every element is rated yet, and the point values themselves are still early and subject to change.",
+        "First-pass, provisional ratings below (green/orange/red -- usually 5/2/0 points, more for the base structure and main bracing) per a set of safety rules of thumb, independent of any specific sanctioning body's requirements. Known-unsafe designs score negative points. Not every element is rated yet, and the point values are still early and subject to change. Click any row to jump to that item.",
       ])
     );
 
@@ -3819,7 +3848,7 @@
     const list = el("div", { class: "safety-tier-list" });
     rows.forEach((row) => {
       list.appendChild(
-        el("div", { class: "safety-tier-row tier-" + row.tier }, [
+        el("button", { type: "button", class: "safety-tier-row tier-" + row.tier, title: "Go to this item", onclick: () => jumpToSafetyTarget(row.target) }, [
           el("span", { class: "safety-tier-dot" }),
           el("span", { class: "safety-tier-label" }, [row.label]),
           el("span", { class: "safety-tier-value" }, [row.valueText]),
@@ -5547,6 +5576,29 @@
     if (!target) return;
     scrollBelowViewer(target);
     flashCard(target);
+  }
+
+  // A safety-score row's link (see computeSafetyScoreRows' addRow target):
+  // an element's own section, or a specific row of a table element (a
+  // gusset or mounting foot) -- switching to whichever Part that element
+  // lives in first. Falls back to the element's card if the row isn't on
+  // screen.
+  function jumpToSafetyTarget(target) {
+    if (!target) return;
+    if (!target.rowId) { jumpToElementSection(target.elementId); return; }
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    const elm = path && path.elements.find((e) => e.id === target.elementId);
+    if (!elm) return;
+    state.activeTab = elementPhase(elm);
+    state.expandedIds[target.elementId] = true;
+    render();
+    const rowEl = document.getElementById("row-" + target.elementId + "__" + target.rowId);
+    const cardEl = document.getElementById("section-" + target.elementId);
+    const dest = rowEl || cardEl;
+    if (!dest) return;
+    scrollBelowViewer(dest, { center: !!rowEl });
+    if (rowEl) flashRow(rowEl);
+    else flashCard(cardEl);
   }
 
   // Part 2's single shared "Tube classification" table has one row per bar

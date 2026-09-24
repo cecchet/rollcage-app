@@ -418,7 +418,7 @@
         { id: "diag-left", label: "1 diagonal, top on left side", diagram: "diag-left", note: "A single diagonal does not satisfy FIA 253-7 for new rally construction. May be permitted for road racing, or eligible for grandfathering -- confirm with the applicable sanctioning body.", outcome: "fail" },
         { id: "diag-right", label: "1 diagonal, top on right side", diagram: "diag-right", note: "A single diagonal does not satisfy FIA 253-7 for new rally construction. May be permitted for road racing, or eligible for grandfathering -- confirm with the applicable sanctioning body.", outcome: "fail" },
         { id: "diag-horizontal", label: "1 horizontal bar", diagram: "diag-horizontal", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
-        { id: "diag-lower-half", label: "2 lower half bars", diagram: "diag-lower-half", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
+        { id: "diag-lower-half", label: "V-brace", diagram: "diag-lower-half", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
         { id: "diag-v-center", label: "V bar in the center", diagram: "diag-v-center", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
         { id: "none", label: "None present", outcome: "fail" },
       ],
@@ -819,11 +819,14 @@
     if (getAnswer("main_structure_layout").value !== "half-rollcage") {
       rows.push({ id: "front_left", label: "Front left" }, { id: "front_right", label: "Front right" });
     }
+    // A 253-55/56 multiplane rocker plate isn't an option at the rear
+    // backstay feet.
+    const backstayFootOptions = ["single_plane", "double_plane", "multiplane_box", "flat_curved"];
     rows.push(
       { id: "main_hoop_left", label: "Main hoop left" },
       { id: "main_hoop_right", label: "Main hoop right" },
-      { id: "backstay_left", label: "Backstay left" },
-      { id: "backstay_right", label: "Backstay right" }
+      { id: "backstay_left", label: "Backstay left", restrictOptionIds: backstayFootOptions },
+      { id: "backstay_right", label: "Backstay right", restrictOptionIds: backstayFootOptions }
     );
     return rows;
   }
