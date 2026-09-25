@@ -821,7 +821,7 @@
     }
     // A 253-55/56 multiplane rocker plate isn't an option at the rear
     // backstay feet.
-    const backstayFootOptions = ["single_plane", "double_plane", "multiplane_box", "flat_curved"];
+    const backstayFootOptions = ["single_plane", "double_plane", "multiplane_box", "flat_curved", "none"];
     rows.push(
       { id: "main_hoop_left", label: "Main hoop left" },
       { id: "main_hoop_right", label: "Main hoop right" },
@@ -836,6 +836,9 @@
     { id: "multiplane_box", label: "253-54: Multiplane box" },
     { id: "multiplane_rocker", label: "253-55/56: Multiplane rocker plate" },
     { id: "flat_curved", label: "253-57: Flat or curved plate" },
+    // An explicit answer that the leg has no foot plate (a red flag in the
+    // safety score), as opposed to "--", which just leaves the row unanswered.
+    { id: "none", label: "None -- no mounting foot" },
   ];
 
   const GUSSET_DESIGN_OPTIONS = [
@@ -900,6 +903,16 @@
     // NASCAR, and the single-bar variant don't. Left and right are gated
     // independently since the design can now differ side to side.
     function isDoor9(v) { return v === "253-9-intersection-1" || v === "253-9-intersection-2" || v === "253-9-bent"; }
+    // The X crossing of a 253-9 "1 continuous bar + 2 half bars" door bar
+    // can instead be gusseted in its upper and lower angles (same
+    // opposite-pair choice as 253-7's crossing -- see gussetRowGroups).
+    // The "2 bend bars" build has no crossing, so only front/rear there.
+    function doorXUpperLowerRows(side) {
+      return [
+        { id: "door_upper_" + side, label: "253-9: Door bar junction gusset - upper " + side },
+        { id: "door_lower_" + side, label: "253-9: Door bar junction gusset - lower " + side },
+      ];
+    }
     // Front and rear door-bar junctions are gusseted separately (2 per
     // side) -- even for a 253-9 "2 bend bars" design, which might really
     // only need one combined gusset in practice; captured as 2 separate
@@ -910,12 +923,14 @@
         { id: "door_front_left", label: "253-9: Door bar junction gusset - front left" },
         { id: "door_rear_left", label: "253-9: Door bar junction gusset - rear left" }
       );
+      if (isDoor9Intersection(getAnswer("door_bars_left").value)) rows.push(...doorXUpperLowerRows("left"));
     }
     if (isDoor9(getAnswer("door_bars_right").value)) {
       rows.push(
         { id: "door_front_right", label: "253-9: Door bar junction gusset - front right" },
         { id: "door_rear_right", label: "253-9: Door bar junction gusset - rear right" }
       );
+      if (isDoor9Intersection(getAnswer("door_bars_right").value)) rows.push(...doorXUpperLowerRows("right"));
     }
     // Lateral-to-A-pillar gusset -- bracing the front lateral to the body's
     // A-pillar, one per side. Independent of 253-15 (the windscreen pillar
@@ -995,6 +1010,11 @@
       groups.push({ rows: [a, b, c, d], anyOf: [[a, b], [c, d]] });
     }
     if (hasMainHoopX(getAnswer)) xGroup("main_hoop_diag", ["_upper", "_lower"]);
+    ["left", "right"].forEach((side) => {
+      if (!isDoor9Intersection(getAnswer("door_bars_" + side).value)) return;
+      const f = "door_front_" + side, r = "door_rear_" + side, u = "door_upper_" + side, l = "door_lower_" + side;
+      groups.push({ rows: [f, r, u, l], anyOf: [[f, r], [u, l]] });
+    });
     if (getAnswer("backstay_diagonals").value === "253-21-1" || getAnswer("backstay_diagonals").value === "253-21-2") xGroup("backstay_diag", ["_upper", "_lower"]);
     if (getAnswer("roof_bars").value === "253-12-1" || getAnswer("roof_bars").value === "253-12-2") xGroup("roof", ["_front", "_rear"]);
     if (getAnswer("a_pillar_reinforcement").value === "two_bars") {
@@ -1038,10 +1058,10 @@
     if (gussetRowId.indexOf("roof_") === 0) {
       return roofBarTubeRows(getAnswer("roof_bars").value).map((r) => r.id);
     }
-    if (gussetRowId === "door_front_left" || gussetRowId === "door_rear_left") {
+    if (/^door_(front|rear|upper|lower)_left$/.test(gussetRowId)) {
       return doorBarTubeRowsForSide(getAnswer("door_bars_left").value, "left").map((r) => r.id);
     }
-    if (gussetRowId === "door_front_right" || gussetRowId === "door_rear_right") {
+    if (/^door_(front|rear|upper|lower)_right$/.test(gussetRowId)) {
       return doorBarTubeRowsForSide(getAnswer("door_bars_right").value, "right").map((r) => r.id);
     }
     // Lateral-to-A-pillar gusset -- ties the front lateral to the body, no

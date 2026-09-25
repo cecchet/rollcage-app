@@ -26,7 +26,7 @@
     libraryOpen: false, // UI-only: the "Rollcage library" window (renderLibrary) is showing
     librarySelectedId: null, // UI-only: sessionId of the card selected in that window, if any
     safetyScoreExpanded: false, // UI-only: Safety score panel starts collapsed (the sticky viewer's badge still shows the total, and clicking it expands this)
-    picturesExpanded: true, // UI-only: Pictures panel starts expanded (unlike Vehicle description/Results) since it's an actively-used feature, not a rarely-touched summary -- same collapsiblePanelHeader toggle either way
+    picturesExpanded: false, // UI-only: Pictures panel starts collapsed, like Vehicle description/Results -- same collapsiblePanelHeader toggle
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
     activeTab: 1, // UI-only: which phase (Part 1-7) tab is currently shown -- see PHASE_LABELS
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
@@ -242,7 +242,17 @@
 
   function setAnswer(id, patch) {
     state.answers[id] = Object.assign({}, getAnswer(id), patch);
+    failingGussetCache = null;
     normalizeUnavailableChoices();
+    markDirty();
+    render();
+  }
+
+  // Removes an answer entirely -- back to never answered, not an empty
+  // answer (see the safety score's cellAnswered).
+  function clearAnswer(id) {
+    delete state.answers[id];
+    failingGussetCache = null;
     markDirty();
     render();
   }
@@ -560,6 +570,23 @@
       return group.anyOf.some((combo) => combo.every(hasValue));
     });
   }
+  // Gusset table rows covered by a NEGATIVE safety-score row (a missing
+  // or mixed-design crossing, a missing mandatory gusset) -- shown red in
+  // the gusset table rather than the orange "still to answer" state.
+  // Recomputed at most once per answers change (setAnswer/render reset it).
+  let failingGussetCache = null;
+  function failingGussetRowIds() {
+    if (failingGussetCache) return failingGussetCache;
+    failingGussetCache = new Set(); // guards re-entry while computing
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    if (!path) return failingGussetCache;
+    const result = new Set();
+    computeSafetyScoreRows(path).rows.forEach((r) => {
+      if (r.points < 0 && r.target && r.target.gussetRows) r.target.gussetRows.forEach((id) => result.add(id));
+    });
+    failingGussetCache = result;
+    return result;
+  }
   function tableCellStatus(col, answer, row, elm) {
     // A row can mark specific columns as not applicable to it at all (e.g.
     // a single-plate gusset has no corner-cutout/hole-diameter concept) --
@@ -615,9 +642,11 @@
         // deliberate "None" -- that option shares the blank id "", so the
         // two can't be told apart, and neither needs verifying here.
         if (row && row.optional) return "pass";
+        if (elm && elm.id === "gusset_design" && failingGussetRowIds().has(row.id)) return "fail";
         if (row && elm && elm.rowGroups && rowGroupExcusesBlank(elm, row.id)) return "pass";
         return "warn";
       }
+      if (elm && elm.id === "gusset_design" && failingGussetRowIds().has(row.id)) return "fail";
       const opt = (col.options || []).find((o) => o.id === answer.value);
       if (opt && opt.outcome) return opt.outcome === "fail" ? "fail" : "pass";
       return "pass";
@@ -2232,7 +2261,7 @@
           let description = "Gusset (bracing plate or wrap-around sleeve) at this specific tube junction.";
           if (row.restrictOptionIds && row.restrictOptionIds.length === 1) {
             description += ' This junction only ever uses a "' + row.restrictOptionIds[0] + '" gusset by design -- default to that if a gusset is visible there at all, unless the photo clearly shows otherwise.';
-          } else if (/^(main_hoop_diag_|door_front_|door_rear_|roof_|backstay_diag_)/.test(row.id)) {
+          } else if (/^(main_hoop_diag_|door_(front|rear|upper|lower)_|roof_|backstay_diag_)/.test(row.id)) {
             description += ' This type of junction (253-7/253-9/253-12/253-21) conventionally uses a taco (wrap-around sleeve) gusset -- default to "taco" if a gusset is visible there but its exact shape is unclear.';
           }
           description += ' Omit entirely if this specific junction isn\'t visible in any photo at all -- do not guess presence, only shape, when it is visible.';
@@ -3373,7 +3402,9 @@
       return el("div", {}, children);
     }
     if (col.type === "select") {
-      const select = el("select", { onchange: (e) => setAnswer(cellId, { value: e.target.value }) });
+      // "--" takes the cell back to unanswered (no entry at all), which the
+      // safety score treats differently from an explicit "None" answer.
+      const select = el("select", { onchange: (e) => (e.target.value ? setAnswer(cellId, { value: e.target.value }) : clearAnswer(cellId)) });
       select.appendChild(el("option", { value: "" }, ["--"]));
       // Same per-row restrictOptionIds as the radio branch below (e.g. the
       // backstay feet can't be a 253-55/56 rocker plate).
@@ -3777,6 +3808,17 @@
     function driverSideSuffix(id) {
       return driverSide && sideOf(id) === driverSide ? " (driver side)" : "";
     }
+    // Nothing to score until the base structure layout is known -- every
+    // "missing" row (feet, gussets) would otherwise count against a cage
+    // that simply hasn't been described yet.
+    if (!getAnswer("main_structure_layout").value) {
+      return { rows: [], totalPoints: 0, ratedRows: 0, driveSide, driverSide, noLayout: true };
+    }
+    // Feet and gussets only count once answered, so a fresh cage doesn't
+    // start deep in the negative. Picking "None" there stores an empty
+    // value, same as an untouched cell -- but it does create the answer
+    // entry, which is what tells the two apart.
+    const cellAnswered = (key) => Object.prototype.hasOwnProperty.call(state.answers, key);
 
     const rows = [];
     let totalPoints = 0;
@@ -3875,50 +3917,96 @@
         const design = getAnswer("gusset_design__" + id + "__design").value;
         return (gussetOptions.find((o) => o.id === design) || {}).label || design;
       };
-      // FIA's "minimum 2 gussets" at an X-crossing (253-7, 253-12) or a
-      // 253-15 2-piece junction means 2 on OPPOSITE corners of that same
-      // crossing -- left+right, or upper+lower (front+rear for 253-12,
-      // upper-front+lower-rear or upper-rear+lower-front for 253-15's
-      // 2-piece build) -- not all 4. Only red-flags when NEITHER opposite
-      // pair is complete; the side/position tag is trimmed off the row's
-      // own label (its text after the last " - ") so the pair name reads
-      // "left/right" rather than repeating the whole junction name twice.
-      // Strips a redundant leading "left "/"right " too -- the 2-piece 253-15
-      // rows' own label already carries the side (e.g. "... - left upper
-      // front"), but addOppositePairGusset's own label is already scoped to
-      // that side, so the pair display just needs "upper front", not "left
-      // upper front" again.
-      function tag(id) { return rowsById.get(id).label.split(" - ").pop().replace(/^(left|right) /, ""); }
-      function addOppositePairGusset(anchorId, label, pairs) {
+      // A gusset row's position tag, for naming the pair a score row found:
+      // its label's text after the last " - ", minus any leading/trailing
+      // "left"/"right" (the score row's own label already names the side),
+      // so it reads "front/rear" or "upper front + lower rear" rather than
+      // repeating the whole junction name.
+      function tag(id) { return rowsById.get(id).label.split(" - ").pop().replace(/^(left|right) /, "").replace(/ (left|right)$/, ""); }
+      // FIA's "minimum 2 gussets" at an X-crossing means 2 on OPPOSITE
+      // corners of that same crossing -- left+right, or upper+lower
+      // (front+rear for 253-12) -- not all 4.
+      // X-crossing gussets (253-7 main rollbar diagonal, 253-12 roof bar,
+      // 253-21 backstay diagonal, 253-9 door bar): a complete opposite pair
+      // of taco gussets is +4, of single plates 0. Anything else is -10 --
+      // no complete pair (one gusset, none), or a mix of designs anywhere
+      // at that crossing (all its gussets must be the same design).
+      // Every score row's target also lists the gusset table rows it covers
+      // (gussetRows), so the table can show them red when it's negative --
+      // see failingGussetRowIds.
+      const DESIGN_PAIR_POINTS = { taco: 4, single_plate: 0, bad: -10 };
+      function addTacoPairGusset(rowId, anchorId, label, pairs) {
         if (!rowsById.has(anchorId)) return;
-        const satisfied = pairs.find(([a, b]) => hasGusset(a) && hasGusset(b));
-        const target = { elementId: "gusset_design", rowId: anchorId };
-        if (satisfied) {
-          addRow(anchorId, label, "green", tag(satisfied[0]) + "/" + tag(satisfied[1]) + " (" + optionLabel(satisfied[0]) + ")", undefined, target);
+        const validPairs = pairs.filter((pair) => pair.every((id) => rowsById.has(id)));
+        const involved = [...new Set(validPairs.flat())];
+        const target = { elementId: "gusset_design", rowId: anchorId, gussetRows: involved };
+        const design = (id) => getAnswer("gusset_design__" + id + "__design").value;
+        const designs = [...new Set(involved.map(design).filter(Boolean))];
+        const complete = validPairs.find((pair) => pair.every((id) => hasGusset(id)));
+        if (!involved.some((id) => cellAnswered("gusset_design__" + id + "__design"))) return;
+        if (designs.length > 1) {
+          addRow(rowId, label, "red", "Mixed gusset designs (" + designs.map((d) => optionLabel(involved.find((id) => design(id) === d))).join(" + ") + ") -- all must be taco or all single plate",
+            DESIGN_PAIR_POINTS.bad, target);
+        } else if (complete) {
+          const d = designs[0];
+          addRow(rowId, label, d === "taco" ? "green" : "orange", tag(complete[0]) + "/" + tag(complete[1]) + " (" + optionLabel(complete[0]) + ")",
+            d in DESIGN_PAIR_POINTS ? DESIGN_PAIR_POINTS[d] : 0, target);
         } else {
-          addRow(anchorId, label, "red", "Missing (need " + pairs.map(([a, b]) => tag(a) + "/" + tag(b)).join(" or ") + ")", undefined, target);
+          addRow(rowId, label, "red", "Missing (need " + validPairs.map(([a, b]) => tag(a) + "/" + tag(b)).join(" or ") + ")",
+            DESIGN_PAIR_POINTS.bad, target);
         }
       }
-      addOppositePairGusset("main_hoop_diag_left", "253-7: Main rollbar diagonal gusset", [["main_hoop_diag_left", "main_hoop_diag_right"], ["main_hoop_diag_upper", "main_hoop_diag_lower"]]);
-      addOppositePairGusset("roof_left", "253-12: Roof bar junction gusset", [["roof_left", "roof_right"], ["roof_front", "roof_rear"]]);
-      addOppositePairGusset("a_pillar_2pc_left_upper_front", "253-15: Windshield pillar 2-piece gusset — left", [["a_pillar_2pc_left_upper_front", "a_pillar_2pc_left_lower_rear"], ["a_pillar_2pc_left_upper_rear", "a_pillar_2pc_left_lower_front"]]);
-      addOppositePairGusset("a_pillar_2pc_right_upper_front", "253-15: Windshield pillar 2-piece gusset — right", [["a_pillar_2pc_right_upper_front", "a_pillar_2pc_right_lower_rear"], ["a_pillar_2pc_right_upper_rear", "a_pillar_2pc_right_lower_front"]]);
-      // 253-9's front/rear junctions are 2 physically distinct spots, not
-      // alternatives of each other, and 253-15's continuous-bar side
-      // gusset / the lateral-to-A-pillar gusset are each just one gusset
-      // with nothing to pair against -- every one of these still needs its
-      // own gusset individually.
+      addTacoPairGusset("main_hoop_diag_gussets", "main_hoop_diag_left", "253-7: Main rollbar diagonal gusset", [["main_hoop_diag_left", "main_hoop_diag_right"], ["main_hoop_diag_upper", "main_hoop_diag_lower"]]);
+      addTacoPairGusset("backstay_diag_gussets", "backstay_diag_left", "253-21: Backstay diagonal gusset", [["backstay_diag_left", "backstay_diag_right"], ["backstay_diag_upper", "backstay_diag_lower"]]);
+      addTacoPairGusset("roof_gussets", "roof_left", "253-12: Roof bar junction gusset", [["roof_left", "roof_right"], ["roof_front", "roof_rear"]]);
+      // 253-9, per side: the X crossing of the "1 continuous bar + 2 half
+      // bars" builds takes front+rear OR upper+lower; the "2 bend bars"
+      // build has no crossing and only offers front+rear.
+      ["left", "right"].forEach((side) => {
+        addTacoPairGusset("door_gussets_" + side, "door_front_" + side, "253-9: Door bar gusset (" + side + ")",
+          [["door_front_" + side, "door_rear_" + side], ["door_upper_" + side, "door_lower_" + side]]);
+      });
+      // 253-15 2-piece build, per side: needs one gusset above the door bar
+      // (front or rear) AND one below it -- 0 when both are there, -50 when
+      // either is missing.
+      ["left", "right"].forEach((side) => {
+        const pre = "a_pillar_2pc_" + side + "_";
+        if (!rowsById.has(pre + "upper_front")) return;
+        const hasUpper = hasGusset(pre + "upper_front") || hasGusset(pre + "upper_rear");
+        const hasLower = hasGusset(pre + "lower_front") || hasGusset(pre + "lower_rear");
+        const label = "253-15: Windshield pillar 2-piece gusset (" + side + ")";
+        const target = { elementId: "gusset_design", rowId: pre + "upper_front", gussetRows: ["upper_front", "upper_rear", "lower_front", "lower_rear"].map((k) => pre + k) };
+        if (!target.gussetRows.some((id) => cellAnswered("gusset_design__" + id + "__design"))) return;
+        if (hasUpper && hasLower) {
+          const pick = (a, b) => (hasGusset(a) ? a : b);
+          const up = pick(pre + "upper_front", pre + "upper_rear"), low = pick(pre + "lower_front", pre + "lower_rear");
+          addRow("a_pillar_2pc_gussets_" + side, label, "green", tag(up) + " + " + tag(low) + " (" + optionLabel(up) + ")", 0, target);
+        } else {
+          const missing = !hasUpper && !hasLower ? "upper and lower" : !hasUpper ? "upper" : "lower";
+          addRow("a_pillar_2pc_gussets_" + side, label, "red", "Missing " + missing + " gusset -- needs one above and one below the door bar", UNSAFE_POINTS, target);
+        }
+      });
+      // 253-15 1-piece build's side gusset (only where a door bar crosses
+      // it -- see gussetJunctionRows) and the lateral-to-A-pillar gusset are
+      // each a single gusset with nothing to pair against.
       const REQUIRED_SINGLE_GUSSETS = [
-        (id) => id.indexOf("door_front_") === 0 || id.indexOf("door_rear_") === 0,
         (id) => id === "a_pillar_left" || id === "a_pillar_right" || id.indexOf("a_pillar_side_") === 0,
       ];
-      // A missing lateral-to-A-pillar gusset scores below red's own 0 floor.
-      const MISSING_GUSSET_POINTS = { a_pillar_left: -5, a_pillar_right: -5 };
+      // A missing lateral-to-A-pillar gusset scores below red's own 0 floor;
+      // the 253-15 side gusset is mandatory (-50 without, 0 with).
+      const MISSING_GUSSET_POINTS = { a_pillar_left: -5, a_pillar_right: -5, a_pillar_side_left: UNSAFE_POINTS, a_pillar_side_right: UNSAFE_POINTS };
+      const PRESENT_GUSSET_POINTS = { a_pillar_side_left: 0, a_pillar_side_right: 0 };
+      const MISSING_GUSSET_NOTES = {
+        a_pillar_side_left: "Missing -- side gusset mandatory even when bars don't intersect",
+        a_pillar_side_right: "Missing -- side gusset mandatory even when bars don't intersect",
+      };
       rows.forEach((row) => {
         if (!REQUIRED_SINGLE_GUSSETS.some((match) => match(row.id))) return;
+        if (!cellAnswered("gusset_design__" + row.id + "__design")) return;
         const design = getAnswer("gusset_design__" + row.id + "__design").value;
-        addRow(row.id, row.label, design ? "green" : "red", design ? optionLabel(row.id) : "Missing", design ? undefined : MISSING_GUSSET_POINTS[row.id],
-          { elementId: "gusset_design", rowId: row.id });
+        addRow(row.id, row.label, design ? "green" : "red", design ? optionLabel(row.id) : MISSING_GUSSET_NOTES[row.id] || "Missing",
+          design ? PRESENT_GUSSET_POINTS[row.id] : MISSING_GUSSET_POINTS[row.id],
+          { elementId: "gusset_design", rowId: row.id, gussetRows: [row.id] });
       });
       // The B-pillar gusset is optional -- a small bonus when fitted, and no
       // row at all (0 points) without one, same as an absent optional bar.
@@ -3928,10 +4016,9 @@
     }
 
     // Mounting feet: every foot the cage actually has (resolveRows -- a half
-    // rollcage has no front pair) is rated, and one with no design picked
-    // is a red flag rather than silently unrated, since a cage leg without
-    // a proper foot is a real hazard -- worst at the backstays (-25), where
-    // there's nothing else nearby to share the load. On the front and
+    // rollcage has no front pair) is rated once answered, and one answered
+    // "None -- no mounting foot" is a red flag (-25), since a cage leg
+    // without a proper foot is a real hazard. On the front and
     // main-hoop feet, a plain single-plane plate (253-50/51/52) is
     // known-unsafe: it spreads the load over too small an area and punches
     // through the floor. Any real backstay foot design is fine (+5).
@@ -3947,7 +4034,8 @@
         const label = "Mounting foot — " + footRow.label.toLowerCase();
         const target = { elementId: "mounting_feet_design", rowId: footRow.id };
         const isFront = FRONT_FOOT_ROWS.has(footRow.id);
-        if (!design) { addRow(footRow.id, label, "red", "Missing", isFront ? undefined : UNSAFE_FOOT_POINTS, target); return; }
+        if (!design) return; // not answered yet
+        if (design === "none") { addRow(footRow.id, label, "red", "Missing -- no mounting foot", UNSAFE_FOOT_POINTS, target); return; }
         const optLabel = (feetOptions.find((o) => o.id === design) || {}).label || design;
         if (!isFront) { addRow(footRow.id, label, "green", optLabel, undefined, target); return; }
         if (design === "single_plane") {
@@ -3997,12 +4085,36 @@
       }
     });
 
-    return { rows, totalPoints, ratedRows, driveSide, driverSide };
+    // Rows are built rule by rule above, not in page order -- list them in
+    // the same order as the checklist itself: by the position of the
+    // element each row links to, then (for a table like gussets or feet)
+    // by its table row, keeping build order for ties (e.g. a synthetic
+    // pairing row right after the element row it relates to).
+    const elementIndex = new Map(path.elements.map((e, i) => [e.id, i]));
+    const tableRowIndex = {};
+    function rowIndexIn(elementId, rowId) {
+      if (!tableRowIndex[elementId]) {
+        const elm = path.elements.find((e) => e.id === elementId);
+        tableRowIndex[elementId] = new Map(((elm && elm.rows && resolveRows(elm)) || []).map((r, i) => [r.id, i]));
+      }
+      const i = tableRowIndex[elementId].get(rowId);
+      return i === undefined ? Infinity : i;
+    }
+    const pageKey = (row) => {
+      const t = row.target || {};
+      const ei = elementIndex.has(t.elementId) ? elementIndex.get(t.elementId) : Infinity;
+      return [ei, t.rowId ? rowIndexIn(t.elementId, t.rowId) : -1];
+    };
+    const ordered = rows.map((row, i) => ({ row, i, key: pageKey(row) }))
+      .sort((a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1] || a.i - b.i)
+      .map((x) => x.row);
+
+    return { rows: ordered, totalPoints, ratedRows, driveSide, driverSide };
   }
 
   function renderSafetyScore(root, path) {
     const panel = el("div", { class: "panel", id: "safety-score-panel" });
-    const { rows, totalPoints, ratedRows, driveSide, driverSide } = computeSafetyScoreRows(path);
+    const { rows, totalPoints, ratedRows, driveSide, driverSide, noLayout } = computeSafetyScoreRows(path);
     // Read by syncSafetyScoreBadge() to keep the sticky 3D-viewer badge in
     // sync -- module-level rather than threaded through a return value,
     // same convention CAGE_FILE_OWNER already uses for cross-cutting state
@@ -4017,6 +4129,11 @@
       })
     );
     if (!state.safetyScoreExpanded) {
+      root.appendChild(panel);
+      return;
+    }
+    if (noLayout) {
+      panel.appendChild(el("div", { class: "safety-score-placeholder" }, ["Choose a base structure layout in Part 1 to see the safety score."]));
       root.appendChild(panel);
       return;
     }
@@ -4243,6 +4360,11 @@
     { row: "door_front_right", file: "Door bar gusset front right.stl" },
     { row: "door_rear_left", file: "Door bar gusset rear left.stl" },
     { row: "door_rear_right", file: "Door bar gusset rear right.stl" },
+    // Built by cage_view.js from the front plate (no STL of their own).
+    { row: "door_upper_left", file: "Door bar gusset upper left.virtual" },
+    { row: "door_upper_right", file: "Door bar gusset upper right.virtual" },
+    { row: "door_lower_left", file: "Door bar gusset lower left.virtual" },
+    { row: "door_lower_right", file: "Door bar gusset lower right.virtual" },
     { row: "a_pillar_left", file: "A-pillar gusset left.stl" },
     { row: "a_pillar_right", file: "A-pillar gusset right.stl" },
     { row: "b_pillar_left", file: "B-pillar gusset left.stl" },
@@ -5504,7 +5626,7 @@
       const rockerBase = rockerBaseFile(row);
       const rockerFold = rockerFoldFile(row);
       const design = getAnswer("mounting_feet_design__" + row + "__design").value;
-      if (!design) {
+      if (!design || design === "none") {
         colors[cubeFile] = "hidden";
         colors[doubleFile] = "hidden";
         colors[rockerBase] = "hidden";
@@ -6357,7 +6479,8 @@
       const cycle = FRONT_FOOT_ROWS.has(footRow) ? FRONT_FOOT_DESIGN_CYCLE : REAR_FOOT_DESIGN_CYCLE;
       const key = "mounting_feet_design__" + footRow + "__design";
       const idx = cycle.indexOf(getAnswer(key).value);
-      setAnswer(key, { value: cycle[(idx + 1) % cycle.length] });
+      const next = cycle[(idx + 1) % cycle.length];
+      if (next) setAnswer(key, { value: next }); else clearAnswer(key); // past the last design: back to unanswered
       return;
     }
     const gussetRow = GUSSET_FILE_TO_ROW.get(file);
@@ -6810,6 +6933,7 @@
   }
 
   function render() {
+    failingGussetCache = null;
     // This rebuilds the whole tree from scratch (root.innerHTML = "" below)
     // rather than diffing, which loses the focused element AND the page's
     // scroll position -- e.g. typing into a Part 6 contact field commits on

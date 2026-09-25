@@ -219,6 +219,10 @@
     { row: "backstay_right", plateFile: "Foot rear right.stl", hingeFace: "tilted", tubeFile: "Right backstay.stl" },
   ];
   function footCubeFile(row) { return "Foot cube " + row + ".virtual"; }
+  // 253-9 X door bar crossing's upper/lower gussets -- built from the
+  // modeled front plate (see createDoorXGussets), no STL of their own.
+  const DOOR_X_GUSSET_SIDES = ["left", "right"];
+  function doorXGussetFile(position, side) { return "Door bar gusset " + position + " " + side + ".virtual"; }
   // 253-53 (double plane plate) similarly has no modeled geometry of its
   // own -- it reuses the real base plate PLUS a duplicate of that same
   // plate, rotated 90 degrees about Y so it stands as a second plane
@@ -573,6 +577,7 @@
         loadedCount++;
         if (loadedCount === PARTS.length) {
           createFootExtras();
+          createDoorXGussets();
           ready = true;
           fitCamera();
           onReadyCbs.forEach((cb) => cb());
@@ -580,6 +585,68 @@
         }
       });
     });
+
+    // The 253-9 X door bar crossing can be gusseted front/rear (the 2
+    // modeled "Door bar gusset front/rear <side>.stl" plates) OR upper/
+    // lower, which have no STL of their own -- built here from the front
+    // plate instead. The front plate is a triangle whose tip points at the
+    // crossing and whose 2 edges run along the 2 bars' front branches; a
+    // linear map pivoting on the crossing keeps one edge's bar direction
+    // and flips the other's onto that bar's rear branch, landing the plate
+    // in the upper (or lower) angle with the same clearance from each
+    // tube. The crossing is taken as the midpoint of the front and rear
+    // plates' tips.
+    function createDoorXGussets() {
+      DOOR_X_GUSSET_SIDES.forEach((side) => {
+        const front = meshes["Door bar gusset front " + side + ".stl"];
+        const rear = meshes["Door bar gusset rear " + side + ".stl"];
+        if (!front || !rear) return;
+        const verts = (mesh) => {
+          const p = mesh.userData.rawPositions, seen = new Map();
+          for (let i = 0; i < p.length; i += 3) seen.set(p[i].toFixed(2) + "," + p[i + 1].toFixed(2) + "," + p[i + 2].toFixed(2), new THREE.Vector3(p[i], p[i + 1], p[i + 2]));
+          return [...seen.values()];
+        };
+        const centroid = (vs) => vs.reduce((s, v) => s.add(v), new THREE.Vector3()).multiplyScalar(1 / vs.length);
+        // A plate is a triangle extruded through its thickness: group its
+        // vertices into the 3 corners (each a pair across the thickness),
+        // tip first -- the corner nearest the other plate.
+        const corners = (vs, other) => {
+          const groups = [];
+          vs.forEach((v) => {
+            const g = groups.find((gr) => gr[0].distanceTo(v) < 5);
+            if (g) g.push(v); else groups.push([v]);
+          });
+          const cs = groups.map(centroid);
+          const target = centroid(other);
+          cs.sort((a, b) => a.distanceTo(target) - b.distanceTo(target));
+          return cs;
+        };
+        const fv = verts(front), rv = verts(rear);
+        const [fTip, f1, f2] = corners(fv, rv);
+        const [rTip] = corners(rv, fv);
+        const cross = fTip.clone().add(rTip).multiplyScalar(0.5);
+        const [up, down] = f1.z >= f2.z ? [f1, f2] : [f2, f1];
+        const eUp = up.clone().sub(fTip).normalize();   // bar A, front-upper branch
+        const eDown = down.clone().sub(fTip).normalize(); // bar B, front-lower branch
+        const n = new THREE.Vector3().crossVectors(eUp, eDown).normalize();
+        const basisInv = new THREE.Matrix4().makeBasis(eUp, eDown, n).invert();
+        const build = (key, toUp, toDown) => {
+          const m = new THREE.Matrix4().makeBasis(toUp, toDown, n).multiply(basisInv);
+          const pivot = new THREE.Matrix4().makeTranslation(cross.x, cross.y, cross.z)
+            .multiply(m)
+            .multiply(new THREE.Matrix4().makeTranslation(-cross.x, -cross.y, -cross.z));
+          const geometry = front.geometry.clone();
+          geometry.applyMatrix4(pivot);
+          geometry.deleteAttribute("normal");
+          geometry.computeVertexNormals();
+          addProceduralPart(key, geometry, new THREE.Vector3());
+        };
+        // Upper angle: bar A's front-upper branch + bar B's rear-upper one.
+        build(doorXGussetFile("upper", side), eUp, eDown.clone().negate());
+        // Lower angle: bar A's rear-lower branch + bar B's front-lower one.
+        build(doorXGussetFile("lower", side), eUp.clone().negate(), eDown);
+      });
+    }
 
     // Ghost-colors a freshly built geometry (ghost is the correct default
     // for a brand new part -- untouched until applyState says otherwise)
@@ -1073,6 +1140,7 @@
     FOOT_LOCATIONS.forEach(({ row }) => {
       virtual.push(footCubeFile(row), doublePlaneFile(row), rockerBaseFile(row), rockerFoldFile(row));
     });
+    DOOR_X_GUSSET_SIDES.forEach((side) => { virtual.push(doorXGussetFile("upper", side), doorXGussetFile("lower", side)); });
     return PARTS.slice().concat(virtual);
   }
 
