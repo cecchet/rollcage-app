@@ -3154,7 +3154,7 @@
       panel.appendChild(section);
     });
 
-    if (state.pictures.some((p) => p.aiSuggestions && p.aiSuggestions.length)) {
+    if (state.pictures.some((p) => picturesSuggestions(p).length)) {
       panel.appendChild(renderPictureComparePanel(path));
     }
 
@@ -3164,9 +3164,22 @@
   // Aggregates the latest AI suggestion for each element across every
   // picture -- when more than one picture suggests the same element, the
   // later picture (in upload order) wins, simplest deterministic rule.
+  // Only suggestions for elements still tagged on that picture count -- an
+  // element the user removed from the picture (a wrong detection) drops
+  // out -- and a tag the user corrected while editing wins over the AI's
+  // own value for it.
+  function picturesSuggestions(pic) {
+    const tags = new Map((pic.elements || []).map((t) => [t.elementId, t]));
+    return (pic.aiSuggestions || [])
+      .filter((s) => tags.has(s.elementId))
+      .map((s) => {
+        const tag = tags.get(s.elementId);
+        return tag.value && tag.value !== s.value ? Object.assign({}, s, { value: tag.value }) : s;
+      });
+  }
   function aggregatePictureSuggestions() {
     const byElement = new Map();
-    state.pictures.forEach((pic) => { (pic.aiSuggestions || []).forEach((s) => { byElement.set(s.elementId, s); }); });
+    state.pictures.forEach((pic) => { picturesSuggestions(pic).forEach((s) => { byElement.set(s.elementId, s); }); });
     return [...byElement.values()];
   }
 

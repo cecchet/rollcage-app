@@ -1882,6 +1882,8 @@
       name: "Harness bar present",
       category: "Optional bars",
       requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253",
+      // Purely optional, like 253-30/253-19 -- "None present" is never flagged.
+      recommendedIf: () => false,
       description: "Optional bar to anchor shoulder harnesses. 253-26/27 and 253-28/66 are alternative designs -- pick whichever one the car has, if either. 253-18 (rear transversal reinforcement) can also serve as a harness bar in some cases.",
       evaluationType: "choice",
       options: [
@@ -1939,6 +1941,8 @@
       name: "Rear lateral reinforcement (253-17)",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "Connects at the front to the upper door bar, the lower door bar, or both (2 bars added). Design must be identical on both sides when running with a co-driver.",
+      // Purely optional, like 253-30/253-19 -- "None present" is never flagged.
+      recommendedIf: () => false,
       evaluationType: "choice",
       options: [
         { id: "upper", label: "Upper bar (to upper door bar)", diagram: "253-17-upper", outcome: "pass" },
