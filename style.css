@@ -805,7 +805,7 @@ textarea { resize: vertical; min-height: 50px; }
   flex: 1 1 auto;
   min-width: 0;
   height: 100px;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 6px;
   background: #1b1e22;
 }
@@ -827,3 +827,5 @@ textarea { resize: vertical; min-height: 50px; }
   .app-footer, .toolbar, .session-bar, .answer-row, .photo-row, .btn, .modal-overlay { display: none !important; }
   body { background: #fff; color: #000; }
 }
+.save-as-name-input { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+.save-as-error { color: var(--red, #e0483e); font-size: 0.85rem; margin-bottom: 8px; }

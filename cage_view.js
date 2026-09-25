@@ -1127,18 +1127,58 @@
       }
     });
     theta = Math.PI / 4; phi = Math.PI / 4; roll = 0;
-    fitCamera();
-    // fitCamera frames every mesh, occupants and hidden alternates
-    // included -- closer in so the cage itself fills a small thumbnail.
-    radius *= 0.6;
+    // Frame just the bars actually showing (fitCamera frames every mesh,
+    // hidden alternates and occupants included), far enough back that
+    // their bounding sphere fits the narrower of the 2 fields of view --
+    // the whole cage is in shot, never cropped.
+    const box = new THREE.Box3();
+    Object.values(meshes).forEach((m) => { if (m.visible) { m.updateMatrixWorld(true); box.expandByObject(m); } });
+    if (box.isEmpty()) fitCamera();
+    else {
+      const sphere = new THREE.Sphere();
+      box.getBoundingSphere(sphere);
+      const vFov = THREE.MathUtils.degToRad(camera.fov);
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+      target.copy(sphere.center);
+      radius = (sphere.radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.02;
+    }
     updateCamera();
     renderer.render(scene, camera);
     const src = renderer.domElement;
-    const scale = Math.min(1, maxWidth / Math.max(1, src.width));
+    // Trim the empty background around the cage (the viewer canvas is much
+    // wider than tall), keeping a small margin, so the thumbnail is all cage.
+    const full = document.createElement("canvas");
+    full.width = src.width;
+    full.height = src.height;
+    const fctx = full.getContext("2d");
+    fctx.drawImage(src, 0, 0);
+    let crop = { x: 0, y: 0, w: full.width, h: full.height };
+    try {
+      const px = fctx.getImageData(0, 0, full.width, full.height).data;
+      const bg = [px[0], px[1], px[2]];
+      let minX = full.width, minY = full.height, maxX = -1, maxY = -1;
+      for (let y = 0; y < full.height; y++) {
+        for (let x = 0; x < full.width; x++) {
+          const i = (y * full.width + x) * 4;
+          if (Math.abs(px[i] - bg[0]) + Math.abs(px[i + 1] - bg[1]) + Math.abs(px[i + 2] - bg[2]) > 24) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (maxX >= minX && maxY >= minY) {
+        const pad = Math.round(Math.max(maxX - minX, maxY - minY) * 0.05);
+        const x0 = Math.max(0, minX - pad), y0 = Math.max(0, minY - pad);
+        crop = { x: x0, y: y0, w: Math.min(full.width, maxX + pad + 1) - x0, h: Math.min(full.height, maxY + pad + 1) - y0 };
+      }
+    } catch (e) { /* keep the uncropped frame */ }
+    const scale = Math.min(1, maxWidth / Math.max(1, crop.w, crop.h));
     const out = document.createElement("canvas");
-    out.width = Math.max(1, Math.round(src.width * scale));
-    out.height = Math.max(1, Math.round(src.height * scale));
-    out.getContext("2d").drawImage(src, 0, 0, out.width, out.height);
+    out.width = Math.max(1, Math.round(crop.w * scale));
+    out.height = Math.max(1, Math.round(crop.h * scale));
+    out.getContext("2d").drawImage(full, crop.x, crop.y, crop.w, crop.h, 0, 0, out.width, out.height);
     hiddenForShot.forEach((m) => { m.visible = true; });
     theta = saved.theta; phi = saved.phi; roll = saved.roll; radius = saved.radius;
     target.copy(saved.target);

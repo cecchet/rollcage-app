@@ -825,6 +825,54 @@
     saveFlashTimeout = setTimeout(() => { state.justSaved = false; render(); }, 1200);
   }
 
+  // "Save as": saves the open rollcage (unsaved edits included) as a brand
+  // new entry and switches to it, leaving the original exactly as it was
+  // last saved. A name that still matches the original's saved name (or no
+  // name at all) would make the two indistinguishable in the library, so
+  // that case asks for a new one first (see renderSaveAsDialog); a name the
+  // user already changed since the last save is taken as-is.
+  function savedNameOfCurrent() {
+    const saved = loadAll()[state.sessionId];
+    return saved ? saved.vehicle.name || "" : null;
+  }
+  function startSaveAs() {
+    const name = (state.vehicle.name || "").trim();
+    const savedName = savedNameOfCurrent();
+    if (name && (savedName === null || name !== savedName.trim())) { saveAsNewRollcage(name); return; }
+    state.saveAsDialog = { name: name ? name + " (copy)" : "", error: "" };
+    render();
+  }
+  function submitSaveAsDialog() {
+    const name = ((state.saveAsDialog && state.saveAsDialog.name) || "").trim();
+    const savedName = savedNameOfCurrent();
+    if (!name) { state.saveAsDialog.error = "Enter a name for the new rollcage."; render(); return; }
+    if (savedName !== null && name === savedName.trim()) { state.saveAsDialog.error = "Pick a name different from the original rollcage."; render(); return; }
+    state.saveAsDialog = null;
+    saveAsNewRollcage(name);
+  }
+  // Photos live in the picture store by id, and deleting a photo from a
+  // rollcage deletes its record outright -- so the copy gets its own
+  // duplicate of every record under fresh ids rather than sharing the
+  // original's (removing a photo from one would otherwise break the other).
+  function cloneStoredPicture(oldId) {
+    const newId = picUid();
+    if (pictureImageCache[oldId]) pictureImageCache[newId] = pictureImageCache[oldId];
+    getPictureRecord(oldId).then((record) => { if (record) putPictureRecord(newId, record); });
+    return newId;
+  }
+  function saveAsNewRollcage(name) {
+    state.sessionId = uid();
+    state.vehicle = { ...state.vehicle, name };
+    state.pictures = state.pictures.map((p) => ({ ...p, id: cloneStoredPicture(p.id) }));
+    state.homologationPhotos = state.homologationPhotos.map((p) => ({ ...p, id: cloneStoredPicture(p.id) }));
+    const vp = state.vehiclePhotos || {};
+    state.vehiclePhotos = {
+      front: vp.front ? { ...vp.front, id: cloneStoredPicture(vp.front.id) } : null,
+      rear: vp.rear ? { ...vp.rear, id: cloneStoredPicture(vp.rear.id) } : null,
+    };
+    saveWithFlash();
+  }
+
   // Exports a rollcage as last SAVED (from the library), not whatever
   // unsaved edits the open one may have on top.
   function exportSavedSessionToFile(sessionId) {
@@ -1233,6 +1281,7 @@
         ]),
         el("div", { class: "session-bar-group" }, [
           el("button", { class: "btn small secondary", onclick: saveWithFlash }, [state.justSaved ? "Saved ✓" : "Save"]),
+          el("button", { class: "btn small secondary", title: "Save as a new rollcage, leaving the original as it was last saved", onclick: startSaveAs }, ["Save as…"]),
           el(
             "button",
             { class: "btn small secondary", disabled: state.pdfReportStatus === "generating" || !state.pathId, onclick: generatePdfReport },
@@ -1266,6 +1315,39 @@
     holder.innerHTML = "";
     renderLibrary(holder);
     renderUnsavedDialog(holder);
+    renderSaveAsDialog(holder);
+  }
+
+  function renderSaveAsDialog(holder) {
+    const dlg = state.saveAsDialog;
+    if (!dlg) return;
+    const cancel = () => { state.saveAsDialog = null; render(); };
+    const input = el("input", {
+      type: "text",
+      class: "save-as-name-input",
+      value: dlg.name,
+      "aria-label": "New rollcage name",
+      oninput: (e) => { dlg.name = e.target.value; },
+      onkeydown: (e) => {
+        if (e.key === "Enter") submitSaveAsDialog();
+        else if (e.key === "Escape") cancel();
+      },
+    });
+    const dialog = el("div", { class: "load-dialog confirm-dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "saveAsDialogTitle" }, [
+      el("h2", { id: "saveAsDialogTitle" }, ["Save as a new rollcage"]),
+      el("p", {}, ["The original stays as it was last saved. Name the new rollcage:"]),
+      input,
+      dlg.error ? el("div", { class: "save-as-error" }, [dlg.error]) : null,
+      el("div", { class: "toolbar confirm-dialog-actions" }, [
+        el("button", { class: "btn small", onclick: submitSaveAsDialog }, ["Save"]),
+        el("button", { class: "btn small secondary", onclick: cancel }, ["Cancel"]),
+      ]),
+    ]);
+    const overlay = el("div", { class: "modal-overlay" }, [dialog]);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) cancel(); });
+    holder.appendChild(overlay);
+    input.focus();
+    input.select();
   }
 
   function renderUnsavedDialog(holder) {
@@ -5489,16 +5571,25 @@
 
     // A half rollcage has nothing in front of the main rollbar at all --
     // hide every file that isn't part of the main rollbar/backstay
-    // structure itself, so it's visually obvious those bars simply aren't
-    // an option here, rather than leaving them sitting there ghosted as if
-    // they were still a design choice to make. A whitelist (not a
-    // blacklist of "front" files) so nothing new added to the model later
-    // silently slips through unhidden.
+    // structure, so it's visually obvious those bars simply aren't an
+    // option here rather than leaving them ghosted as if they were still a
+    // design choice to make. What stays is derived from the questions still
+    // SHOWN for a half cage (each visible element's every possible design,
+    // via possibleFilesForElement) rather than a fixed list -- a fixed list
+    // used to drop every optional bar (253-18/19, harness bars, 253-30...)
+    // and the non-X main-hoop/backstay designs, even though those are all
+    // still valid choices here. The front-structure questions hide
+    // themselves via their own showIf, so their bars go with them.
     if (getAnswer("main_structure_layout").value === "half-rollcage") {
-      const keepFiles = ["Main rollbar.stl"].concat(MAIN_DIAG_FILES, BACKSTAY_FILES, BACKSTAY_DIAG_FILES, [
-        "253-7 gusset left.stl", "253-7 gusset right.stl", "253-7 gusset upper.stl", "253-7 gusset lower.stl",
-        "Rear backstay gusset left.stl", "Rear backstay gusset right.stl", "Rear backstay gusset upper.stl", "Rear backstay gusset lower.stl",
-      ]);
+      const keepFiles = ["Main rollbar.stl"].concat(BACKSTAY_FILES);
+      path.elements.forEach((elm) => {
+        const rule = ITEM_PART_RULES[elm.id];
+        if (!rule || !elementVisible(elm)) return;
+        keepFiles.push(...possibleFilesForElement(elm, rule));
+      });
+      GUSSET_LOCATIONS.forEach(({ row, file }) => {
+        if (/^(main_hoop_diag_|backstay_diag_|b_pillar_)/.test(row)) keepFiles.push(file);
+      });
       ["main_hoop_left", "main_hoop_right", "backstay_left", "backstay_right"].forEach((row) => {
         const loc = FOOT_LOCATIONS.find((f) => f.row === row);
         if (loc) keepFiles.push(loc.plateFile);
@@ -5962,19 +6053,6 @@
     "253-17 right lower.stl": { elementId: "rear_lateral_reinforcement_present", kind: "side", side: "lower", other: "upper" },
   };
 
-  // Most common design per ambiguous (shared-geometry) element -- filled in
-  // only when that element has no answer yet.
-  const AMBIGUOUS_ELEMENT_DEFAULTS = {
-    main_structure_layout: "253-3",
-    main_hoop_diagonals: "253-7-1",
-    backstay_diagonals: "253-21-1",
-    roof_bars: "253-12-1",
-    door_bars_left: "253-9-intersection-1",
-    door_bars_right: "253-9-intersection-1",
-    a_pillar_reinforcement: "continuous",
-    rear_lower_x_present: "253-19-1",
-  };
-
   // A gusset row's own design choice can be restricted to just one shape
   // (restrictOptionIds, e.g. lateral-to-A-pillar gussets are single-plate
   // only) -- double-click should fill in whichever shape is actually
@@ -6203,11 +6281,20 @@
       return;
     }
 
+    // Design view: double-click cycles the element's own real answer through
+    // every option (same list/order as picture tagging's cycle, and the
+    // same "start from whatever's already answered" first step), past the
+    // last option back to unanswered -- lets a specific design be picked
+    // straight from the model without opening the form at all. Anything
+    // with no option list to cycle just jumps to its section instead.
     const elmId = CAGE_FILE_OWNER[file];
     if (!elmId) return;
-    const defaultValue = AMBIGUOUS_ELEMENT_DEFAULTS[elmId];
-    if (defaultValue && !getAnswer(elmId).value) setAnswer(elmId, { value: defaultValue });
-    jumpToSection(elmId);
+    const path = RULES[state.vehicle.org].paths[state.pathId];
+    const cycle = elementValueCycle(path, elmId);
+    if (!cycle.length) { jumpToSection(elmId); return; }
+    const current = getAnswer(elmId).value;
+    const nextValue = cycle[(current ? cycle.indexOf(current) : -1) + 1];
+    setAnswer(elmId, { value: nextValue === undefined ? "" : nextValue });
   }
 
   // Resolves a clicked file to the specific picture-tag id + its current
@@ -6308,22 +6395,11 @@
       jumpToGussetRow(gussetRow);
       return;
     }
+    // Design view: a single click just jumps to the bar's own section, same
+    // as every other part's single click -- changing the answer is the
+    // double-click's job (see handleCagePartDoubleClick).
     const elmId = CAGE_FILE_OWNER[file];
-    if (!elmId) return;
-    // Design view: clicking cycles the element's own real answer through
-    // every option (same list/order as picture tagging's cycle, and the
-    // same "start from whatever's already answered" first step) rather
-    // than just jumping to its section -- lets a specific design be picked
-    // straight from the model without opening the form at all. Falls back
-    // to the old jump-only behavior for anything with no option list to
-    // cycle (shouldn't normally happen here -- feet/gussets are already
-    // handled above with their own dedicated click/double-click mapping).
-    const path = RULES[state.vehicle.org].paths[state.pathId];
-    const cycle = elementValueCycle(path, elmId);
-    if (!cycle.length) { jumpToSection(elmId); return; }
-    const current = getAnswer(elmId).value;
-    const nextValue = cycle[(current ? cycle.indexOf(current) : -1) + 1];
-    setAnswer(elmId, { value: nextValue === undefined ? "" : nextValue });
+    if (elmId) jumpToSection(elmId);
   }
 
   // The View switch lives in the STICKY 3D viewer panel (outside #app, so
@@ -6401,7 +6477,7 @@
     }
     const answer = getAnswer(elmId);
     const base = elm.name + (answer.value ? " — " + elementSummary(elm, answer) : "");
-    return elementValueCycle(path, elmId).length ? base + " (click to cycle options)" : base;
+    return elementValueCycle(path, elmId).length ? base + " (double-click to cycle options)" : base;
   }
   // Picture "Edit rollcage elements" mode's own hover label -- names the
   // element/gusset row a bar belongs to AND, crucially, which specific
