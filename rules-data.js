@@ -479,7 +479,8 @@
       evaluationType: "choice",
       options: [
         { id: "3-bars", label: "3 bars (the 2 transverses of 253-1 + the transverse of 253-3)", outcome: "pass" },
-        { id: "halo", label: "Halo loop (same 3 bars for the 3D model, but implemented as a single long bar)", outcome: "pass" },
+        // NASA Rally Sport GRR Appendix B (grandfathering requirements) §2.1.
+        { id: "halo", label: "Halo hoop aka MRC-4", outcome: "pass" },
       ],
       tubing: null,
       visuallyVerifiable: true,
@@ -2684,16 +2685,31 @@
       },
       roof_bars: {
         reference: "2020 FIA 253 Ch.8.3.2.1.3; NRS GRR 3.7.2(2) excludes 253-13",
-        description: "253-13 (no front roof corner support) is NOT permitted for NASA new construction per NRS GRR 3.7.2(2). Pick 253-12 or 253-14 (or the NASA-specific RB-4 option).",
-        addOptions: [{ id: "rb-4", label: "RB-4: Single diagonal + roof gussets (NASA option)", diagram: "rb-4", outcome: "pass" }],
+        description: "253-13 (no front roof corner support) is NOT permitted for NASA new construction per NRS GRR 3.7.2(2). Pick 253-12 or 253-14.",
+        // RB-4 is one of the 4 roof bar choices in NASA Rally Sport GRR
+        // Appendix B (grandfathering requirements) §2.2, Required Element 2:
+        // a single roof diagonal, starting from either front side, plus one
+        // gusset in the plane of the roof at each of the 2 corners the
+        // diagonal doesn't reach. Grandfathered cages only -- still offered
+        // here so an existing cage can be described, but it fails new
+        // construction (built to FIA 253).
+        addOptions: [{
+          id: "rb-4", label: "RB-4: Single diagonal + roof gussets (NASA Appendix B §2.2)", diagram: "rb-4", outcome: "fail",
+          note: "RB-4 is a NASA Appendix B §2.2 option for grandfathered cages only -- new construction (logbooks from 2025) must use FIA 253-12 or 253-14.",
+        }],
         // The FIA base's note on these is written for rally (253-12/253-14
-        // only) -- NASA does accept a single roof diagonal, but only as its
-        // own RB-4 build, with gussets at the roof corners.
+        // only); for NASA, a single diagonal with those 2 roof gussets is
+        // RB-4 on a grandfathered cage.
         optionOverrides: {
-          "single-front-left": { note: "NASA only accepts a single roof diagonal as RB-4, with gussets at the roof corners (NRS GRR 3.7.2(2)). If the roof corners are gusseted, pick RB-4 instead; without them this doesn't meet NASA new construction." },
-          "single-front-right": { note: "NASA only accepts a single roof diagonal as RB-4, with gussets at the roof corners (NRS GRR 3.7.2(2)). If the roof corners are gusseted, pick RB-4 instead; without them this doesn't meet NASA new construction." },
+          "single-front-left": { note: "Not an FIA 253-12/253-14 layout, so not accepted for NASA new construction. On a grandfathered cage, NASA's Appendix B §2.2 accepts a single roof diagonal as RB-4 when there is one gusset in the plane of the roof at each of the 2 corners the diagonal doesn't reach." },
+          "single-front-right": { note: "Not an FIA 253-12/253-14 layout, so not accepted for NASA new construction. On a grandfathered cage, NASA's Appendix B §2.2 accepts a single roof diagonal as RB-4 when there is one gusset in the plane of the roof at each of the 2 corners the diagonal doesn't reach." },
         },
         hardFailMessage: "No roof bar present (253-13 is disallowed for NASA new construction).",
+      },
+      transverse_members_253_1: {
+        optionOverrides: {
+          halo: { outcome: "fail", note: "The MRC-4 halo hoop is a NASA Appendix B §2.1 option for grandfathered cages only -- new construction (logbooks from 2025) must be built to FIA 253." },
+        },
       },
     }),
     []
@@ -3069,7 +3085,7 @@
               category: "structure",
               requirement: "required",
               reference: "Foundational -- Appendix B Element 1 definitions (2014 attachment, reference only)",
-              description: "A recognizable main rollcage structure is present (main rollbar + lateral or lateral-half rollbars + backstays, or the 2014 attachment's MRC-4 halo-hoop variant). Grandfathering rules describe minimum add-ons to an existing structure; they presuppose a base structure exists.",
+              description: "A recognizable main rollcage structure is present (main rollbar + lateral or lateral-half rollbars + backstays, or the MRC-4 halo hoop variant, Appendix B §2.1). Grandfathering rules describe minimum add-ons to an existing structure; they presuppose a base structure exists.",
               evaluationType: "boolean",
               visuallyVerifiable: true,
               hardFail: true,
