@@ -3031,6 +3031,55 @@
     primary_tubing: { reference: "Size check depends on the sanctioning body -- see Part 6" },
     secondary_tubing: { reference: "Size check depends on the sanctioning body -- see Part 6" },
   }).concat(FIA_253_COMMON_TAIL);
+  // ---- Generic FIA Appendix J Article 253 (2020), Chapter 8 ----
+  // The FIA base checklist judged as written, with FIA's own minimum tube
+  // sizes (Ch.8.3.3), which are metric: 45 x 2.5 or 50 x 2.0 mm for the
+  // main rollbar, lateral rollbars and their rear connections; 38 x 2.5 or
+  // 40 x 2.0 mm for everything else -- cold drawn seamless unalloyed
+  // carbon steel, min 350 N/mm2. The usual imperial sizes are accepted as
+  // equivalent even where they're a hair under (1.75" = 44.45 mm, a
+  // 0.095" wall = 2.41 mm): 1.75" x 0.095" / 2.0" x 0.083" for the main
+  // structure, 1.5" x 0.095" / 1.6" x 0.083" for the rest -- the same
+  // sizes NASA, ARA and CARS state. Other materials aren't covered by that
+  // table -- left for the inspector (manualOnly).
+  const FIA_REF = "2020 FIA 253 Ch.8.3.3";
+  const mm = (v) => v / 25.4;
+  const FIA_PRIMARY_REQ = [
+    { material: "cds_dom", label: "Cold drawn seamless carbon steel (min 350 N/mm2)", combos: [{ minDiameterIn: mm(45), minThicknessIn: mm(2.5) }, { minDiameterIn: mm(50), minThicknessIn: mm(2.0) }, { minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
+    { material: "docol_r8", label: "Docol R8", manualOnly: true },
+    { material: "t45", label: "T45", manualOnly: true },
+  ];
+  const FIA_SECONDARY_REQ = [
+    { material: "cds_dom", label: "Cold drawn seamless carbon steel (min 350 N/mm2)", combos: [{ minDiameterIn: mm(38), minThicknessIn: mm(2.5) }, { minDiameterIn: mm(40), minThicknessIn: mm(2.0) }, { minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
+    { material: "docol_r8", label: "Docol R8", manualOnly: true },
+    { material: "t45", label: "T45", manualOnly: true },
+  ];
+  const FIA_RULES = {
+    org: "FIA",
+    orgFullName: "FIA Appendix J Article 253 (generic)",
+    sourceDocuments: [{ title: "2020 FIA Appendix J Article 253, Chapter 8 (WMSC 09.10.2020)", relevantSections: "8.1-8.4" }],
+    paths: {
+      new_construction: {
+        label: "New Construction",
+        reference: "2020 FIA Appendix J Article 253, Chapter 8",
+        note: "Judged against the FIA text itself, with no sanctioning body's own variations -- a cage homologated by the FIA/an ASN must instead match its homologation papers.",
+        elements: patchElements(FIA_253_DOCUMENT_BASE, {
+          homologation_route: { reference: "2020 FIA 253 Ch.8.2" },
+          primary_tubing: {
+            reference: FIA_REF,
+            description: "Main rollbar, lateral rollbars and their rear connections (backstays) -- FIA minimum 45 x 2.5 mm or 50 x 2.0 mm (1.75\" x 0.095\" or 2.0\" x 0.083\" accepted as equivalent).",
+            requirements: FIA_PRIMARY_REQ,
+          },
+          secondary_tubing: {
+            reference: FIA_REF,
+            description: "Half-lateral rollbars and every other part of the cage -- FIA minimum 38 x 2.5 mm or 40 x 2.0 mm (1.5\" x 0.095\" or 1.6\" x 0.083\" accepted as equivalent).",
+            requirements: FIA_SECONDARY_REQ,
+          },
+        }).concat(FIA_253_COMMON_TAIL),
+      },
+    },
+  };
+
   const NONE_RULES = {
     org: "None",
     orgFullName: "None (sanctioning body agnostic)",
@@ -3042,6 +3091,7 @@
 
   window.RULES_DATA = {
     none: NONE_RULES,
+    fia: FIA_RULES,
     nasa: {
       org: "NASA",
       orgFullName: "NASA Rally Sport",

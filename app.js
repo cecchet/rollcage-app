@@ -325,17 +325,31 @@
   // whose rules come from PassTech (checked in Part 6 instead), a rule
   // "fail" just reads as answered -- only safety problems (an unsafe design
   // with an explanation, a failing gusset) still show red.
-  function complianceJudged() {
+  // On a full-checklist body's grandfathered path, only that path's own
+  // questions (answered in Part 6) are judged -- the design checklist
+  // isn't held to the new-construction rules. elm omitted: a design
+  // checklist item (e.g. tubing).
+  function complianceJudged(elm) {
     const rules = RULES[state.vehicle.org];
-    return !!rules && !rules.agnostic;
+    if (!rules || rules.agnostic) return false;
+    const gf = grandfatheredPath();
+    return gf ? !!elm && gf.elements.includes(elm) : true;
   }
+  // The rules Part 6 checks against for a full-checklist body: its
+  // grandfathered (existing logbook) path when picked there, otherwise
+  // new construction.
+  function grandfatheredPath() {
+    const rules = RULES[state.vehicle.org];
+    return rules && !rules.agnostic && state.vehicle.logbookPath === "grandfathered" && rules.paths.grandfathered ? rules.paths.grandfathered : null;
+  }
+  function compliancePath(path) { return grandfatheredPath() || path; }
   // Falls back to no sanctioning body for a saved/imported org this build
   // doesn't know (or none at all).
   function knownOrg(org) { return org && RULES[org] ? org : "none"; }
 
   function elementStatus(el, answer) {
     const status = elementStatusByRules(el, answer);
-    if (status !== "fail" || complianceJudged()) return status;
+    if (status !== "fail" || complianceJudged(el)) return status;
     return unsafeExplanationFor(el.id, null, answer && answer.value, el.id) ? "fail" : "pass";
   }
   function elementStatusByRules(el, answer) {
@@ -685,7 +699,7 @@
   }
   function tableCellStatus(col, answer, row, elm) {
     const status = tableCellStatusByRules(col, answer, row, elm);
-    if (status !== "fail" || complianceJudged()) return status;
+    if (status !== "fail" || complianceJudged(elm)) return status;
     const safetyFail = elm && row && ((elm.id === "gusset_design" && failingGussetRowIds().has(row.id))
       || unsafeExplanationFor(elm.id, row.id, answer && answer.value, tableCellId(elm, row, col)));
     return safetyFail ? "fail" : "pass";
@@ -1220,7 +1234,7 @@
       };
     }
     if (!rules || rules.agnostic) return null;
-    const results = computeResults(path);
+    const results = computeResults(compliancePath(path));
     return {
       verdictLabel: results.verdict.label,
       verdictDetail: results.verdict.detail,
@@ -2054,7 +2068,7 @@
     const keys = Object.keys(RULES);
     orgSelect.appendChild(option("none"));
     const fullChecklist = keys.filter((k) => !RULES[k].agnostic);
-    if (fullChecklist.length) orgSelect.appendChild(el("optgroup", { label: "Rally -- full FIA 253 checklist" }, fullChecklist.map(option)));
+    if (fullChecklist.length) orgSelect.appendChild(el("optgroup", { label: "FIA 253 -- full checklist" }, fullChecklist.map(option)));
     const byGroup = {};
     keys.filter((k) => RULES[k].passTech).forEach((k) => {
       const g = RULES[k].passTech.disciplineGroup;
@@ -2064,6 +2078,22 @@
       orgSelect.appendChild(el("optgroup", { label: group + " -- rollover protection rules" }, byGroup[group].map(option)));
     });
     const children = [el("div", { class: "field" }, [el("label", {}, ["Sanctioning body"]), orgSelect])];
+    // A body with grandfathering rules: which ones apply depends on when
+    // the logbook was (or will be) issued.
+    const orgRules = RULES[state.vehicle.org];
+    if (orgRules && !orgRules.agnostic && orgRules.paths.grandfathered) {
+      const nc = orgRules.paths.new_construction, gf = orgRules.paths.grandfathered;
+      const current = state.vehicle.logbookPath === "grandfathered" ? "grandfathered" : "new_construction";
+      const when = (p) => (p.appliesWhen ? " -- " + p.appliesWhen.charAt(0).toLowerCase() + p.appliesWhen.slice(1) : "");
+      const pick = (v) => { state.vehicle.logbookPath = v; markDirty(); render(); };
+      children.push(el("div", { class: "field" }, [
+        el("label", {}, ["Rules to check against"]),
+        el("div", { class: "radio-group" }, [
+          radioOption("logbookPath", "new_construction", nc.label + when(nc), current === "new_construction", () => pick("new_construction")),
+          radioOption("logbookPath", "grandfathered", gf.label + when(gf), current === "grandfathered", () => pick("grandfathered")),
+        ]),
+      ]));
+    }
     const pt = RULES[state.vehicle.org] && RULES[state.vehicle.org].passTech;
     if (pt && pt.classes.length) {
       const classSelect = el("select", { onchange: (e) => { state.vehicle.orgClass = e.target.value; markDirty(); render(); } });
@@ -4514,7 +4544,7 @@
     if (!rules || rules.agnostic) {
       return { kind: "none", verdict: { level: "neutral", label: "No sanctioning body selected" }, summary: "Pick one to check the cage against its rules" };
     }
-    const results = computeResults(path);
+    const results = computeResults(compliancePath(path));
     return { kind: "rules", results, verdict: results.verdict,
       summary: results.requiredSatisfied + " / " + results.requiredTotal + " required items (" + results.scorePct + "%)" };
   }
@@ -4556,6 +4586,14 @@
     } else if (compliance.kind === "passtech") {
       renderPassTechCompliance(panel, RULES[state.vehicle.org].passTech);
     } else {
+      const gf = grandfatheredPath();
+      if (gf) {
+        panel.appendChild(el("div", { class: "element-desc" }, [gf.note || ""]));
+        panel.appendChild(el("div", { class: "category-heading" }, [gf.label + " requirements"]));
+        gf.elements.filter(elementVisible).forEach((elm) => panel.appendChild(renderElementCard(elm)));
+        // The verdict below reflects any answer just given above.
+        compliance.results = computeResults(gf);
+      }
       renderRulebookVerdict(panel, compliance.results);
     }
 
