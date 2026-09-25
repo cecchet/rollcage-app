@@ -1095,6 +1095,27 @@
   // bounding-box math here -- returns null for an unknown/not-yet-loaded
   // file rather than throwing, since app.js may call this before meshes
   // finish loading.
+  // Applies an extra world-space transform (a three.js column-major 4x4
+  // array) on top of a mesh's modeled placement -- e.g. a gusset that sits
+  // at a different junction, at a different angle, depending on which
+  // design it's paired with. Files not in the map go back to their modeled
+  // placement, so each call fully describes the current transforms.
+  function setMeshTransforms(transforms) {
+    onReady(() => {
+      Object.keys(meshes).forEach((file) => {
+        const mesh = meshes[file];
+        const t = transforms && transforms[file];
+        if (!t) {
+          if (!mesh.matrixAutoUpdate) mesh.matrixAutoUpdate = true;
+          return;
+        }
+        mesh.updateMatrix(); // its own position/rotation/scale placement
+        mesh.matrix.premultiply(new THREE.Matrix4().fromArray(t));
+        mesh.matrixAutoUpdate = false;
+        mesh.matrixWorldNeedsUpdate = true;
+      });
+    });
+  }
   function getMeshAxisBounds(file) {
     const mesh = meshes[file];
     return mesh ? meshAxisBounds(mesh) : null;
@@ -1186,7 +1207,7 @@
     renderer.render(scene, camera);
     return out.toDataURL("image/jpeg", 0.85);
   }
-  window.CageView = { init, applyState, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setBackground, resetBackground, snapshot };
+  window.CageView = { init, applyState, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setBackground, resetBackground, snapshot };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");

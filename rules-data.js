@@ -846,9 +846,18 @@
 
   // Gusset junctions -- only the ones that actually exist given what was
   // picked upstream (e.g. no door-bar gussets on a car with no door bars).
-  function hasMainHoopDiagonal(getAnswer) {
+  // Only the 253-7 X designs have a diagonal crossing to gusset -- a single
+  // diagonal, horizontal bar, V-brace or center V has no 253-7 junction.
+  function hasMainHoopX(getAnswer) {
     const v = getAnswer("main_hoop_diagonals").value;
-    return !!v && v !== "none";
+    return v === "253-7-1" || v === "253-7-2";
+  }
+  // Sides whose door bar never crosses the 253-15 windscreen pillar bar --
+  // 253-11, a single bar, or no door bar at all. Such a side can only take
+  // the 1-piece 253-15 build, and has no 253-15 side gusset.
+  const DOOR_BARS_WITHOUT_A_PILLAR_JUNCTION = ["253-11", "single-bar", "none"];
+  function aPillarNoJunctionSides(getAnswer) {
+    return ["left", "right"].filter((s) => DOOR_BARS_WITHOUT_A_PILLAR_JUNCTION.indexOf(getAnswer("door_bars_" + s).value) !== -1);
   }
   function gussetJunctionRows(getAnswer) {
     const rows = [];
@@ -856,7 +865,7 @@
     // upper/lower) -- most cars only gusset one opposite pair, but some use
     // all 4, so all 4 are offered as independent rows rather than assuming
     // which pair applies.
-    if (hasMainHoopDiagonal(getAnswer)) {
+    if (hasMainHoopX(getAnswer)) {
       rows.push(
         { id: "main_hoop_diag_left", label: "253-7: Main rollbar diagonal gusset - left" },
         { id: "main_hoop_diag_right", label: "253-7: Main rollbar diagonal gusset - right" },
@@ -932,12 +941,14 @@
     const aPillarValue = getAnswer("a_pillar_reinforcement").value;
     // The 2 side gussets only apply to the single-continuous-bar build of
     // 253-15 -- the 2-bar build (where it's split to meet the door bar) gets
-    // its own 4-gusset-per-side set instead (below). Always a taco.
+    // its own 4-gusset-per-side set instead (below). Always a taco. None on
+    // a side whose door bar doesn't cross the pillar bar (253-11, single
+    // bar, no door bar) -- there's no junction there to gusset.
     if (aPillarValue === "continuous") {
-      rows.push(
-        { id: "a_pillar_side_left", label: "253-15: Windshield pillar reinforcement side gusset - left", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_side_right", label: "253-15: Windshield pillar reinforcement side gusset - right", restrictOptionIds: ["taco"] }
-      );
+      const noJunction = aPillarNoJunctionSides(getAnswer);
+      ["left", "right"].forEach((side) => {
+        if (noJunction.indexOf(side) === -1) rows.push({ id: "a_pillar_side_" + side, label: "253-15: Windshield pillar reinforcement side gusset - " + side, restrictOptionIds: ["taco"] });
+      });
     }
     // 2-bar build of 253-15 -- 4 gussets per side (upper/lower x front/rear)
     // at the junctions where the split bar meets the door bar. Always a taco.
@@ -983,7 +994,7 @@
       const a = prefix + "_left", b = prefix + "_right", c = prefix + secondPairSuffixes[0], d = prefix + secondPairSuffixes[1];
       groups.push({ rows: [a, b, c, d], anyOf: [[a, b], [c, d]] });
     }
-    if (hasMainHoopDiagonal(getAnswer)) xGroup("main_hoop_diag", ["_upper", "_lower"]);
+    if (hasMainHoopX(getAnswer)) xGroup("main_hoop_diag", ["_upper", "_lower"]);
     if (getAnswer("backstay_diagonals").value === "253-21-1" || getAnswer("backstay_diagonals").value === "253-21-2") xGroup("backstay_diag", ["_upper", "_lower"]);
     if (getAnswer("roof_bars").value === "253-12-1" || getAnswer("roof_bars").value === "253-12-2") xGroup("roof", ["_front", "_rear"]);
     if (getAnswer("a_pillar_reinforcement").value === "two_bars") {
@@ -1756,7 +1767,16 @@
       evaluationType: "choice",
       options: [
         { id: "continuous", label: "1 continuous bar", outcome: "pass" },
-        { id: "two_bars", label: "2 bars", outcome: "pass" },
+        // The 2-bar build is split where it meets the door bar's own
+        // crossing -- impossible on a side whose door bar has none there.
+        {
+          id: "two_bars", label: "2 bars", outcome: "pass", fallbackId: "continuous",
+          unavailableIf: (getAnswer) => {
+            const sides = aPillarNoJunctionSides(getAnswer);
+            if (!sides.length) return null;
+            return "Not possible with the " + sides.join(" and ") + " door bar design selected (253-11, single bar or no door bar) -- only the 1 continuous bar build can be done.";
+          },
+        },
       ],
       diagram: "253-15",
       tubing: null,

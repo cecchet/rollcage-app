@@ -128,6 +128,7 @@
     state.homologationPhotos = s.homologationPhotos || [];
     state.vehiclePhotos = s.vehiclePhotos || { front: null, rear: null };
     state.pictureSelectMode = null;
+    normalizeUnavailableChoices();
     state.dirty = false;
     render();
   }
@@ -241,8 +242,28 @@
 
   function setAnswer(id, patch) {
     state.answers[id] = Object.assign({}, getAnswer(id), patch);
+    normalizeUnavailableChoices();
     markDirty();
     render();
+  }
+
+  // A choice option can declare unavailableIf(getAnswer) -> reason|null
+  // (e.g. 253-15's 2-bar build with no door bar crossing it). Such an
+  // option is disabled in the form and skipped when cycling from the 3D
+  // model; an answer that BECOMES unavailable because of a later change
+  // elsewhere switches to the option's fallbackId (or clears).
+  function optionUnavailableReason(opt) {
+    return opt && typeof opt.unavailableIf === "function" ? opt.unavailableIf(getAnswer) : null;
+  }
+  function normalizeUnavailableChoices() {
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    if (!path) return;
+    path.elements.forEach((elm) => {
+      if (elm.evaluationType !== "choice" || !elm.options) return;
+      const current = state.answers[elm.id] && state.answers[elm.id].value;
+      const opt = current && elm.options.find((o) => o.id === current);
+      if (opt && optionUnavailableReason(opt)) state.answers[elm.id] = Object.assign({}, getAnswer(elm.id), { value: opt.fallbackId || "" });
+    });
   }
 
   // ---- Scoring -------------------------------------------------------
@@ -1368,6 +1389,49 @@
     saveBtn.focus();
   }
 
+  // Design templates (templates.js): starting from one opens it as a new,
+  // unsaved rollcage under a fresh sessionId -- the template itself is never
+  // written to, and Save adds the copy to the saved rollcages like any other.
+  const TEMPLATE_SELECTION_PREFIX = "tpl:";
+  function startFromTemplate(t) {
+    startNew();
+    state.vehicle = JSON.parse(JSON.stringify(t.vehicle));
+    state.pathId = t.pathId || "new_construction";
+    state.answers = JSON.parse(JSON.stringify(t.answers));
+    normalizeUnavailableChoices();
+    state.dirty = true;
+    render();
+  }
+  // Templates have no saved snapshot, so each one's is rendered once per
+  // page load by briefly swapping its answers into state, applying them to
+  // the live 3D model and taking the same snapshot Save does -- then
+  // restoring the open rollcage's own state and model. Cached in memory.
+  const templateThumbCache = {};
+  function ensureTemplateThumbs() {
+    if (!state.libraryOpen || !window.CageView || !window.CageView.snapshot) return;
+    const missing = (window.ROLLCAGE_TEMPLATES || []).filter((t) => !templateThumbCache[t.templateId]);
+    if (!missing.length) return;
+    const saved = { vehicle: state.vehicle, pathId: state.pathId, answers: state.answers, pictureSelectMode: state.pictureSelectMode, activeTab: state.activeTab };
+    let made = false;
+    try {
+      missing.forEach((t) => {
+        state.vehicle = t.vehicle;
+        state.pathId = t.pathId || "new_construction";
+        state.answers = t.answers;
+        state.pictureSelectMode = null;
+        state.activeTab = 1;
+        window.CageView.applyState(computeCageColors(), false);
+        window.CageView.setMeshTransforms(computeCageTransforms());
+        const shot = window.CageView.snapshot(360);
+        if (shot) { templateThumbCache[t.templateId] = shot; made = true; }
+      });
+    } finally {
+      Object.assign(state, saved);
+      syncCageView();
+    }
+    if (made) render();
+  }
+
   // "Rollcage library" window: every saved rollcage as a card (its 3D
   // snapshot from its last Save, plus its 3/4 front photo if it has one).
   // Clicking a card selects it; Load / Export to file / Delete then act on
@@ -1421,16 +1485,51 @@
       );
     });
 
+    // Built-in design templates (templates.js) -- read-only, no photos, so
+    // only a 3D snapshot rendered on the fly (see ensureTemplateThumbs).
+    const templates = window.ROLLCAGE_TEMPLATES || [];
+    const templateList = el("div", { class: "load-dialog-list" });
+    templates.forEach((t) => {
+      const selId = TEMPLATE_SELECTION_PREFIX + t.templateId;
+      const isSelected = state.librarySelectedId === selId;
+      const thumb = templateThumbCache[t.templateId];
+      templateList.appendChild(
+        el("button", {
+          type: "button",
+          class: "load-dialog-card" + (isSelected ? " selected" : ""),
+          "aria-pressed": isSelected ? "true" : "false",
+          onclick: () => { state.librarySelectedId = selId; render(); },
+        }, [
+          el("div", { class: "load-dialog-images" }, [
+            thumb
+              ? el("img", { class: "load-dialog-model", src: thumb, alt: "3D model" })
+              : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
+          ]),
+          el("div", { class: "load-dialog-name" }, [t.vehicle.name]),
+          el("div", { class: "load-dialog-date" }, ["Design template"]),
+        ])
+      );
+    });
+    setTimeout(ensureTemplateThumbs, 0);
+
     const selected = state.librarySelectedId && sessions.find((s) => s.sessionId === state.librarySelectedId);
     const selectedId = selected ? selected.sessionId : null;
+    const selectedTemplate = !selected && state.librarySelectedId
+      ? templates.find((t) => TEMPLATE_SELECTION_PREFIX + t.templateId === state.librarySelectedId) : null;
     const actions = el("div", { class: "toolbar library-actions" }, [
       el("span", { class: "library-selection" }, [
-        selected ? "Selected: " + (selected.vehicle.name || "Unnamed vehicle") : sessions.length ? "Select a rollcage below" : "",
+        selected ? "Selected: " + (selected.vehicle.name || "Unnamed vehicle")
+          : selectedTemplate ? "Selected template: " + selectedTemplate.vehicle.name
+          : sessions.length || templates.length ? "Select a rollcage below" : "",
       ]),
       el("button", {
-        class: "btn small", disabled: !selectedId,
-        onclick: () => confirmDiscardIfDirty(() => { state.libraryOpen = false; loadSession(selectedId); }),
-      }, ["Load"]),
+        class: "btn small", disabled: !selectedId && !selectedTemplate,
+        onclick: () => confirmDiscardIfDirty(() => {
+          state.libraryOpen = false;
+          if (selectedTemplate) startFromTemplate(selectedTemplate);
+          else loadSession(selectedId);
+        }),
+      }, [selectedTemplate ? "Start from template" : "Load"]),
       el("button", { class: "btn small secondary", disabled: !selectedId, onclick: () => exportSavedSessionToFile(selectedId) }, ["Export to file"]),
       el("button", { class: "btn small secondary", disabled: !selectedId, onclick: () => deleteSavedRollcage(selectedId) }, ["Delete"]),
     ]);
@@ -1447,7 +1546,10 @@
         importInput,
       ]),
       actions,
+      el("h3", { class: "library-section-heading" }, ["Saved rollcages"]),
       list,
+      templates.length ? el("h3", { class: "library-section-heading" }, ["Design templates"]) : null,
+      templates.length ? templateList : null,
     ]);
     const overlay = el("div", { class: "modal-overlay" }, [dialog]);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
@@ -2874,6 +2976,8 @@
           },
         });
         radio.checked = answer.value === opt.id;
+        const unavailableReason = optionUnavailableReason(opt);
+        if (unavailableReason) radio.disabled = true;
         const diagramHtml = opt.diagram && window.DIAGRAMS && window.DIAGRAMS[opt.diagram] ? window.DIAGRAMS[opt.diagram] : null;
         const legend = opt.diagram && window.DIAGRAM_LEGENDS && window.DIAGRAM_LEGENDS[opt.diagram];
         const legendEl = legend
@@ -2885,12 +2989,16 @@
           : null;
         const optionLabel = el(
           "label",
-          { class: "choice-option" + (answer.value === opt.id ? " selected" : ""), for: inputId },
+          Object.assign(
+            { class: "choice-option" + (answer.value === opt.id ? " selected" : "") + (unavailableReason ? " unavailable" : ""), for: inputId },
+            unavailableReason ? { title: unavailableReason } : {}
+          ),
           [
             radio,
             diagramHtml ? el("div", { class: "choice-diagram", html: diagramHtml }) : null,
             legendEl,
             el("div", { class: "choice-label" }, [opt.label]),
+            unavailableReason ? el("div", { class: "choice-unavailable-note" }, [unavailableReason]) : null,
           ]
         );
         group.appendChild(optionLabel);
@@ -6332,7 +6440,7 @@
     }
     const elm = path.elements.find((e) => e.id === elementId);
     if (!elm) return [];
-    if (elm.evaluationType === "choice" && elm.options && elm.options.length) return elm.options.map((o) => o.id);
+    if (elm.evaluationType === "choice" && elm.options && elm.options.length) return elm.options.filter((o) => !optionUnavailableReason(o)).map((o) => o.id);
     if (elm.evaluationType === "boolean") return ["yes", "no"];
     return [];
   }
@@ -6653,6 +6761,38 @@
     state.pictureSelectMode = null;
     render();
   }
+  // The 253-15 2-piece gusset meshes were modeled at the pillar bar's
+  // crossing with a 253-9 door bar. A 253-10 or NASCAR door bar meets the
+  // pillar bar higher up, at its own upper horizontal bar ("Door bar 253-10
+  // upper <side>.stl", shared by both designs) -- so on that side the 4
+  // gussets move to that junction AND re-angle to it: each keeps its edge
+  // along the pillar bar while its door-bar edge swings from the 253-9
+  // bar's slope onto the horizontal bar. One transform for the 2 upper
+  // gussets and one for the 2 lower ones per side (the 2 pillar pieces
+  // meet at an angle at the old junction). Computed from the STLs by
+  // tools/apillar-gusset-transforms.js -- re-run it if those parts change.
+  const A_PILLAR_2PC_GUSSET_UPPER_BAR_TRANSFORMS = {
+    left: {
+      upper: [1.02472, -0.04368, 0.26399, 0, 0.11627, 0.988, -0.07215, 0, -0.04923, 0.02787, 0.87573, 0, -7.77075, 6.16357, -11.4616, 1],
+      lower: [1.03193, 0.03213, 0.25318, 0, 0.04739, 0.94687, -0.31788, 0, -0.02929, 0.28467, 0.8218, 0, -3.35131, -9.03787, 13.41886, 1],
+    },
+    right: {
+      upper: [1.0771, -0.00889, 0.38923, 0, -0.1011, 0.98625, 0.07694, 0, -0.07404, 0.00068, 0.80784, 0, 21.12375, 2.37969, -44.62519, 1],
+      lower: [1.08069, -0.12385, 0.35723, 0, 0.01275, 0.94769, 0.31945, 0, -0.0565, -0.2438, 0.76205, 0, -5.36853, 33.38624, -93.37719, 1],
+    },
+  };
+  function computeCageTransforms() {
+    const transforms = {};
+    if (getAnswer("a_pillar_reinforcement").value !== "two_bars") return transforms;
+    ["left", "right"].forEach((side) => {
+      const door = getAnswer("door_bars_" + side).value;
+      if (door !== "253-10" && door !== "nascar") return;
+      ["upper front", "upper rear", "lower front", "lower rear"].forEach((pos) => {
+        transforms["253-15 gusset " + side + " " + pos + ".stl"] = A_PILLAR_2PC_GUSSET_UPPER_BAR_TRANSFORMS[side][pos.split(" ")[0]];
+      });
+    });
+    return transforms;
+  }
   function syncCageView() {
     syncPartDropdown();
     syncPart3Controls();
@@ -6661,6 +6801,7 @@
     if (window.CageView) {
       const colors = computeCageColors();
       window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) ? true : state.showGhostBars);
+      window.CageView.setMeshTransforms(computeCageTransforms());
       window.CageView.onPartClick(handleCagePartClick);
       window.CageView.onPartDoubleClick(handleCagePartDoubleClick);
       window.CageView.onPartHover(handleCagePartHover);

@@ -829,3 +829,6 @@ textarea { resize: vertical; min-height: 50px; }
 }
 .save-as-name-input { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
 .save-as-error { color: var(--red, #e0483e); font-size: 0.85rem; margin-bottom: 8px; }
+.library-section-heading { margin: 14px 0 6px; font-size: 0.95rem; color: var(--muted); }
+.choice-option.unavailable { opacity: 0.5; cursor: not-allowed; }
+.choice-unavailable-note { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
