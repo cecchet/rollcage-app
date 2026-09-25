@@ -209,11 +209,11 @@
   function renderLogbook(w, logbook) {
     if (!logbook) return;
     w.newPage();
-    w.heading("Logbook / Compliance");
+    w.heading("Sanctioning body compliance / Logbook");
     w.text(logbook.verdictLabel, { size: 11, bold: true, color: LEVEL_COLOR[logbook.verdictLevel] || COLOR.text });
     if (logbook.verdictDetail) w.text(logbook.verdictDetail, { size: 9, color: COLOR.muted });
     w.spacer(2);
-    w.row("Required items satisfied", logbook.requiredSatisfied + " / " + logbook.requiredTotal);
+    w.row(logbook.countLabel || "Required items satisfied", logbook.requiredSatisfied + " / " + logbook.requiredTotal);
     if (logbook.failures && logbook.failures.length) {
       w.subheading("Failing");
       logbook.failures.forEach((f) => w.bullet(f, { color: COLOR.red }));
@@ -223,7 +223,7 @@
       logbook.unresolved.forEach((f) => w.bullet(f, { color: COLOR.amber }));
     }
     if (logbook.advisories && logbook.advisories.length) {
-      w.subheading("Advisories");
+      w.subheading(logbook.advisoriesLabel || "Advisories");
       logbook.advisories.forEach((f) => w.bullet(f, { color: COLOR.muted }));
     }
   }

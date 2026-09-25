@@ -2686,6 +2686,13 @@
         reference: "2020 FIA 253 Ch.8.3.2.1.3; NRS GRR 3.7.2(2) excludes 253-13",
         description: "253-13 (no front roof corner support) is NOT permitted for NASA new construction per NRS GRR 3.7.2(2). Pick 253-12 or 253-14 (or the NASA-specific RB-4 option).",
         addOptions: [{ id: "rb-4", label: "RB-4: Single diagonal + roof gussets (NASA option)", diagram: "rb-4", outcome: "pass" }],
+        // The FIA base's note on these is written for rally (253-12/253-14
+        // only) -- NASA does accept a single roof diagonal, but only as its
+        // own RB-4 build, with gussets at the roof corners.
+        optionOverrides: {
+          "single-front-left": { note: "NASA only accepts a single roof diagonal as RB-4, with gussets at the roof corners (NRS GRR 3.7.2(2)). If the roof corners are gusseted, pick RB-4 instead; without them this doesn't meet NASA new construction." },
+          "single-front-right": { note: "NASA only accepts a single roof diagonal as RB-4, with gussets at the roof corners (NRS GRR 3.7.2(2)). If the roof corners are gusseted, pick RB-4 instead; without them this doesn't meet NASA new construction." },
+        },
         hardFailMessage: "No roof bar present (253-13 is disallowed for NASA new construction).",
       },
     }),
@@ -2997,7 +3004,28 @@
     },
   };
 
+  // ---- No sanctioning body: the FIA 253 checklist as a design/safety
+  // capture tool only. Compliance with any rulebook isn't judged (see
+  // app.js's complianceJudged), so its tubing entries just need a size
+  // entered; the safety score still rates the design. Also the checklist
+  // every PassTech-imported sanctioning body (below) uses -- those are
+  // judged in Part 6 against their own rollover protection rule instead.
+  const AGNOSTIC_ELEMENTS = patchElements(FIA_253_DOCUMENT_BASE, {
+    homologation_route: { reference: "" },
+    primary_tubing: { reference: "Size check depends on the sanctioning body -- see Part 6" },
+    secondary_tubing: { reference: "Size check depends on the sanctioning body -- see Part 6" },
+  }).concat(FIA_253_COMMON_TAIL);
+  const NONE_RULES = {
+    org: "None",
+    orgFullName: "None (sanctioning body agnostic)",
+    agnostic: true,
+    paths: {
+      new_construction: { label: "New Construction", reference: "2020 FIA Appendix J Article 253, Chapter 8", elements: AGNOSTIC_ELEMENTS },
+    },
+  };
+
   window.RULES_DATA = {
+    none: NONE_RULES,
     nasa: {
       org: "NASA",
       orgFullName: "NASA Rally Sport",
@@ -3151,4 +3179,18 @@
     ara: ARA_RULES,
     cars: CARS_RULES,
   };
+
+  // Sanctioning bodies whose rollover protection rule comes from PassTech
+  // (sanctioning-bodies.js): the agnostic checklist above, plus their own
+  // rule, which Part 6 checks the cage against.
+  (window.PASSTECH_ROLLOVER_RULES || []).forEach((r) => {
+    window.RULES_DATA[r.id] = {
+      org: r.bodyName,
+      orgFullName: r.bodyName + " -- " + r.disciplineName,
+      agnostic: true,
+      passTech: r,
+      lastReviewed: r.lastReviewed,
+      paths: { new_construction: { label: "New Construction", elements: AGNOSTIC_ELEMENTS } },
+    };
+  });
 })();

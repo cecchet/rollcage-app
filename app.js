@@ -14,7 +14,7 @@
 
   const state = {
     sessionId: null,
-    vehicle: { name: "", org: "nasa", logbookDate: "" },
+    vehicle: { name: "", org: "none", logbookDate: "" },
     pathId: null,
     answers: {}, // elementId -> { value, note, photos: [{name, dataUrl}] }
     pictures: [], // { id, elements: [{elementId, value}], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot } -- image bytes live in IndexedDB, see picture storage below
@@ -97,7 +97,7 @@
 
   function startNew() {
     state.sessionId = uid();
-    state.vehicle = { name: "", org: "nasa", logbookDate: "" };
+    state.vehicle = { name: "", org: "none", logbookDate: "" };
     state.pathId = "new_construction";
     state.answers = {};
     state.pictures = [];
@@ -113,7 +113,7 @@
     const s = all[id];
     if (!s) return;
     state.sessionId = s.sessionId;
-    state.vehicle = s.vehicle;
+    state.vehicle = Object.assign({}, s.vehicle, { org: knownOrg(s.vehicle && s.vehicle.org) });
     // Older saves could have pathId: null (from the now-removed "Existing
     // logbook, no date entered yet" bootstrap state) -- fall back to the
     // only path this app checks against now rather than leaving it null.
@@ -320,7 +320,25 @@
     return compareOk(v, f.compare) ? "pass" : requirement === "recommended" ? "warn" : "fail";
   }
 
+  // Whether the checklist's own card/cell colors judge compliance with the
+  // selected sanctioning body's rulebook. With no sanctioning body, or one
+  // whose rules come from PassTech (checked in Part 6 instead), a rule
+  // "fail" just reads as answered -- only safety problems (an unsafe design
+  // with an explanation, a failing gusset) still show red.
+  function complianceJudged() {
+    const rules = RULES[state.vehicle.org];
+    return !!rules && !rules.agnostic;
+  }
+  // Falls back to no sanctioning body for a saved/imported org this build
+  // doesn't know (or none at all).
+  function knownOrg(org) { return org && RULES[org] ? org : "none"; }
+
   function elementStatus(el, answer) {
+    const status = elementStatusByRules(el, answer);
+    if (status !== "fail" || complianceJudged()) return status;
+    return unsafeExplanationFor(el.id, null, answer && answer.value, el.id) ? "fail" : "pass";
+  }
+  function elementStatusByRules(el, answer) {
     // returns one of: pass, fail, warn (unsure/incomplete), neutral (not applicable / informational-only)
     if (el.requirement === "informational") {
       return "neutral";
@@ -494,6 +512,9 @@
   function tubing3Status(sub, answer) {
     const v = answer.value;
     if (!v || !v.material) return "warn";
+    // No rulebook to size against here -- just needs its size entered
+    // (Part 6 checks it against a PassTech body's own weight table).
+    if (!complianceJudged()) return toInches(v.diameter) != null && toInches(v.thickness) != null ? "pass" : "warn";
     if (v.material === "other") return "warn";
     const req = sub.requirements.find((r) => r.material === v.material);
     if (!req) return "warn";
@@ -663,6 +684,13 @@
     return result;
   }
   function tableCellStatus(col, answer, row, elm) {
+    const status = tableCellStatusByRules(col, answer, row, elm);
+    if (status !== "fail" || complianceJudged()) return status;
+    const safetyFail = elm && row && ((elm.id === "gusset_design" && failingGussetRowIds().has(row.id))
+      || unsafeExplanationFor(elm.id, row.id, answer && answer.value, tableCellId(elm, row, col)));
+    return safetyFail ? "fail" : "pass";
+  }
+  function tableCellStatusByRules(col, answer, row, elm) {
     // A row can mark specific columns as not applicable to it at all (e.g.
     // a single-plate gusset has no corner-cutout/hole-diameter concept) --
     // treated as satisfied rather than blank, so it never blocks the
@@ -1038,7 +1066,7 @@
       const sessionId = uid();
       all[sessionId] = {
         sessionId,
-        vehicle: data.vehicle,
+        vehicle: Object.assign({}, data.vehicle, { org: knownOrg(data.vehicle.org) }),
         pathId: data.pathId || "new_construction",
         answers: data.answers || {},
         pictures: [],
@@ -1168,7 +1196,30 @@
         return { phaseLabel: PHASE_LABELS[p], categories };
       });
   }
+  // The report's compliance page: none without a sanctioning body; a
+  // PassTech body's rollover checks; or a full-checklist body's verdict.
   function buildReportLogbook(path) {
+    const rules = RULES[state.vehicle.org];
+    if (rules && rules.passTech) {
+      const pt = rules.passTech;
+      const { checks } = evaluatePassTechRollover(pt);
+      const verdict = passTechVerdict(pt, checks);
+      const checked = checks.filter((c) => c.status !== "manual");
+      const line = (c) => c.label + " -- " + c.detail;
+      return {
+        verdictLabel: verdict.label,
+        verdictDetail: "Checked against " + pt.bodyName + " " + pt.disciplineName + "'s rollover protection rule (imported from PassTech, reviewed " + pt.lastReviewed + ").",
+        verdictLevel: verdict.level,
+        countLabel: "Checked items met",
+        requiredTotal: checked.length,
+        requiredSatisfied: checked.filter((c) => c.status === "pass").length,
+        failures: checks.filter((c) => c.status === "fail").map(line),
+        unresolved: checks.filter((c) => c.status === "pending").map(line),
+        advisories: checks.filter((c) => c.status === "manual").map(line),
+        advisoriesLabel: "To check manually",
+      };
+    }
+    if (!rules || rules.agnostic) return null;
     const results = computeResults(path);
     return {
       verdictLabel: results.verdict.label,
@@ -1535,7 +1586,7 @@
   const TEMPLATE_SELECTION_PREFIX = "tpl:";
   function startFromTemplate(t) {
     startNew();
-    state.vehicle = JSON.parse(JSON.stringify(t.vehicle));
+    state.vehicle = Object.assign(JSON.parse(JSON.stringify(t.vehicle)), { org: knownOrg(t.vehicle.org) });
     state.pathId = t.pathId || "new_construction";
     state.answers = JSON.parse(JSON.stringify(t.answers));
     normalizeUnavailableChoices();
@@ -1973,33 +2024,183 @@
     ["Inspection date", "vehicle_inspection_date"], ["Inspection location", "vehicle_inspection_location"],
   ];
 
-  // Its own field, rendered above the verdict banner in renderResults --
-  // picking the sanctioning body is the natural first step of Part 6, and
-  // it affects the verdict itself (re-validates existing answers against
-  // the new org's rules), so it reads better before the verdict than
-  // buried inside the paperwork fields below it.
+  // Its own field, at the top of Part 6 -- picking the sanctioning body is
+  // the natural first step there, and it decides what the verdict below
+  // it checks against. Grouped: no sanctioning body (the default -- the
+  // checklist then judges no rulebook, only the safety score rates the
+  // design), the rally bodies with a full FIA 253 checklist of their own,
+  // then the bodies whose rollover protection rule comes from PassTech
+  // (sanctioning-bodies.js), by discipline. A PassTech body with class-
+  // specific rules also gets a class picker.
   function renderSanctioningBodyField() {
     const orgSelect = el("select", {
       onchange: (e) => {
         state.vehicle.org = e.target.value;
+        state.vehicle.orgClass = "";
         // Answers are intentionally kept, not reset: element/option ids are
         // shared with the FIA 253 base across orgs, so existing answers
-        // re-validate against the new org's rules automatically (a choice
-        // that was a pass under one org but is disallowed under another
-        // will now show as a fail/needs-review, via elementStatus/
-        // tubingStatus's existing "unrecognized value" handling).
+        // re-validate against the new org's rules automatically.
         if (!RULES[state.vehicle.org].paths[state.pathId]) {
           state.pathId = "new_construction";
         }
         setAnswer("vehicle_logbook_body", { value: e.target.value });
       },
     });
-    Object.keys(RULES).forEach((orgKey) => {
+    const option = (orgKey) => {
       const opt = el("option", { value: orgKey }, [RULES[orgKey].orgFullName]);
       if (state.vehicle.org === orgKey) opt.selected = true;
-      orgSelect.appendChild(opt);
+      return opt;
+    };
+    const keys = Object.keys(RULES);
+    orgSelect.appendChild(option("none"));
+    const fullChecklist = keys.filter((k) => !RULES[k].agnostic);
+    if (fullChecklist.length) orgSelect.appendChild(el("optgroup", { label: "Rally -- full FIA 253 checklist" }, fullChecklist.map(option)));
+    const byGroup = {};
+    keys.filter((k) => RULES[k].passTech).forEach((k) => {
+      const g = RULES[k].passTech.disciplineGroup;
+      (byGroup[g] = byGroup[g] || []).push(k);
     });
-    return el("div", { class: "field" }, [el("label", {}, ["Sanctioning body"]), orgSelect]);
+    Object.keys(byGroup).sort().forEach((group) => {
+      orgSelect.appendChild(el("optgroup", { label: group + " -- rollover protection rules" }, byGroup[group].map(option)));
+    });
+    const children = [el("div", { class: "field" }, [el("label", {}, ["Sanctioning body"]), orgSelect])];
+    const pt = RULES[state.vehicle.org] && RULES[state.vehicle.org].passTech;
+    if (pt && pt.classes.length) {
+      const classSelect = el("select", { onchange: (e) => { state.vehicle.orgClass = e.target.value; markDirty(); render(); } });
+      classSelect.appendChild(el("option", { value: "" }, ["Any other class"]));
+      pt.classes.forEach((c) => {
+        const o = el("option", { value: c.id }, [c.label]);
+        if (state.vehicle.orgClass === c.id) o.selected = true;
+        classSelect.appendChild(o);
+      });
+      children.push(el("div", { class: "field" }, [el("label", {}, ["Class"]), classSelect]));
+    }
+    return el("div", {}, children);
+  }
+
+  // ---- PassTech rollover protection check (Part 6) ---------------------
+  // Checks what the checklist can actually tell about a PassTech body's
+  // rollover protection rule -- full cage vs roll bar, tubing size for the
+  // car's weight, welded foot plates -- and lists the rest (welded joints,
+  // padding, logbook, material) as manual checks. Each check:
+  // { label, status: pass|fail|pending|manual, detail, target? }.
+  function passTechRuleFor(pt) {
+    const cls = state.vehicle.orgClass;
+    return (cls && pt.classOverrides[cls]) || pt.rule;
+  }
+  function vehicleWeightLbs() {
+    const v = getAnswer("vehicle_weight").value;
+    const n = v && parseFloat(v.value);
+    if (!n || isNaN(n)) return null;
+    return v.unit === "lb" ? n : n * 2.20462;
+  }
+  function fmtTube(sz) { return sz.outerDiameterIn + '" x ' + sz.wallThicknessIn + '"'; }
+  function tubeCheck(label, elementId, tier, weightLbs) {
+    const v = getAnswer(elementId).value || {};
+    const od = toInches(v.diameter), wall = toInches(v.thickness);
+    const need = tier.minSizes.map(fmtTube).join(" or ");
+    const where = weightLbs == null ? "" : " for " + Math.round(weightLbs) + " lbs";
+    const target = { elementId };
+    if (od == null || wall == null) return { label, status: "pending", detail: "Enter its size in Part 2 (needs " + need + where + ")", target };
+    const ok = tier.minSizes.some((sz) => od >= sz.outerDiameterIn - 1e-6 && wall >= sz.wallThicknessIn - 1e-6);
+    return { label, status: ok ? "pass" : "fail", detail: +od.toFixed(3) + '" x ' + +wall.toFixed(3) + '" -- needs at least ' + need + where, target };
+  }
+  function evaluatePassTechRollover(pt) {
+    const rule = passTechRuleFor(pt);
+    const checks = [];
+    if (!rule) return { rule, checks };
+    const layout = getAnswer("main_structure_layout").value;
+    if (rule.rolloverProtectionRequiresFullCage) {
+      const target = { elementId: "main_structure_layout" };
+      checks.push(!layout
+        ? { label: "Full roll cage", status: "pending", detail: "Choose a base structure layout in Part 1", target }
+        : layout === "half-rollcage"
+          ? { label: "Full roll cage", status: "fail", detail: "A roll bar / half rollcage isn't accepted -- a full cage is required", target }
+          : { label: "Full roll cage", status: "pass", detail: "Full cage", target });
+    }
+    const spec = rule.rolloverProtectionTubingSpec;
+    if (spec && spec.length) {
+      const weight = vehicleWeightLbs();
+      if (weight == null) {
+        checks.push({ label: "Tubing size for the car's weight", status: "pending", detail: "Enter the vehicle weight (Vehicle description) to pick the required size" });
+      } else {
+        const tiers = spec.slice().sort((a, b) => (a.underWeightLbs || Infinity) - (b.underWeightLbs || Infinity));
+        const tier = tiers.find((t) => t.underWeightLbs == null || weight < t.underWeightLbs) || tiers[tiers.length - 1];
+        checks.push(tubeCheck("Main structure tubing", "primary_tubing", tier, weight));
+        const secondary = tubeCheck("Secondary tubing", "secondary_tubing", tier, weight);
+        // These rulebooks mostly size the main hoop/structure; some allow
+        // smaller secondary bars -- flag it for a manual look, not a fail.
+        if (secondary.status === "fail") {
+          secondary.status = "manual";
+          secondary.detail += " (check whether smaller secondary bars are allowed)";
+        }
+        checks.push(secondary);
+        if (tier.materialNote) checks.push({ label: "Tubing material", status: "manual", detail: tier.materialNote });
+      }
+    }
+    if (rule.rolloverProtectionRequiresWeldedPlates) {
+      const feetElm = RULES[state.vehicle.org].paths[state.pathId].elements.find((e) => e.id === "mounting_feet_design");
+      const rows = feetElm ? resolveRows(feetElm) : [];
+      const types = rows.map((r) => getAnswer("mounting_feet_design__" + r.id + "__mount_type").value);
+      const target = { elementId: "mounting_feet_design" };
+      checks.push(types.includes("bolted")
+        ? { label: "Welded mounting plates", status: "fail", detail: "Bolted mounting feet aren't accepted", target }
+        : types.length && types.every((t) => t === "welded")
+          ? { label: "Welded mounting plates", status: "pass", detail: "All feet welded", target }
+          : { label: "Welded mounting plates", status: "pending", detail: "Mark each mounting foot bolted or welded in Part 1", target });
+    }
+    if (rule.materialNote) checks.push({ label: "Material", status: "manual", detail: rule.materialNote });
+    if (rule.rolloverProtectionRequiresWelded) checks.push({ label: "Welded construction", status: "manual", detail: "Cage joints must be welded (no bolt-together joints)" });
+    if (rule.rolloverProtectionRequiresPadding) {
+      const extra = [rule.rolloverProtectionPaddingCertRequired ? "certified padding (SFI 45.1 / FIA 8857)" : "",
+        rule.rolloverProtectionRequiresForwardHoopPadding ? "including the forward hoop" : ""].filter(Boolean).join(", ");
+      checks.push({ label: "Roll cage padding", status: "manual", detail: "Padding required where the helmet can touch the cage" + (extra ? " -- " + extra : "") });
+    }
+    if (rule.rolloverProtectionRequiresLogbook) {
+      const bodies = rule.rolloverProtectionAcceptedLogbookBodies;
+      checks.push({ label: "Logbook", status: "manual", detail: "The cage must be logbooked" + (bodies && bodies.length ? " (accepted: " + bodies.join(", ") + ")" : "") });
+    }
+    return { rule, checks };
+  }
+  function passTechVerdict(pt, checks) {
+    const fails = checks.filter((c) => c.status === "fail").length;
+    const pending = checks.filter((c) => c.status === "pending").length;
+    if (fails) return { level: "fail", label: "Does not meet " + pt.bodyName + " rollover protection rules" };
+    if (pending) return { level: "warn", label: "Incomplete -- " + pending + " item" + (pending > 1 ? "s" : "") + " still to answer" };
+    return { level: "pass", label: "Meets the checked " + pt.bodyName + " rollover protection items" };
+  }
+  function renderPassTechCompliance(panel, pt) {
+    const { rule, checks } = evaluatePassTechRollover(pt);
+    const verdict = passTechVerdict(pt, checks);
+    panel.appendChild(el("div", { class: "verdict " + verdict.level }, [verdict.label]));
+    panel.appendChild(el("div", { class: "element-desc" }, [
+      "Checked against " + pt.bodyName + " " + pt.disciplineName + "'s rollover protection rule (imported from PassTech, reviewed " + pt.lastReviewed + "). The checklist itself isn't judged against this rulebook -- only the items below; the rest of the rule is summarized after them.",
+    ]));
+    const icon = { pass: "✓", fail: "✗", pending: "…", manual: "?" };
+    panel.appendChild(el("ul", { class: "issue-list passtech-checks" }, checks.map((c) => {
+      const li = el("li", { class: "passtech-check passtech-" + c.status }, [
+        el("span", { class: "passtech-check-icon" }, [icon[c.status]]), el("strong", {}, [c.label + ": "]), c.detail,
+      ]);
+      if (c.target) {
+        li.classList.add("clickable");
+        li.title = "Go to this item";
+        li.addEventListener("click", () => jumpToSafetyTarget(c.target));
+      }
+      return li;
+    })));
+    if (!rule) return;
+    const details = [];
+    if (rule.condition) details.push(el("p", {}, [el("strong", {}, ["When it applies: "]), rule.condition]));
+    if (rule.notes) details.push(el("p", {}, [el("strong", {}, ["Rule notes: "]), rule.notes]));
+    const c = rule.citation || {};
+    const cite = [c.title, c.version, c.section].filter(Boolean).join(", ");
+    if (cite) {
+      details.push(el("p", { class: "element-ref" }, [
+        "Source: ", c.url ? el("a", { href: c.url, target: "_blank", rel: "noopener" }, [cite]) : cite,
+        rule.confidence && rule.confidence !== "high" ? " (" + rule.confidence + " confidence)" : "",
+      ]));
+    }
+    panel.appendChild(el("div", { class: "passtech-rule-details" }, details));
   }
 
   function appendLogbookFields(logbookPanel) {
@@ -2202,7 +2403,7 @@
     [INSTALLATION_PHASE]: "Part 3 — Installation constraints",
     [WELDS_PHASE]: "Part 4 — Welds",
     [SEATS_PHASE]: "Part 5 — Seats, belts & routing",
-    [LOGBOOK_PHASE]: "Part 6 — Logbook",
+    [LOGBOOK_PHASE]: "Part 6 — Sanctioning body compliance / Logbook",
   };
   // Padding and sections 9-11 of the source document (seat mounting, belt
   // anchoring, routing of lines) are a distinct later stage of the
@@ -4300,16 +4501,31 @@
     if (!elmId) return el("li", {}, [text]);
     return el("li", { class: "issue-list-link", onclick: () => jumpToElementSection(elmId) }, [text]);
   }
-  function renderResults(root, path) {
+  // What Part 6 checks against: a full-checklist sanctioning body's own
+  // verdict (computeResults), a PassTech body's rollover rule, or nothing.
+  function complianceSummary(path) {
+    const rules = RULES[state.vehicle.org];
+    if (rules && rules.passTech) {
+      const { checks } = evaluatePassTechRollover(rules.passTech);
+      const verdict = passTechVerdict(rules.passTech, checks);
+      const checked = checks.filter((c) => c.status !== "manual");
+      return { kind: "passtech", verdict, summary: checked.filter((c) => c.status === "pass").length + " / " + checked.length + " checked items met" };
+    }
+    if (!rules || rules.agnostic) {
+      return { kind: "none", verdict: { level: "neutral", label: "No sanctioning body selected" }, summary: "Pick one to check the cage against its rules" };
+    }
     const results = computeResults(path);
+    return { kind: "rules", results, verdict: results.verdict,
+      summary: results.requiredSatisfied + " / " + results.requiredTotal + " required items (" + results.scorePct + "%)" };
+  }
+  function renderResults(root, path) {
+    const compliance = complianceSummary(path);
 
     if (!state.resultsExpanded) {
       const collapsed = el("div", { class: "panel results-panel results-panel-collapsed" }, [
         el("h2", {}, [PHASE_LABELS[LOGBOOK_PHASE]]),
-        el("div", { class: "verdict compact " + results.verdict.level }, [results.verdict.label]),
-        el("div", { class: "results-summary" }, [
-          results.requiredSatisfied + " / " + results.requiredTotal + " required items (" + results.scorePct + "%)",
-        ]),
+        el("div", { class: "verdict compact " + compliance.verdict.level }, [compliance.verdict.label]),
+        el("div", { class: "results-summary" }, [compliance.summary]),
         el(
           "button",
           { class: "btn secondary", onclick: () => { state.resultsExpanded = true; render(); } },
@@ -4333,6 +4549,34 @@
       ])
     );
     panel.appendChild(renderSanctioningBodyField());
+    if (compliance.kind === "none") {
+      panel.appendChild(el("div", { class: "element-desc" }, [
+        "No sanctioning body is selected, so the checklist isn't judged against any rulebook -- cards only show what's answered, and the safety score rates the design itself. Pick a sanctioning body above to check the cage against its rules.",
+      ]));
+    } else if (compliance.kind === "passtech") {
+      renderPassTechCompliance(panel, RULES[state.vehicle.org].passTech);
+    } else {
+      renderRulebookVerdict(panel, compliance.results);
+    }
+
+    panel.appendChild(el("div", { class: "category-heading" }, ["Logbook details"]));
+    appendLogbookFields(panel);
+
+    panel.appendChild(
+      el("div", { class: "toolbar" }, [
+        el(
+          "button",
+          { class: "btn secondary", disabled: state.pdfReportStatus === "generating", onclick: generateLogbookApplicationPdf },
+          [state.pdfReportStatus === "generating" ? "Generating…" : "Logbook application PDF"]
+        ),
+      ])
+    );
+
+    root.appendChild(panel);
+  }
+
+  // A full-checklist sanctioning body's verdict, score and issue lists.
+  function renderRulebookVerdict(panel, results) {
     panel.appendChild(el("div", { class: "verdict " + results.verdict.level }, [results.verdict.label]));
     panel.appendChild(el("div", {}, [results.verdict.detail]));
 
@@ -4373,21 +4617,6 @@
         )
       );
     }
-
-    panel.appendChild(el("div", { class: "category-heading" }, ["Logbook details"]));
-    appendLogbookFields(panel);
-
-    panel.appendChild(
-      el("div", { class: "toolbar" }, [
-        el(
-          "button",
-          { class: "btn secondary", disabled: state.pdfReportStatus === "generating", onclick: generateLogbookApplicationPdf },
-          [state.pdfReportStatus === "generating" ? "Generating…" : "Logbook application PDF"]
-        ),
-      ])
-    );
-
-    root.appendChild(panel);
   }
 
   // ---- Live 3D cage view wiring -------------------------------------------

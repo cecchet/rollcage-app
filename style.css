@@ -842,3 +842,15 @@ textarea { resize: vertical; min-height: 50px; }
 .video-viewer { cursor: default; }
 .video-viewer-frame { width: min(1000px, calc(100vw - 32px), calc((100vh - 170px) * 16 / 9)); aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius); overflow: hidden; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); }
 .video-viewer-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+.verdict.neutral { background: var(--panel-2, rgba(127, 127, 127, 0.12)); color: var(--muted); }
+.passtech-checks { list-style: none; padding-left: 0; }
+.passtech-check { display: flex; gap: 6px; align-items: baseline; padding: 4px 6px; border-radius: 6px; }
+.passtech-check.clickable { cursor: pointer; }
+.passtech-check.clickable:hover { background: rgba(127, 127, 127, 0.12); }
+.passtech-check-icon { flex: 0 0 1.2em; font-weight: 700; text-align: center; }
+.passtech-pass .passtech-check-icon { color: var(--pass); }
+.passtech-fail .passtech-check-icon, .passtech-fail strong { color: var(--fail); }
+.passtech-pending .passtech-check-icon { color: var(--warn); }
+.passtech-manual .passtech-check-icon { color: var(--muted); }
+.passtech-rule-details { font-size: 0.85rem; color: var(--muted); margin-top: 8px; }
+.passtech-rule-details p { margin: 6px 0; }

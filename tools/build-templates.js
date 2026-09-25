@@ -1,6 +1,7 @@
 // Regenerates app/templates.js (the Rollcage library's built-in design
 // templates) from the rollcage exports in ../design-samples. Every photo is
-// stripped and the logbook date cleared -- templates never carry pictures.
+// stripped, the logbook date cleared and no sanctioning body set --
+// templates never carry pictures.
 // Run from anywhere:  node app/tools/build-templates.js
 const fs = require("fs");
 const path = require("path");
@@ -22,7 +23,8 @@ const out = TEMPLATES.map((t) => {
   Object.entries(d.answers || {}).forEach(([k, v]) => { answers[k] = { ...v, photos: [] }; });
   return {
     templateId: t.id,
-    vehicle: { ...d.vehicle, name: t.name || d.vehicle.name, logbookDate: "" },
+    // No sanctioning body by default -- picked in Part 6, like a new cage.
+    vehicle: { ...d.vehicle, name: t.name || d.vehicle.name, org: "none", logbookDate: "" },
     pathId: d.pathId || "new_construction",
     answers,
   };
