@@ -25,6 +25,7 @@
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
     libraryOpen: false, // UI-only: the "Rollcage library" window (renderLibrary) is showing
     librarySelectedId: null, // UI-only: sessionId of the card selected in that window, if any
+    mediaViewer: null, // UI-only: { image } or { video } (+ caption) while a photo/video is open full-size (renderMediaViewer)
     safetyScoreExpanded: false, // UI-only: Safety score panel starts collapsed (the sticky viewer's badge still shows the total, and clicking it expands this)
     picturesExpanded: false, // UI-only: Pictures panel starts collapsed, like Vehicle description/Results -- same collapsiblePanelHeader toggle
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
@@ -570,6 +571,50 @@
       return group.anyOf.some((combo) => combo.every(hasValue));
     });
   }
+  // Why a known-bad design is bad, shown in red right where it was picked
+  // (a table cell or a choice card) -- optionally with a photo and/or a
+  // YouTube video (its id) of what happens, each opened in-app by its own
+  // link. Each entry's match(elementId, rowId, value) says where it
+  // applies (rowId is null for a plain choice element; value is "" for a
+  // cell explicitly answered "None"). Add new entries here as more of them
+  // get written; an explanation also marks that cell red.
+  const UNSAFE_VIDEO_A_PILLAR_SUPPORT = "UhJjsQ1gcKw";
+  const UNSAFE_EXPLANATIONS = [
+    {
+      match: (elementId, rowId, value) => elementId === "mounting_feet_design" && value === "single_plane" && FRONT_FOOT_ROWS.has(rowId),
+      text: "Unsafe: a single plane plate will go through the floor",
+      image: "images/unsafe_253-50_crash.jpg",
+      caption: "A single plane plate (253-50) pushed through the floor in a rollover -- the cage tubes ended up sticking out of the car.",
+    },
+    {
+      match: (elementId, rowId, value) => elementId === "roof_bars" && value === "253-13",
+      text: "Unsafe: 253-13 leaves a front roof corner unsupported -- it can collapse onto the occupants",
+      image: "images/unsafe_253-13_crash.jpg",
+      caption: "A 253-13 roof bar layout after a rollover: the front roof corner with no diagonal support collapsed into the cockpit. Photo © Shane Parker.",
+      video: UNSAFE_VIDEO_A_PILLAR_SUPPORT,
+    },
+    {
+      match: (elementId, rowId, value) => elementId === "gusset_design" && (rowId === "a_pillar_left" || rowId === "a_pillar_right") && value === "",
+      text: "Unsafe: without a lateral to A-pillar gusset, the front roof corner has no support from the chassis",
+      video: UNSAFE_VIDEO_A_PILLAR_SUPPORT,
+    },
+  ];
+  // answerKey: the answer's own id -- an empty value only counts as an
+  // explicit "None" when that answer entry exists (see cellAnswered).
+  function unsafeExplanationFor(elementId, rowId, value, answerKey) {
+    if (!value && !(answerKey && Object.prototype.hasOwnProperty.call(state.answers, answerKey))) return null;
+    return UNSAFE_EXPLANATIONS.find((x) => x.match(elementId, rowId, value || "")) || null;
+  }
+  function renderUnsafeExplanation(x) {
+    const open = (media) => () => { state.mediaViewer = Object.assign({ caption: x.caption || x.text }, media); render(); };
+    const links = [];
+    if (x.image) links.push(el("button", { type: "button", class: "unsafe-explanation-link", onclick: open({ image: x.image }) }, ["see photo"]));
+    if (x.video) links.push(el("button", { type: "button", class: "unsafe-explanation-link", onclick: open({ video: x.video, caption: x.text }) }, ["watch video"]));
+    const children = [x.text];
+    links.forEach((l, i) => { children.push(i === 0 ? " — " : " · ", l); });
+    return el("div", { class: "unsafe-explanation" }, children);
+  }
+
   // Gusset table rows covered by a NEGATIVE safety-score row (a missing
   // or mixed-design crossing, a missing mandatory gusset) -- shown red in
   // the gusset table rather than the orange "still to answer" state.
@@ -651,7 +696,10 @@
       if (opt && opt.outcome) return opt.outcome === "fail" ? "fail" : "pass";
       return "pass";
     }
-    // text/select: just needs an entry, no automatic pass/fail judgement
+    // text/select: just needs an entry, no automatic pass/fail judgement --
+    // unless it's a known-bad design with an explanation (see
+    // UNSAFE_EXPLANATIONS).
+    if (answer.value && row && elm && unsafeExplanationFor(elm.id, row.id, answer.value, tableCellId(elm, row, col))) return "fail";
     return answer.value ? "pass" : "warn";
   }
   // A distance-from-junction table can carry a "quick check" shortcut (see
@@ -1366,6 +1414,39 @@
     renderLibrary(holder);
     renderUnsavedDialog(holder);
     renderSaveAsDialog(holder);
+    renderMediaViewer(holder);
+  }
+
+  // Full-size photo / embedded YouTube player (e.g. an unsafe design's
+  // example -- see renderUnsafeExplanation), so it can be seen without
+  // leaving the app. Click outside it or press Escape to close.
+  function renderMediaViewer(holder) {
+    const v = state.mediaViewer;
+    if (!v) return;
+    const close = () => { state.mediaViewer = null; render(); };
+    const closeBtn = el("button", { class: "btn small secondary image-viewer-close", onclick: close }, ["Close"]);
+    const media = v.video
+      ? el("div", { class: "video-viewer-frame" }, [
+          el("iframe", {
+            src: "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(v.video) + "?autoplay=1&rel=0",
+            title: v.caption, allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
+            referrerpolicy: "strict-origin-when-cross-origin",
+          }),
+        ])
+      : el("img", { src: v.image, alt: v.caption });
+    const actions = [closeBtn];
+    if (v.video) actions.unshift(el("a", { class: "btn small secondary", href: "https://youtu.be/" + encodeURIComponent(v.video), target: "_blank", rel: "noopener" }, ["Open on YouTube"]));
+    const overlay = el("div", { class: "modal-overlay image-viewer" + (v.video ? " video-viewer" : ""), role: "dialog", "aria-modal": "true", "aria-label": v.caption }, [
+      el("figure", { class: "image-viewer-figure" }, [
+        media,
+        el("figcaption", {}, [v.caption]),
+        el("div", { class: "toolbar" }, actions),
+      ]),
+    ]);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay || !v.video) close(); });
+    overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+    holder.appendChild(overlay);
+    closeBtn.focus();
   }
 
   function renderSaveAsDialog(holder) {
@@ -3037,6 +3118,8 @@
       if (chosenOpt && chosenOpt.note) {
         card.appendChild(el("div", { class: "visual-flag" }, [chosenOpt.note]));
       }
+      const unsafe = unsafeExplanationFor(elm.id, null, answer.value, elm.id);
+      if (unsafe) card.appendChild(renderUnsafeExplanation(unsafe));
     } else if (elm.evaluationType === "tubing3solo") {
       card.appendChild(renderTubing3Fields(elm, elm.id, answer));
     } else if (elm.evaluationType === "plateSolo" || elm.evaluationType === "gussetSolo") {
@@ -3632,6 +3715,8 @@
         const cellStatus = tableCellStatus(col, cellAnswer, row, elm);
         const td = el("td", { class: "state-" + cellStatus });
         td.appendChild(renderTableCellInput(col, cellId, cellAnswer, row, elm));
+        const unsafe = unsafeExplanationFor(elm.id, row.id, cellAnswer.value, cellId);
+        if (unsafe) td.appendChild(renderUnsafeExplanation(unsafe));
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -6975,6 +7060,17 @@
   function boot() {
     const buildEl = document.getElementById("buildNumber");
     if (buildEl && window.BUILD_NUMBER) buildEl.textContent = "Build " + window.BUILD_NUMBER;
+    // The header's tutorial link plays in the in-app player (it's a plain
+    // YouTube link otherwise, e.g. opened in a new tab via middle-click).
+    const tutorialLink = document.getElementById("tutorialVideoLink");
+    if (tutorialLink) {
+      tutorialLink.addEventListener("click", (e) => {
+        if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+        e.preventDefault();
+        state.mediaViewer = { video: "i2VvQxYf9qM", caption: "Rollcage tutorial" };
+        render();
+      });
+    }
     const all = loadAll();
     const ids = Object.keys(all);
     if (ids.length) {

@@ -832,3 +832,13 @@ textarea { resize: vertical; min-height: 50px; }
 .library-section-heading { margin: 14px 0 6px; font-size: 0.95rem; color: var(--muted); }
 .choice-option.unavailable { opacity: 0.5; cursor: not-allowed; }
 .choice-unavailable-note { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+.unsafe-explanation { display: block; margin-top: 4px; font-size: 0.8rem; font-weight: 600; color: var(--fail); text-align: left; }
+.unsafe-explanation-link { display: inline; background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; font: inherit; color: inherit; }
+.unsafe-explanation-link:hover { text-decoration-thickness: 2px; }
+.image-viewer { align-items: center; cursor: zoom-out; }
+.image-viewer-figure { margin: 0; max-width: min(1100px, 100%); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.image-viewer-figure img { max-width: 100%; max-height: calc(100vh - 160px); border-radius: var(--radius); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); }
+.image-viewer-figure figcaption { color: #fff; font-size: 0.9rem; text-align: center; }
+.video-viewer { cursor: default; }
+.video-viewer-frame { width: min(1000px, calc(100vw - 32px), calc((100vh - 170px) * 16 / 9)); aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius); overflow: hidden; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); }
+.video-viewer-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
