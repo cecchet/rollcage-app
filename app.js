@@ -344,7 +344,12 @@
       const opt = el.options.find((o) => o.id === answer.value);
       if (!opt) return "warn";
       if (opt.outcome === "exempt") return "pass";
-      if (opt.outcome === "fail") return el.requirement === "recommended" ? "warn" : "fail";
+      if (opt.outcome === "fail") {
+        // Same recommendedIf gate as a boolean (see below): a purely
+        // optional bar's "None present" is a normal answer, not an advisory.
+        if (el.recommendedIf && !el.recommendedIf(getAnswer)) return "neutral";
+        return el.requirement === "recommended" ? "warn" : "fail";
+      }
       return "pass";
     }
     if (el.evaluationType === "tubing3solo") {
@@ -594,11 +599,36 @@
       video: UNSAFE_VIDEO_A_PILLAR_SUPPORT,
     },
     {
+      match: (elementId, rowId, value) => elementId === "gusset_design" && value === "" && rowId === firstUngussetedDoorRow(rowId),
+      text: "Unsafe: a 253-9 door bar crossing without gussets can tear apart at the weld",
+      image: "images/unsafe_253-9_no_gusset.jpg",
+      caption: "A 253-9 door bar X crossing with no gussets: the weld at the crossing tore apart and the bars separated.",
+    },
+    {
       match: (elementId, rowId, value) => elementId === "gusset_design" && (rowId === "a_pillar_left" || rowId === "a_pillar_right") && value === "",
       text: "Unsafe: without a lateral to A-pillar gusset, the front roof corner has no support from the chassis",
       video: UNSAFE_VIDEO_A_PILLAR_SUPPORT,
     },
   ];
+  // For a door side whose 253-9 crossing has no complete gusset pair
+  // (front+rear or upper+lower), the first of its gusset rows explicitly
+  // answered "None" -- where that side's explanation goes, once rather
+  // than on every empty row. null for a non-door row or a gusseted side.
+  function firstUngussetedDoorRow(rowId) {
+    const m = /^door_(front|rear|upper|lower)_(left|right)$/.exec(rowId || "");
+    if (!m) return null;
+    const side = m[2];
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    const gussetElm = path && path.elements.find((e) => e.id === "gusset_design");
+    if (!gussetElm) return null;
+    const present = new Set(resolveRows(gussetElm).map((r) => r.id));
+    const key = (pos) => "gusset_design__door_" + pos + "_" + side + "__design";
+    const has = (pos) => present.has("door_" + pos + "_" + side) && !!getAnswer(key(pos)).value;
+    if ((has("front") && has("rear")) || (has("upper") && has("lower"))) return null;
+    const first = ["front", "rear", "upper", "lower"].find((pos) => present.has("door_" + pos + "_" + side)
+      && !getAnswer(key(pos)).value && Object.prototype.hasOwnProperty.call(state.answers, key(pos)));
+    return first ? "door_" + first + "_" + side : null;
+  }
   // answerKey: the answer's own id -- an empty value only counts as an
   // explicit "None" when that answer entry exists (see cellAnswered).
   function unsafeExplanationFor(elementId, rowId, value, answerKey) {

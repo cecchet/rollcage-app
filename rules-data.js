@@ -1997,6 +1997,8 @@
       name: "Rear lower X (253-19) present",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "",
+      // Purely optional, like 253-30 -- "None present" is never flagged.
+      recommendedIf: () => false,
       // Like 253-7/253-9/253-12/253-21, which of the 2 diagonals is
       // fabricated continuous vs. cut into 2 half-bars isn't fixed by the
       // rule, so it's offered as 2 mirror-image options. "-1" keeps "253-19
