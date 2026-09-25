@@ -617,7 +617,8 @@
   // link. Each entry's match(elementId, rowId, value) says where it
   // applies (rowId is null for a plain choice element; value is "" for a
   // cell explicitly answered "None"). Add new entries here as more of them
-  // get written; an explanation also marks that cell red.
+  // get written; an explanation also marks that cell red -- or yellow for
+  // an entry with level: "warn" (a safety risk rather than an unsafe design).
   const UNSAFE_VIDEO_A_PILLAR_SUPPORT = "UhJjsQ1gcKw";
   const UNSAFE_EXPLANATIONS = [
     {
@@ -641,8 +642,9 @@
     },
     {
       match: (elementId, rowId, value) => elementId === "gusset_design" && (rowId === "a_pillar_left" || rowId === "a_pillar_right") && value === "",
-      text: "Unsafe: without a lateral to A-pillar gusset, the front roof corner has no support from the chassis",
+      text: "Safety risk: Without a lateral to A-pillar gusset the car is much more vulnerable to A-pillar strikes",
       video: UNSAFE_VIDEO_A_PILLAR_SUPPORT,
+      level: "warn", // a risk to flag, not a known-unsafe design -- shown yellow, not red
     },
   ];
   // For a door side whose 253-9 crossing has no complete gusset pair
@@ -677,7 +679,7 @@
     if (x.video) links.push(el("button", { type: "button", class: "unsafe-explanation-link", onclick: open({ video: x.video, caption: x.text }) }, ["watch video"]));
     const children = [x.text];
     links.forEach((l, i) => { children.push(i === 0 ? " — " : " · ", l); });
-    return el("div", { class: "unsafe-explanation" }, children);
+    return el("div", { class: "unsafe-explanation" + (x.level === "warn" ? " unsafe-explanation-warn" : "") }, children);
   }
 
   // Gusset table rows covered by a NEGATIVE safety-score row (a missing
@@ -698,6 +700,8 @@
     return result;
   }
   function tableCellStatus(col, answer, row, elm) {
+    const explained = elm && row ? unsafeExplanationFor(elm.id, row.id, answer && answer.value, tableCellId(elm, row, col)) : null;
+    if (explained && explained.level === "warn") return "warn";
     const status = tableCellStatusByRules(col, answer, row, elm);
     if (status !== "fail" || complianceJudged(elm)) return status;
     const safetyFail = elm && row && ((elm.id === "gusset_design" && failingGussetRowIds().has(row.id))
@@ -908,6 +912,7 @@
     const node = document.createElement(tag);
     if (attrs) {
       Object.keys(attrs).forEach((k) => {
+        if (attrs[k] === undefined || attrs[k] === null) return;
         if (k === "class") node.className = attrs[k];
         else if (k === "html") node.innerHTML = attrs[k];
         else if (k.startsWith("on")) node.addEventListener(k.slice(2), attrs[k]);
@@ -1263,7 +1268,7 @@
         if (!target) return tag.elementId;
         return tag.value ? target.name + ": " + elementSummary(target, { value: tag.value }) : target.name;
       });
-      const categoryId = pic.category || "overview";
+      const categoryId = pictureCategoryFor(pic);
       (byCategory[categoryId] = byCategory[categoryId] || []).push({ photoDataUrl: rec && rec.photo, screenshotDataUrl: rec && rec.screenshot, tags });
     }
     return PICTURE_CATEGORIES
@@ -1510,7 +1515,100 @@
     renderUnsavedDialog(holder);
     renderSaveAsDialog(holder);
     renderMediaViewer(holder);
+    renderTour(holder);
   }
+
+  // ---- "How it works" tours ---------------------------------------------
+  // Same shape as PassTech's TutorialModal: a spotlight on one element at a
+  // time with a short callout (step count, Next/Done, Exit the tutorial).
+  // A step whose target isn't on the page right now (e.g. no photos yet)
+  // points at its fallback instead, or is skipped if that's missing too.
+  const TOURS = {
+    pictures: {
+      onStart: () => { state.picturesExpanded = true; },
+      steps: [
+        { target: "pictures-panel", text: "Photos help document the cage -- they're saved with this rollcage and included in the PDF report. Nothing here changes the checklist by itself." },
+        { target: "pictures-autosort", text: "Not sure where a photo belongs? Automatic AI sorting (beta) takes up to 20 photos at once. Each one waits here until a vision model places it in a category below; one it can't place stays here for you to move." },
+        { target: "pictures-cat-overview", text: "Overview is for whole-cage or blueprint shots -- front 3/4, rear 3/4, side, a diagram. It holds more photos than the close-up categories, since those are genuinely different views." },
+        { target: "pictures-cat-main_rollbar", text: "Each close-up category holds a few photos of one specific area, so AI analysis only has to consider the designs possible there -- a smaller, more accurate list than the whole cage." },
+        { target: "tour-picture-move", fallback: "pictures-cat-overview", text: "Photo in the wrong spot? Use its \"Move to\" menu to put it in the right category." },
+        { target: "tour-picture-edit", fallback: "pictures-cat-overview", text: "\"Edit rollcage elements\" lets you click parts of the 3D model to tag which design a photo shows. Clicking an area with more than one possible design cycles through its options, so you can pick the exact one before answering it in the checklist; double-click a door bar to add or remove a sill bar." },
+        { target: "tour-picture-ai", fallback: "pictures-cat-overview", text: "\"AI analysis (beta)\" asks a vision model which designs a photo shows. It's far from reliable yet -- always check its suggestions." },
+        { target: "pictures-compare", fallback: "pictures-panel", text: "Once photos have been analyzed, \"Compare with checklist\" lists where the AI's suggestions disagree with (or fill a gap in) your checklist answers -- review and accept them one by one." },
+      ],
+    },
+  };
+  function startTour(id) {
+    const tour = TOURS[id];
+    if (!tour) return;
+    if (tour.onStart) tour.onStart();
+    state.tour = { id, step: 0 };
+    render();
+  }
+  function endTour() { state.tour = null; render(); }
+  function tourTargetFor(step) {
+    return document.getElementById(step.target) || (step.fallback && document.getElementById(step.fallback)) || null;
+  }
+  function renderTour(holder) {
+    if (!state.tour) return;
+    const tour = TOURS[state.tour.id];
+    const steps = tour.steps;
+    const index = state.tour.step;
+    const step = steps[index];
+    if (!step) { state.tour = null; return; }
+    const isLast = index === steps.length - 1;
+    const next = () => { if (isLast) endTour(); else { state.tour.step++; render(); } };
+    const blocker = el("div", { class: "tour-blocker" });
+    const spotlight = el("div", { class: "tour-spotlight" });
+    const callout = el("div", { class: "tour-callout", role: "dialog", "aria-modal": "true" }, [
+      el("div", { class: "tour-callout-head" }, [
+        el("span", { class: "tour-step-count" }, ["Step " + (index + 1) + " of " + steps.length]),
+        el("button", { class: "btn small secondary", onclick: endTour }, ["Exit the tutorial"]),
+      ]),
+      el("p", {}, [step.text]),
+      el("button", { class: "btn tour-next", onclick: next }, [isLast ? "Done" : "Next"]),
+    ]);
+    holder.appendChild(blocker);
+    holder.appendChild(spotlight);
+    holder.appendChild(callout);
+    // Positioned once the page has been laid out (render() just rebuilt it).
+    requestAnimationFrame(() => {
+      const target = tourTargetFor(step);
+      if (!target) { next(); return; }
+      const viewer = document.querySelector(".cage-viewer-row");
+      const stickyH = viewer ? viewer.getBoundingClientRect().height : 0;
+      const r0 = target.getBoundingClientRect();
+      const room = window.innerHeight - stickyH;
+      const top = window.pageYOffset + r0.top - stickyH - Math.max(12, (room - Math.min(r0.height, room * 0.6)) / 2 - 90);
+      window.scrollTo({ top: Math.max(0, top), behavior: "instant" });
+      positionTour();
+      callout.querySelector(".tour-next").focus();
+    });
+  }
+  function positionTour() {
+    if (!state.tour) return;
+    const step = TOURS[state.tour.id].steps[state.tour.step];
+    const target = step && tourTargetFor(step);
+    const spotlight = document.querySelector(".tour-spotlight");
+    const callout = document.querySelector(".tour-callout");
+    if (!target || !spotlight || !callout) return;
+    const r = target.getBoundingClientRect();
+    const pad = 8;
+    Object.assign(spotlight.style, { top: r.top - pad + "px", left: r.left - pad + "px", width: r.width + pad * 2 + "px", height: r.height + pad * 2 + "px" });
+    const w = Math.min(340, window.innerWidth - 16);
+    callout.style.width = w + "px";
+    callout.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + "px";
+    const visTop = Math.max(r.top, 0), visBottom = Math.min(r.bottom, window.innerHeight);
+    const spaceBelow = window.innerHeight - visBottom, spaceAbove = visTop;
+    const minSpace = 220;
+    callout.style.top = callout.style.bottom = "";
+    if (spaceBelow < minSpace && spaceAbove < minSpace) callout.style.bottom = "8px";
+    else if (spaceBelow >= spaceAbove) callout.style.top = visBottom + pad + 12 + "px";
+    else callout.style.bottom = window.innerHeight - visTop + pad + 12 + "px";
+  }
+  window.addEventListener("resize", positionTour);
+  window.addEventListener("scroll", positionTour, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && state.tour) endTour(); });
 
   // Full-size photo / embedded YouTube player (e.g. an unsafe design's
   // example -- see renderUnsafeExplanation), so it can be seen without
@@ -1761,10 +1859,13 @@
     holder.appendChild(overlay);
   }
 
-  function collapsiblePanelHeader(title, isExpanded, onToggle) {
+  // extraButtons (optional) sit just left of the Show/Hide toggle.
+  function collapsiblePanelHeader(title, isExpanded, onToggle, extraButtons) {
     return el("div", { class: "results-header" }, [
       el("h2", {}, [title]),
-      el("button", { class: "btn secondary", onclick: onToggle }, [isExpanded ? "Hide ▴" : "Show ▾"]),
+      el("div", { class: "results-header-buttons" }, (extraButtons || []).concat([
+        el("button", { class: "btn secondary", onclick: onToggle }, [isExpanded ? "Hide ▴" : "Show ▾"]),
+      ])),
     ]);
   }
 
@@ -2691,6 +2792,9 @@
         const sillBarSuggestions = [];
         suggestions.forEach((s) => {
           if (/__sill_bar$/.test(s.elementId)) { sillBarSuggestions.push(s); return; }
+          // "No" / "None present" isn't something a photo shows -- kept as a
+          // suggestion (Compare with checklist) but not tagged on the picture.
+          if (s.value === "no" || s.value === "none") return;
           const prior = byId.get(s.elementId);
           // Keeps a prior manual extra (e.g. a sill-bar tag) when the AI
           // re-suggests the same element with a new value, so overwriting
@@ -2721,9 +2825,33 @@
   // UI never blocks on this; on failure, or an unrecognized answer, it's
   // simply left in that default category for the user to move manually,
   // same as any other misplaced photo.
+  // Photos uploaded through "Automatic AI sorting" wait in their own
+  // holding area (category UNSORTED_PICTURES, shown under that upload
+  // field) until the model places them -- never parked in a real category
+  // in the meantime. Sorted a few at a time rather than all 20 at once.
+  // A photo the model can't place (no answer, or its category is already
+  // full) stays in the holding area with a note, for "Move to" or a retry.
+  const UNSORTED_PICTURES = "unsorted";
+  const TRIAGE_CONCURRENCY = 3;
+  let triageQueue = [];
+  let triageActive = 0;
+  function queuePictureTriage(pictureId) {
+    pictureTriageState[pictureId] = { status: "queued" };
+    triageQueue.push(pictureId);
+    pumpTriageQueue();
+  }
+  function pumpTriageQueue() {
+    while (triageActive < TRIAGE_CONCURRENCY && triageQueue.length) {
+      const id = triageQueue.shift();
+      if (!state.pictures.some((p) => p.id === id)) continue; // deleted while waiting
+      triageActive++;
+      triagePictureCategory(id).finally(() => { triageActive--; pumpTriageQueue(); });
+    }
+  }
   async function triagePictureCategory(pictureId) {
-    pictureTriageState[pictureId] = "sorting";
+    pictureTriageState[pictureId] = { status: "sorting" };
     render();
+    let note = "Couldn't be sorted automatically -- use \"Move to\", or try again.";
     try {
       const rec = await getPictureRecord(pictureId);
       if (!rec || !rec.photo) return;
@@ -2739,14 +2867,21 @@
       );
       const pic = state.pictures.find((p) => p.id === pictureId);
       const choice = suggestions.find((s) => s.elementId === "photo_category");
-      if (pic && choice && PICTURE_CATEGORIES.some((c) => c.id === choice.value)) {
-        pic.category = choice.value;
-        markDirty();
+      const cat = choice && PICTURE_CATEGORIES.find((c) => c.id === choice.value);
+      if (pic && cat) {
+        if (picturesInCategory(cat.id).length < categoryPictureLimit(cat)) {
+          pic.category = cat.id;
+          markDirty();
+          note = null;
+        } else {
+          note = "Looks like " + cat.label + ", but that category is full -- move or delete a photo there, then use \"Move to\".";
+        }
       }
     } catch (e) {
-      // Leave it in its default category -- see comment above.
+      // Stays in the holding area -- see comment above.
     }
-    delete pictureTriageState[pictureId];
+    if (note) pictureTriageState[pictureId] = { status: "unsorted", note };
+    else delete pictureTriageState[pictureId];
     render();
   }
 
@@ -2776,14 +2911,21 @@
   function picturesInCategory(categoryId) {
     return state.pictures.filter((p) => (p.category || "overview") === categoryId);
   }
+  // The category a picture is judged as (AI analysis catalog, report
+  // grouping) -- a photo still waiting to be sorted counts as overview.
+  function pictureCategoryFor(pic) {
+    const c = pic.category || "overview";
+    return c === UNSORTED_PICTURES ? "overview" : c;
+  }
 
   // One picture card: photo, delete, a "Move to" control (any category
   // other than the one it's already in), tagged-element chips, and the
   // Edit/AI-analysis actions. Shared by every category section below.
-  function renderPictureCard(pic, path) {
+  function renderPictureCard(pic, path, tourAnchors) {
     loadPictureImage(pic.id);
     const cached = pictureImageCache[pic.id] || {};
     const card = el("div", { class: "picture-card" });
+    if (tourAnchors) card.id = "tour-picture-card";
     card.appendChild(
       cached.photo
         ? el("img", { class: "picture-card-photo", src: cached.photo, alt: "" })
@@ -2810,6 +2952,7 @@
     );
 
     const moveSelect = el("select", {
+      id: tourAnchors ? "tour-picture-move" : undefined,
       class: "picture-category-select",
       disabled: !!state.pictureSelectMode,
       onchange: (e) => {
@@ -2825,7 +2968,15 @@
     });
     card.appendChild(moveSelect);
 
-    if (pictureTriageState[pic.id] === "sorting") card.appendChild(el("div", { class: "ai-status" }, ["Sorting into a category…"]));
+    if (pic.category === UNSORTED_PICTURES) {
+      const t = pictureTriageState[pic.id];
+      if (t && (t.status === "sorting" || t.status === "queued")) {
+        card.appendChild(el("div", { class: "ai-status" }, [t.status === "sorting" ? "Sorting into a category…" : "Waiting to be sorted…"]));
+      } else {
+        card.appendChild(el("div", { class: "ai-status" }, [(t && t.note) || "Not sorted yet."]));
+        card.appendChild(el("button", { class: "btn small secondary", disabled: !!state.pictureSelectMode, onclick: () => queuePictureTriage(pic.id) }, ["Sort again (beta)"]));
+      }
+    }
 
     // A tagged element shows its specific value (same granularity Part
     // 1's own answers show, via elementSummary) when one is known --
@@ -2834,13 +2985,36 @@
     // it was manually tagged while that element already had a
     // checklist answer -- see resolvePictureTagForFile. Falls back to
     // just the category/row name otherwise.
+    // While this picture is being edited, the list follows the in-progress
+    // selection (what the 3D model shows) rather than the last-saved tags.
+    // Each tag's × removes that element from this picture -- from the
+    // in-progress selection while editing, otherwise straight from its
+    // saved tags (and the AI's suggestion for it from this photo).
     const chips = el("div", { class: "picture-elements" });
-    if (pic.elements.length) {
-      pic.elements.forEach((tag) => {
+    const editing = state.pictureSelectMode && state.pictureSelectMode.pictureId === pic.id;
+    const tags = editing
+      ? [...state.pictureSelectMode.selected.entries()].map(([elementId, t]) => ({ elementId, value: t.value, extra: t.extra }))
+      : pic.elements;
+    const removeTag = (elementId) => {
+      if (editing) {
+        state.pictureSelectMode.selected.delete(elementId);
+      } else {
+        pic.elements = pic.elements.filter((t) => t.elementId !== elementId);
+        pic.aiSuggestions = (pic.aiSuggestions || []).filter((sg) => sg.elementId !== elementId);
+        markDirty();
+      }
+      render();
+    };
+    if (tags.length) {
+      tags.forEach((tag) => {
         const target = resolvePictureTagTarget(path, tag.elementId);
         let label = target ? (tag.value ? target.name + ": " + elementSummary(target, { value: tag.value }) : target.name) : tag.elementId;
         if (tag.extra && tag.extra.sill_bar === "yes") label += " + sill bar";
-        chips.appendChild(el("span", { class: "picture-element-chip" }, [label]));
+        const canRemove = editing || !state.pictureSelectMode;
+        chips.appendChild(el("span", { class: "picture-element-chip" }, [
+          label,
+          canRemove ? el("button", { type: "button", class: "picture-element-remove", title: "Remove from this picture", "aria-label": "Remove " + label + " from this picture", onclick: () => removeTag(tag.elementId) }, ["×"]) : null,
+        ]));
       });
     } else {
       chips.appendChild(el("span", { class: "picture-elements-empty" }, ["No elements tagged yet"]));
@@ -2859,6 +3033,7 @@
             // is the only way in or out of that mode; re-clicking this
             // for the SAME picture would silently reset in-progress,
             // unsaved edits back to its last-saved tags.
+            id: tourAnchors ? "tour-picture-edit" : undefined,
             disabled: !!state.pictureSelectMode,
             onclick: () => {
               state.pictureSelectMode = { pictureId: pic.id, selected: new Map(pic.elements.map((t) => [t.elementId, { value: t.value, extra: t.extra || {} }])) };
@@ -2871,10 +3046,11 @@
           "button",
           {
             class: "btn small secondary",
+            id: tourAnchors ? "tour-picture-ai" : undefined,
             disabled: ui.status === "loading" || !!state.pictureSelectMode,
-            onclick: () => analyzePictureElements(pic.id, path, pic.category || "overview"),
+            onclick: () => analyzePictureElements(pic.id, path, pictureCategoryFor(pic)),
           },
-          [ui.status === "loading" ? "Analyzing..." : "AI analysis"]
+          [ui.status === "loading" ? "Analyzing..." : "AI analysis (beta)"]
         ),
       ])
     );
@@ -2888,32 +3064,21 @@
   }
 
   function renderPictures(root, path) {
-    const panel = el("div", { class: "panel pictures-panel" });
+    const panel = el("div", { class: "panel pictures-panel", id: "pictures-panel" });
+    const howItWorks = el("button", { class: "btn secondary", onclick: () => startTour("pictures") }, ["How it works"]);
     panel.appendChild(
       collapsiblePanelHeader("Pictures", state.picturesExpanded, () => {
         state.picturesExpanded = !state.picturesExpanded;
         render();
-      })
+      }, [howItWorks])
     );
     if (!state.picturesExpanded) {
       root.appendChild(panel);
       return;
     }
-    panel.appendChild(
-      el("div", { class: "element-desc" }, [
-        "Each close-up category below holds a few photos of that specific area, so \"AI analysis\" can send a " +
-          'tighter, more accurate catalog to the vision model than one covering the whole cage -- "Overview" is for ' +
-          "whole-cage or blueprint shots instead (front 3/4, rear 3/4, side, a diagram, ...), and holds more since " +
-          "those are genuinely different views rather than repeats. Not sure where a photo belongs? Use \"Upload & auto-sort\" " +
-          'below and a vision model will place it for you; if it lands in the wrong spot, use that photo\'s own ' +
-          '"Move to" to fix it. For each picture, "Edit rollcage elements" lets you click parts of the 3D model to ' +
-          "tag which design it shows -- clicking an area with more than one possible design cycles through its " +
-          "options one click at a time, so you can pick the exact one even before answering it in the checklist; " +
-          "double-click a door bar to add/remove a sill bar where that design allows one. Tagging a picture never " +
-          'changes the checklist by itself -- review AI suggestions against your answers so far in "Compare with ' +
-          'checklist" below.',
-      ])
-    );
+    // The first picture card rendered carries the tour's anchor ids.
+    let tourCardPending = true;
+    const card = (pic) => { const c = renderPictureCard(pic, path, tourCardPending); tourCardPending = false; return c; };
 
     const totalRemaining = PICTURE_LIMIT - state.pictures.length;
     const sortInput = el("input", {
@@ -2928,24 +3093,33 @@
           const ids = [];
           dataUrls.forEach((dataUrl) => {
             const id = picUid();
-            state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false, category: "overview" });
+            state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false, category: UNSORTED_PICTURES });
             putPictureRecord(id, { photo: dataUrl, screenshot: null });
             ids.push(id);
           });
           markDirty();
+          ids.forEach((id) => queuePictureTriage(id));
           render();
-          ids.forEach((id) => triagePictureCategory(id));
         });
       },
     });
-    const sortFieldChildren = [el("label", { class: "picture-autosort-label" }, ["Upload & auto-sort into categories:"]), sortInput];
-    if (totalRemaining <= 0) sortFieldChildren.push(el("div", { class: "ai-status" }, ["Picture limit reached (" + PICTURE_LIMIT + ")."]));
-    panel.appendChild(el("div", { class: "field picture-autosort-field" }, sortFieldChildren));
+    const unsorted = picturesInCategory(UNSORTED_PICTURES);
+    const sortSection = el("div", { class: "picture-category-section picture-autosort-field", id: "pictures-autosort" }, [
+      el("h3", { class: "picture-category-heading" }, ["Automatic AI sorting (beta)" + (unsorted.length ? " (" + unsorted.length + " waiting)" : "")]),
+      el("div", { class: "picture-autosort-label" }, ["Upload up to " + PICTURE_LIMIT + " photos at once -- each waits here until it's placed in a category below."]),
+      el("div", { class: "field" }, [sortInput].concat(totalRemaining <= 0 ? [el("div", { class: "ai-status" }, ["Picture limit reached (" + PICTURE_LIMIT + ")."])] : [])),
+    ]);
+    if (unsorted.length) {
+      const grid = el("div", { class: "pictures-grid" });
+      unsorted.forEach((pic) => grid.appendChild(card(pic)));
+      sortSection.appendChild(grid);
+    }
+    panel.appendChild(sortSection);
 
     PICTURE_CATEGORIES.forEach((cat) => {
       const picsInCat = picturesInCategory(cat.id);
       const catLimit = categoryPictureLimit(cat);
-      const section = el("div", { class: "picture-category-section" });
+      const section = el("div", { class: "picture-category-section", id: "pictures-cat-" + cat.id });
       section.appendChild(el("h3", { class: "picture-category-heading" }, [cat.label + " (" + picsInCat.length + "/" + catLimit + ")"]));
 
       const catRemaining = Math.min(catLimit - picsInCat.length, PICTURE_LIMIT - state.pictures.length);
@@ -2974,7 +3148,7 @@
 
       if (picsInCat.length) {
         const grid = el("div", { class: "pictures-grid" });
-        picsInCat.forEach((pic) => grid.appendChild(renderPictureCard(pic, path)));
+        picsInCat.forEach((pic) => grid.appendChild(card(pic)));
         section.appendChild(grid);
       }
       panel.appendChild(section);
@@ -3003,7 +3177,7 @@
   // used, including the 3D-model preview highlight in computeCageColors),
   // sourced from the aggregated per-picture suggestions instead.
   function renderPictureComparePanel(path) {
-    const panel = el("div", { class: "picture-compare-panel" });
+    const panel = el("div", { class: "picture-compare-panel", id: "pictures-compare" });
     panel.appendChild(el("h3", {}, ["Compare with checklist"]));
 
     const evaluated = aggregatePictureSuggestions()
@@ -4350,7 +4524,9 @@
         if (!REQUIRED_SINGLE_GUSSETS.some((match) => match(row.id))) return;
         if (!cellAnswered("gusset_design__" + row.id + "__design")) return;
         const design = getAnswer("gusset_design__" + row.id + "__design").value;
-        addRow(row.id, row.label, design ? "green" : "red", design ? optionLabel(row.id) : MISSING_GUSSET_NOTES[row.id] || "Missing",
+        // A missing lateral-to-A-pillar gusset is a safety risk (orange), not a known-unsafe design.
+        const missingTier = row.id === "a_pillar_left" || row.id === "a_pillar_right" ? "orange" : "red";
+        addRow(row.id, row.label, design ? "green" : missingTier, design ? optionLabel(row.id) : MISSING_GUSSET_NOTES[row.id] || "Missing",
           design ? PRESENT_GUSSET_POINTS[row.id] : MISSING_GUSSET_POINTS[row.id],
           { elementId: "gusset_design", rowId: row.id, gussetRows: [row.id] });
       });
@@ -6175,7 +6351,16 @@
     // actually tagged. A tag with no known value (an element tagged before
     // it had a checklist answer) highlights nothing -- there's no single
     // "correct" shape to show yet.
+    // Only this picture's own tags show -- every other colored bar (the
+    // checklist's answers) goes back to a ghost, so the model shows what's
+    // visible in this photo, not the whole cage plus the tags on top.
+    // "hidden" parts stay hidden (alternate/virtual geometry that isn't
+    // part of any design shown), and the occupants keep their colors.
     if (state.pictureSelectMode) {
+      Object.keys(colors).forEach((f) => {
+        if (colors[f] === "hidden" || DRIVER_FILES.indexOf(f) !== -1 || CODRIVER_FILES.indexOf(f) !== -1) return;
+        delete colors[f];
+      });
       state.pictureSelectMode.selected.forEach((tag, elementId) => {
         filesForElementValue(elementId, tag.value, tag.extra).forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
       });
@@ -6961,7 +7146,10 @@
       if (!tag) return;
       const selected = state.pictureSelectMode.selected;
       const path = RULES[state.vehicle.org].paths[state.pathId];
-      const cycle = elementValueCycle(path, tag.elementId);
+      // A photo can only show a bar that's there -- "No" / "None present"
+      // can't be seen, so they're left out: a yes/no bar just toggles
+      // between tagged ("yes") and untagged.
+      const cycle = elementValueCycle(path, tag.elementId).filter((v) => v !== "no" && v !== "none");
       if (!cycle.length) {
         // No option list to step through -- plain in/out toggle.
         if (selected.has(tag.elementId)) selected.delete(tag.elementId);

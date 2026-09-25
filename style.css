@@ -854,3 +854,15 @@ textarea { resize: vertical; min-height: 50px; }
 .passtech-manual .passtech-check-icon { color: var(--muted); }
 .passtech-rule-details { font-size: 0.85rem; color: var(--muted); margin-top: 8px; }
 .passtech-rule-details p { margin: 6px 0; }
+.unsafe-explanation-warn { color: var(--warn); }
+.results-header-buttons { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.tour-blocker { position: fixed; inset: 0; z-index: 200; }
+.tour-spotlight { position: fixed; z-index: 201; border-radius: 12px; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.75); pointer-events: none; transition: top 0.15s, left 0.15s, width 0.15s, height 0.15s; }
+.tour-callout { position: fixed; z-index: 202; max-height: 60vh; overflow-y: auto; box-sizing: border-box; padding: 14px 16px; border-radius: 10px; border: 2px solid #a78bfa; background: var(--panel); color: var(--ink); box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.15), 0 20px 50px rgba(0, 0, 0, 0.6); }
+.tour-callout-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tour-step-count { font-size: 0.75rem; font-weight: 600; color: #c4b5fd; }
+.tour-callout p { margin: 8px 0 10px; font-size: 0.9rem; line-height: 1.4; }
+.tour-next { width: 100%; }
+.picture-element-chip { display: inline-flex; align-items: center; gap: 4px; }
+.picture-element-remove { background: none; border: none; padding: 0 2px; margin-left: 2px; cursor: pointer; color: var(--fail); font-size: 1rem; line-height: 1; font-weight: 700; }
+.picture-element-remove:hover { color: #fff; background: var(--fail); border-radius: 4px; }
