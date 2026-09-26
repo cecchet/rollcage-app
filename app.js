@@ -1525,7 +1525,7 @@
   // points at its fallback instead, or is skipped if that's missing too.
   const TOURS = {
     // First-visit tour of the main features (auto-started once, see boot;
-    // "Take the app tour" in the header reruns it).
+    // "Quick tutorial" in the header reruns it).
     app: {
       intro: {
         title: "How the Rollcage assessment tool works",
@@ -1548,7 +1548,7 @@
         {
           target: "headerHelpLinks",
           onEnter: () => { state.activeTab = 1; },
-          text: "Watch the tutorial video for a full walkthrough, or take this tour again any time. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
+          text: "Take this quick tutorial again any time from here. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
         },
       ],
     },
@@ -7653,7 +7653,7 @@
       tutorialLink.addEventListener("click", (e) => {
         if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
         e.preventDefault();
-        state.mediaViewer = { video: "i2VvQxYf9qM", caption: "Rollcage tutorial" };
+        state.mediaViewer = { video: "i2VvQxYf9qM", caption: "FIA Article 253 Rollcages Tutorial" };
         render();
       });
     }
