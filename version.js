@@ -5,4 +5,4 @@
 // this can't be generated automatically -- bump it by hand in the same
 // commit as every push, the same convention the sibling PassTech project
 // uses for its own BUILD_DATE (src/lib/version.ts).
-window.BUILD_NUMBER = "2026-09-25-11";
+window.BUILD_NUMBER = "2026-09-26-02";

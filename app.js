@@ -1524,6 +1524,34 @@
   // A step whose target isn't on the page right now (e.g. no photos yet)
   // points at its fallback instead, or is skipped if that's missing too.
   const TOURS = {
+    // First-visit tour of the main features (auto-started once, see boot;
+    // "Take the app tour" in the header reruns it).
+    app: {
+      intro: {
+        title: "How the Rollcage assessment tool works",
+        text: "Describe a roll cage once -- its design, tubing, installation and welds -- and the tool builds a live 3D model of it, rates its safety, and can check it against the rules of the sanctioning body you race with. Here's a quick tour of the main features.",
+      },
+      onStart: () => { state.tourReturnTab = state.activeTab; state.activeTab = 1; },
+      onEnd: () => { state.activeTab = state.tourReturnTab || 1; },
+      steps: [
+        { target: "sessionBarHolder", text: "Name your rollcage here. Save keeps it in this browser, Save as makes a copy, PDF report prints everything, and the Rollcage library holds your saved cages plus ready-made design templates to start from." },
+        { target: "cageViewerPartDropdown", text: "The checklist is split into 6 parts: design choices, tubing, installation, welds, seats and belts, and sanctioning body compliance. Switch parts here -- it stays at hand while you scroll." },
+        { target: "cageViewerContainer", text: "The live 3D model shows the cage as you answer. Click a bar to jump to its question; double-click it to cycle through its designs. Drag to rotate, scroll to zoom, shift+drag to pan." },
+        { target: "section-main_structure_layout", text: "Start here in Part 1 with the base structure layout, then work down the design choices -- each answer lights up on the model." },
+        { target: "cageViewerSafetyScore", fallback: "cageViewerContainer", text: "Once a layout is picked, a safety score appears on the model. It rates the design itself, independent of any rulebook -- click it for the details. Each row links to its question, and unsafe designs explain why, some with a photo or video." },
+        { target: "pictures-panel", text: "Add photos of the cage in Pictures: tag which designs each one shows on the 3D model, or let AI analysis (beta) suggest them. Pictures has its own \"How it works\" tour." },
+        {
+          target: "compliance-panel",
+          onEnter: () => { state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; },
+          text: "Part 6 checks the cage against a sanctioning body's rules. None is selected by default, so the checklist just records the design -- pick FIA, a rally body (new construction or grandfathered rules), or one of 20 other bodies that require a cage to check compliance.",
+        },
+        {
+          target: "headerHelpLinks",
+          onEnter: () => { state.activeTab = 1; },
+          text: "Watch the tutorial video for a full walkthrough, or take this tour again any time. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
+        },
+      ],
+    },
     pictures: {
       onStart: () => { state.picturesExpanded = true; },
       steps: [
@@ -1538,31 +1566,69 @@
       ],
     },
   };
+  // A tour with an intro opens on a centered slide first (step -1), like
+  // PassTech's landing tour. A step's onEnter runs as it's reached (e.g. to
+  // switch to the Part it points at); the tour's onEnd runs however it ends.
   function startTour(id) {
     const tour = TOURS[id];
     if (!tour) return;
     if (tour.onStart) tour.onStart();
-    state.tour = { id, step: 0 };
+    state.tour = { id, step: tour.intro ? -1 : 0 };
+    if (!tour.intro && tour.steps[0].onEnter) tour.steps[0].onEnter();
     render();
   }
-  function endTour() { state.tour = null; render(); }
+  function endTour() {
+    const tour = state.tour && TOURS[state.tour.id];
+    state.tour = null;
+    if (tour && tour.onEnd) tour.onEnd();
+    render();
+  }
+  function advanceTour() {
+    const tour = TOURS[state.tour.id];
+    if (state.tour.step >= tour.steps.length - 1) { endTour(); return; }
+    state.tour.step++;
+    const step = tour.steps[state.tour.step];
+    if (step.onEnter) step.onEnter();
+    render();
+  }
+  // Only a target that is actually showing counts (e.g. the safety score
+  // badge exists but stays hidden until a layout is picked).
   function tourTargetFor(step) {
-    return document.getElementById(step.target) || (step.fallback && document.getElementById(step.fallback)) || null;
+    const shown = (id) => { const e = id && document.getElementById(id); return e && e.getClientRects().length ? e : null; };
+    return shown(step.target) || shown(step.fallback) || null;
   }
   function renderTour(holder) {
     if (!state.tour) return;
     const tour = TOURS[state.tour.id];
     const steps = tour.steps;
     const index = state.tour.step;
+    const total = steps.length + (tour.intro ? 1 : 0);
+    if (index === -1 && tour.intro) {
+      const nextBtn = el("button", { class: "btn tour-next", onclick: advanceTour }, ["Next"]);
+      const overlay = el("div", { class: "modal-overlay tour-intro-overlay" }, [
+        el("div", { class: "tour-callout tour-intro", role: "dialog", "aria-modal": "true", "aria-labelledby": "tourIntroTitle" }, [
+          el("div", { class: "tour-callout-head" }, [
+            el("h2", { id: "tourIntroTitle" }, [tour.intro.title]),
+            el("button", { class: "btn small secondary", onclick: endTour }, ["Exit the tutorial"]),
+          ]),
+          el("img", { class: "tour-intro-logo", src: "images/favicon-192.png", alt: "" }),
+          el("p", {}, [tour.intro.text]),
+          nextBtn,
+        ]),
+      ]);
+      holder.appendChild(overlay);
+      requestAnimationFrame(() => nextBtn.focus());
+      return;
+    }
     const step = steps[index];
     if (!step) { state.tour = null; return; }
     const isLast = index === steps.length - 1;
-    const next = () => { if (isLast) endTour(); else { state.tour.step++; render(); } };
+    const next = advanceTour;
     const blocker = el("div", { class: "tour-blocker" });
     const spotlight = el("div", { class: "tour-spotlight" });
     const callout = el("div", { class: "tour-callout", role: "dialog", "aria-modal": "true" }, [
       el("div", { class: "tour-callout-head" }, [
-        el("span", { class: "tour-step-count" }, ["Step " + (index + 1) + " of " + steps.length]),
+        el("span", { class: "tour-step-count" }, ["Step " + (index + 1 + (tour.intro ? 1 : 0)) + " of " + total]),
         el("button", { class: "btn small secondary", onclick: endTour }, ["Exit the tutorial"]),
       ]),
       el("p", {}, [step.text]),
@@ -1576,17 +1642,22 @@
       const target = tourTargetFor(step);
       if (!target) { next(); return; }
       const viewer = document.querySelector(".cage-viewer-row");
-      const stickyH = viewer ? viewer.getBoundingClientRect().height : 0;
-      const r0 = target.getBoundingClientRect();
-      const room = window.innerHeight - stickyH;
-      const top = window.pageYOffset + r0.top - stickyH - Math.max(12, (room - Math.min(r0.height, room * 0.6)) / 2 - 90);
-      window.scrollTo({ top: Math.max(0, top), behavior: "instant" });
+      if (target.closest(".app-header")) {
+        window.scrollTo({ top: 0, behavior: "instant" });
+      } else if (!(viewer && viewer.contains(target))) {
+        // (A target inside the sticky viewer is always on screen -- no scroll.)
+        const stickyH = viewer ? viewer.getBoundingClientRect().height : 0;
+        const r0 = target.getBoundingClientRect();
+        const room = window.innerHeight - stickyH;
+        const top = window.pageYOffset + r0.top - stickyH - Math.max(12, (room - Math.min(r0.height, room * 0.6)) / 2 - 90);
+        window.scrollTo({ top: Math.max(0, top), behavior: "instant" });
+      }
       positionTour();
       callout.querySelector(".tour-next").focus();
     });
   }
   function positionTour() {
-    if (!state.tour) return;
+    if (!state.tour || state.tour.step < 0) return;
     const step = TOURS[state.tour.id].steps[state.tour.step];
     const target = step && tourTargetFor(step);
     const spotlight = document.querySelector(".tour-spotlight");
@@ -4741,7 +4812,7 @@
     const compliance = complianceSummary(path);
 
     if (!state.resultsExpanded) {
-      const collapsed = el("div", { class: "panel results-panel results-panel-collapsed" }, [
+      const collapsed = el("div", { class: "panel results-panel results-panel-collapsed", id: "compliance-panel" }, [
         el("h2", {}, [PHASE_LABELS[LOGBOOK_PHASE]]),
         el("div", { class: "verdict compact " + compliance.verdict.level }, [compliance.verdict.label]),
         el("div", { class: "results-summary" }, [compliance.summary]),
@@ -4755,7 +4826,7 @@
       return;
     }
 
-    const panel = el("div", { class: "panel results-panel" });
+    const panel = el("div", { class: "panel results-panel", id: "compliance-panel" });
 
     panel.appendChild(
       el("div", { class: "results-header" }, [
@@ -7555,11 +7626,28 @@
 
   // ---- Boot -------------------------------------------------------
 
+  const APP_TOUR_SEEN_KEY = "rollcage-app-tour-seen";
+
   function boot() {
     const buildEl = document.getElementById("buildNumber");
     if (buildEl && window.BUILD_NUMBER) buildEl.textContent = "Build " + window.BUILD_NUMBER;
     // The header's tutorial link plays in the in-app player (it's a plain
     // YouTube link otherwise, e.g. opened in a new tab via middle-click).
+    // Installable app / offline support (see sw.js) -- a progressive
+    // enhancement, silently skipped where unsupported (e.g. file://).
+    if ("serviceWorker" in navigator && location.protocol !== "file:") {
+      navigator.serviceWorker.register("sw.js").then((reg) => {
+        reg.update().catch(() => {});
+        window.addEventListener("online", () => reg.update().catch(() => {}));
+      }).catch(() => {});
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    }
+    const tourLink = document.getElementById("appTourLink");
+    if (tourLink) tourLink.addEventListener("click", (e) => { e.preventDefault(); startTour("app"); });
+    // First visit: show the app tour once (remembered per browser).
+    let tourSeen = true;
+    try { tourSeen = localStorage.getItem(APP_TOUR_SEEN_KEY) === "1"; localStorage.setItem(APP_TOUR_SEEN_KEY, "1"); } catch (e) { /* storage blocked -- skip */ }
+    if (!tourSeen) setTimeout(() => { if (!state.tour) startTour("app"); }, 800);
     const tutorialLink = document.getElementById("tutorialVideoLink");
     if (tutorialLink) {
       tutorialLink.addEventListener("click", (e) => {

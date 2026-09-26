@@ -4,10 +4,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rollcage assessment tool</title>
-<link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32.png">
-<link rel="icon" type="image/png" sizes="192x192" href="images/favicon-192.png">
-<link rel="apple-touch-icon" href="images/favicon-192.png">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="icon" type="image/png" sizes="32x32" href="images/favicon-32.png?v=2">
+<link rel="icon" type="image/png" sizes="192x192" href="images/favicon-192.png?v=2">
+<link rel="apple-touch-icon" href="images/apple-touch-icon.png?v=2">
+<!-- Installable app (Android "Install app" / iPhone "Add to Home Screen") -- see manifest.webmanifest and sw.js.
+     iOS ignores the manifest's display/theme fields; the apple- tags are what make the home-screen app open full screen. -->
+<link rel="manifest" href="manifest.webmanifest?v=2">
+<meta name="theme-color" content="#14171c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Rollcage">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 <header class="app-header">
@@ -16,7 +24,8 @@
     <strong>This tool is currently under development and not ready for public use.</strong> Contact
     <a href="mailto:info@frogracing.us">info@frogracing.us</a> if you want to contribute to the development
     of this tool.
-    <br><a id="tutorialVideoLink" href="https://youtu.be/i2VvQxYf9qM" target="_blank" rel="noopener">Watch the rollcage tutorial video</a>
+    <br><span id="headerHelpLinks"><a id="tutorialVideoLink" href="https://youtu.be/i2VvQxYf9qM" target="_blank" rel="noopener">Watch the rollcage tutorial video</a>
+    · <a id="appTourLink" href="#">Take the app tour</a></span>
   </p>
 </header>
 
@@ -41,7 +50,7 @@
     <img id="cageViewerPictureModeThumb" class="cage-viewer-picture-thumb" alt="" hidden>
     <div id="cageViewerPart3Controls" class="cage-viewer-part3-controls"></div>
     <div id="cageViewerContainer" class="cage-viewer-container">
-      <img class="cage-viewer-watermark" src="images/favicon-192.png" alt="Frog Racing">
+      <img class="cage-viewer-watermark" src="images/frog-racing-logo-192.png" alt="Frog Racing">
       <button id="cageViewerSafetyScore" class="cage-viewer-safety-score" type="button" hidden></button>
       <div id="cageViewerTooltip" class="cage-viewer-tooltip" hidden></div>
     </div>
@@ -57,15 +66,15 @@
   was and wasn't covered for the selected sanctioning body.</p>
 </footer>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="version.js?v=2026-09-25-11"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
+<script src="version.js?v=2026-09-26-02"></script>
 <script src="cage_view.js?v=114"></script>
 <script src="diagrams.js?v=30"></script>
 <script src="sanctioning-bodies.js?v=1"></script>
 <script src="rules-data.js?v=104"></script>
 <script src="pdf_report.js?v=4"></script>
 <script src="templates.js?v=6"></script>
-<script src="app.js?v=277"></script>
+<script src="app.js?v=280"></script>
 </body>
 </html>
