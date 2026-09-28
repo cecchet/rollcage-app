@@ -19,6 +19,9 @@
     // Logbook features: "Logbook information" as the first part (vehicle,
     // sanctioning body, logbook details, event entries) and a logbook PDF.
     logbook: false,
+    // The Frog Safety score as a part of its own (the last one) instead of a
+    // panel trailing every part.
+    safetyScorePart: false,
     // Sanctioning bodies offered, as RULES keys in display order; null = all
     // of them except documentation-only ones (see rules-data.js).
     orgs: null,
@@ -2923,6 +2926,7 @@
   const WELDS_PHASE = 4;
   const SEATS_PHASE = 5;
   const LOGBOOK_PHASE = 6;
+  const SAFETY_PHASE = 7; // only with CFG.safetyScorePart
   const PHASE_TITLES = {
     1: "Structure & design choices",
     2: "Tubing sizes & materials",
@@ -2930,12 +2934,13 @@
     [WELDS_PHASE]: "Welds",
     [SEATS_PHASE]: "Seats, belts & routing",
     [LOGBOOK_PHASE]: CFG.logbook ? "Logbook information" : "Sanctioning body compliance",
+    [SAFETY_PHASE]: "Frog Safety score",
   };
   // Display order (and so each part's number): the logbook app puts its
   // Logbook information first, ahead of the cage's own parts.
-  const PHASE_ORDER = CFG.logbook
+  const PHASE_ORDER = (CFG.logbook
     ? [LOGBOOK_PHASE, 1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE]
-    : [1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE, LOGBOOK_PHASE];
+    : [1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE, LOGBOOK_PHASE]).concat(CFG.safetyScorePart ? [SAFETY_PHASE] : []);
   function partName(phase) { return "Part " + (PHASE_ORDER.indexOf(phase) + 1); }
   const PHASE_LABELS = {};
   PHASE_ORDER.forEach((p) => { PHASE_LABELS[p] = partName(p) + " — " + PHASE_TITLES[p]; });
@@ -3688,6 +3693,7 @@
     // directly, gated on this phase in render()) so nothing ever populates
     // phases[LOGBOOK_PHASE] -- it's still always offered as a destination.
     usedPhases.push(LOGBOOK_PHASE);
+    if (CFG.safetyScorePart) usedPhases.push(SAFETY_PHASE);
     return { phases, usedPhases: PHASE_ORDER.filter((p) => usedPhases.includes(p)) };
   }
   // Safety score / Vehicle description always trail the checklist -- Logbook
@@ -5050,23 +5056,32 @@
     return { rows: ordered, totalPoints, ratedRows, driveSide, driverSide };
   }
 
-  function renderSafetyScore(root, path) {
+  // asPart: shown as its own part (CFG.safetyScorePart) -- always expanded,
+  // titled with its part name. summaryOnly: just refresh the viewer badge's
+  // total (that part isn't the one on screen).
+  function renderSafetyScore(root, path, opts) {
+    const asPart = !!(opts && opts.asPart);
     const panel = el("div", { class: "panel", id: "safety-score-panel" });
     const { rows, totalPoints, ratedRows, driveSide, driverSide, noLayout } = computeSafetyScoreRows(path);
+    if (opts && opts.summaryOnly) { lastSafetyScoreSummary = { totalPoints, ratedRows }; return; }
     // Read by syncSafetyScoreBadge() to keep the sticky 3D-viewer badge in
     // sync -- module-level rather than threaded through a return value,
     // same convention CAGE_FILE_OWNER already uses for cross-cutting state
     // computed during a render pass. Set even while collapsed, since the
     // badge keeps showing the total either way.
     lastSafetyScoreSummary = { totalPoints, ratedRows };
-    const title = "Frog Safety score" + (ratedRows ? ": " + (totalPoints > 0 ? "+" : "") + totalPoints : "");
-    panel.appendChild(
-      collapsiblePanelHeader(title, state.safetyScoreExpanded, () => {
-        state.safetyScoreExpanded = !state.safetyScoreExpanded;
-        render();
-      })
-    );
-    if (!state.safetyScoreExpanded) {
+    const title = (asPart ? PHASE_LABELS[SAFETY_PHASE] : "Frog Safety score") + (ratedRows ? ": " + (totalPoints > 0 ? "+" : "") + totalPoints : "");
+    if (asPart) {
+      panel.appendChild(el("h2", {}, [title]));
+    } else {
+      panel.appendChild(
+        collapsiblePanelHeader(title, state.safetyScoreExpanded, () => {
+          state.safetyScoreExpanded = !state.safetyScoreExpanded;
+          render();
+        })
+      );
+    }
+    if (!asPart && !state.safetyScoreExpanded) {
       root.appendChild(panel);
       return;
     }
@@ -7835,7 +7850,10 @@
     btn.textContent = "Frog Safety score: " + (totalPoints > 0 ? "+" : "") + totalPoints;
     btn.className = "cage-viewer-safety-score " + (totalPoints > 0 ? "tier-green" : totalPoints < 0 ? "tier-red" : "tier-orange");
     btn.onclick = () => {
-      if (!state.safetyScoreExpanded) {
+      if (CFG.safetyScorePart) {
+        state.activeTab = SAFETY_PHASE;
+        render();
+      } else if (!state.safetyScoreExpanded) {
         state.safetyScoreExpanded = true;
         render();
       }
@@ -7995,10 +8013,15 @@
     // else, regardless of part.
     if (state.activeTab === LOGBOOK_PHASE) {
       renderResults(root, path);
+    } else if (state.activeTab === SAFETY_PHASE && CFG.safetyScorePart) {
+      renderSafetyScore(root, path, { asPart: true });
     } else {
       renderChecklist(root, path);
     }
-    renderSafetyScore(root, path);
+    // Trails every part -- unless it's a part of its own (then the badge
+    // still needs its total).
+    if (!CFG.safetyScorePart) renderSafetyScore(root, path);
+    else if (state.activeTab !== SAFETY_PHASE) renderSafetyScore(root, path, { summaryOnly: true });
     syncCageView();
     window.scrollTo(0, scrollY);
   }

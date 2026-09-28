@@ -888,3 +888,8 @@ textarea { resize: vertical; min-height: 50px; }
 .damage-photo-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
 .damage-photo-grid .photo-thumb img { cursor: zoom-in; }
 .damage-chip { background: var(--fail-bg); color: var(--fail); }
+.footer-affiliate { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.footer-affiliate p { margin: 0; }
+.footer-affiliate img { display: block; border: 0; }
+.footer-affiliate-disclosure { max-width: 30rem; font-size: 0.72rem; opacity: 0.75; }
+@media print { .footer-affiliate { display: none; } }
