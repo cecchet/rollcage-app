@@ -151,7 +151,7 @@
   }
 
   function renderCover(w, data) {
-    w.text("Rollcage Inspection Report", { size: 20, bold: true, color: COLOR.accent });
+    w.text(data.title || "Rollcage Inspection Report", { size: 20, bold: true, color: COLOR.accent });
     w.spacer(1);
     w.text("by Frog Racing", { size: 10, color: COLOR.muted });
     w.spacer(6);
@@ -258,7 +258,7 @@
   function renderSafetyScore(w, safetyScore) {
     if (!safetyScore) return;
     w.newPage();
-    w.heading("Safety Score Assessment");
+    w.heading("Frog Safety Score");
     w.text(
       "First-pass, provisional ratings (green/orange/red, worth 5/2/0 points) per a set of safety rules of thumb -- independent of any specific sanctioning body's requirements.",
       { size: 8.5, italic: true, color: COLOR.muted }
@@ -280,8 +280,28 @@
   function renderLogbookApplicationDetails(w, lines) {
     if (!lines || !lines.length) return;
     w.newPage();
-    w.heading("Logbook Application Details");
+    w.heading("Logbook Details");
     lines.forEach((line) => w.row(line.label, line.value));
+  }
+
+  // events: [{ title, result: "pass"|"fail"|"", lines: [{label,value}],
+  //   damage?: { parts: [label], photos: [dataUrl], modelShot: dataUrl|null } }]
+  // -- the logbook app's event entries, newest first.
+  function renderEvents(w, events) {
+    if (!events || !events.length) return;
+    w.newPage();
+    w.heading("Events");
+    events.forEach((ev, i) => {
+      if (i) w.spacer(4);
+      w.subheading(ev.title);
+      ev.lines.forEach((line) => w.row(line.label, line.value, line.label === "Tech inspection"
+        ? { valueColor: ev.result === "pass" ? COLOR.green : ev.result === "fail" ? COLOR.red : COLOR.muted } : undefined));
+      if (!ev.damage) return;
+      w.text("Rollcage damage", { size: 10, bold: true, color: COLOR.red });
+      (ev.damage.parts || []).forEach((part) => w.bullet(part, { color: COLOR.red }));
+      if (ev.damage.modelShot) w.image(ev.damage.modelShot, { maxWidth: 120, maxHeight: 80 });
+      (ev.damage.photos || []).forEach((photo) => w.image(photo, { maxWidth: 120, maxHeight: 90 }));
+    });
   }
 
   // homologationPhotos is optional -- only set (and only non-empty) when
@@ -309,16 +329,23 @@
   //   safetyScore: {rows:[{label,valueText,tier,points}], totalPoints, ratedRows} | null,
   //   logbookApplicationDetails: [{label,value}] | undefined,
   //   homologationPhotos: [dataUrl] | undefined,
+  //   title: string | undefined (cover title -- the app's own report name),
+  //   events: [...] | undefined (logbook app -- see renderEvents),
   // }
   function build(data) {
     const w = new PdfReportWriter();
     renderCover(w, data);
+    // A logbook report (data.events set) leads with the logbook itself.
+    if (data.events) {
+      renderLogbookApplicationDetails(w, data.logbookApplicationDetails);
+      renderEvents(w, data.events);
+    }
     renderAngleImages(w, data.angleImages);
     renderParts(w, data.parts || []);
     renderLogbook(w, data.logbook);
     renderPictures(w, data.pictures);
     renderSafetyScore(w, data.safetyScore);
-    renderLogbookApplicationDetails(w, data.logbookApplicationDetails);
+    if (!data.events) renderLogbookApplicationDetails(w, data.logbookApplicationDetails);
     renderHomologationPhotos(w, data.homologationPhotos);
     return w;
   }

@@ -7,6 +7,28 @@
 
   const STORAGE_KEY = "rollcage_inspections_v1";
   const RULES = window.RULES_DATA;
+  // This file is shared by two apps: the Rollcage assessment tool
+  // (rollcage.frogracing.us -- the defaults below) and Digital logbooks
+  // (logbook.frogracing.us), which loads this same file with its own
+  // window.APP_CONFIG (its config.js). Everything that differs between the
+  // two apps is read from CFG rather than hard-coded.
+  const CFG = Object.assign({
+    appName: "Rollcage assessment tool",
+    noun: "rollcage", // what one saved entry is called in the UI
+    libraryName: "Rollcage library",
+    // Logbook features: "Logbook information" as the first part (vehicle,
+    // sanctioning body, logbook details, event entries) and a logbook PDF.
+    logbook: false,
+    // Sanctioning bodies offered, as RULES keys in display order; null = all
+    // of them except documentation-only ones (see rules-data.js).
+    orgs: null,
+    swUrl: "sw.js",
+    apiUrl: "api/analyze-cage", // the AI photo analysis endpoint (api/analyze-cage.js)
+    tourSeenKey: "rollcage-app-tour-seen",
+    pdfTitle: "Rollcage Inspection Report",
+  }, window.APP_CONFIG || {});
+  const NOUN = CFG.noun;
+  const NOUN_CAP = NOUN.charAt(0).toUpperCase() + NOUN.slice(1);
   // Photo uploads are disabled everywhere for now, to be reintroduced later
   // where actually needed -- flip this back on rather than re-deriving the
   // removed rendering.
@@ -20,8 +42,12 @@
     pictures: [], // { id, elements: [{elementId, value}], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot } -- image bytes live in IndexedDB, see picture storage below
     homologationPhotos: [], // { id } -- FIA homologation paperwork photos (only relevant/shown when homologation_route === "homologated"); image bytes in the SAME IndexedDB store as pictures above, just a separate id list
     vehiclePhotos: { front: null, rear: null }, // { id } | null per slot -- 3/4 front & rear vehicle photos on the Vehicle description panel; image bytes in the SAME IndexedDB store as pictures above
+    events: [], // logbook app only: one entry per event the car entered -- see renderLogbookEvents
+    expandedEvents: {}, // UI-only: event id -> true while that event's entry is open for editing
+    damageSelectMode: null, // UI-only: { eventId, files: Set } while marking an event's damaged parts on the 3D model
+    damageViewEventId: null, // UI-only: the event whose damaged parts the 3D model is currently showing
     pictureSelectMode: null, // UI-only: { pictureId, selected: Map<elmId, value|null> } while "Edit rollcage elements" is active -- see renderPictures/computeCageColors
-    resultsExpanded: false, // UI-only: results panel starts collapsed so the input form gets the screen
+    resultsExpanded: CFG.logbook, // UI-only: Part 6 panel collapsed by default -- except in the logbook app, where it's the main page
     vehicleExpanded: false, // UI-only: Vehicle description panel starts collapsed
     libraryOpen: false, // UI-only: the "Rollcage library" window (renderLibrary) is showing
     librarySelectedId: null, // UI-only: sessionId of the card selected in that window, if any
@@ -29,7 +55,7 @@
     safetyScoreExpanded: false, // UI-only: Safety score panel starts collapsed (the sticky viewer's badge still shows the total, and clicking it expands this)
     picturesExpanded: false, // UI-only: Pictures panel starts collapsed, like Vehicle description/Results -- same collapsiblePanelHeader toggle
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
-    activeTab: 1, // UI-only: which phase (Part 1-7) tab is currently shown -- see PHASE_LABELS
+    activeTab: CFG.logbook ? 6 : 1, // UI-only: which phase tab is shown (6 = LOGBOOK_PHASE, first in the logbook app) -- see PHASE_ORDER
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
     dirty: false, // UI-only: true once something has changed since the last explicit Save -- see markDirty/confirmDiscardIfDirty. Nothing auto-persists anymore; this is what gates switching/starting a rollcage with unsaved work.
     showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
@@ -61,6 +87,7 @@
       pictures: state.pictures,
       homologationPhotos: state.homologationPhotos,
       vehiclePhotos: state.vehiclePhotos,
+      events: state.events,
       updatedAt: new Date().toISOString(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
@@ -103,6 +130,10 @@
     state.pictures = [];
     state.homologationPhotos = [];
     state.vehiclePhotos = { front: null, rear: null };
+    state.events = [];
+    state.expandedEvents = {};
+    state.damageSelectMode = null;
+    state.damageViewEventId = null;
     state.pictureSelectMode = null;
     state.dirty = false;
     render();
@@ -128,6 +159,10 @@
     }));
     state.homologationPhotos = s.homologationPhotos || [];
     state.vehiclePhotos = s.vehiclePhotos || { front: null, rear: null };
+    state.events = s.events || [];
+    state.expandedEvents = {};
+    state.damageSelectMode = null;
+    state.damageViewEventId = null;
     state.pictureSelectMode = null;
     normalizeUnavailableChoices();
     state.dirty = false;
@@ -345,7 +380,12 @@
   function compliancePath(path) { return grandfatheredPath() || path; }
   // Falls back to no sanctioning body for a saved/imported org this build
   // doesn't know (or none at all).
-  function knownOrg(org) { return org && RULES[org] ? org : "none"; }
+  function knownOrg(org) { return org && RULES[org] && orgOffered(org) ? org : "none"; }
+  // Which sanctioning bodies this app offers (CFG.orgs), in its order.
+  function orgOffered(key) { return CFG.orgs ? CFG.orgs.includes(key) : !RULES[key].docOnly; }
+  function offeredOrgKeys() {
+    return CFG.orgs ? CFG.orgs.filter((k) => RULES[k]) : Object.keys(RULES).filter(orgOffered);
+  }
 
   function elementStatus(el, answer) {
     const status = elementStatusByRules(el, answer);
@@ -1020,8 +1060,8 @@
   function submitSaveAsDialog() {
     const name = ((state.saveAsDialog && state.saveAsDialog.name) || "").trim();
     const savedName = savedNameOfCurrent();
-    if (!name) { state.saveAsDialog.error = "Enter a name for the new rollcage."; render(); return; }
-    if (savedName !== null && name === savedName.trim()) { state.saveAsDialog.error = "Pick a name different from the original rollcage."; render(); return; }
+    if (!name) { state.saveAsDialog.error = "Enter a name for the new " + NOUN + "."; render(); return; }
+    if (savedName !== null && name === savedName.trim()) { state.saveAsDialog.error = "Pick a name different from the original " + NOUN + "."; render(); return; }
     state.saveAsDialog = null;
     saveAsNewRollcage(name);
   }
@@ -1045,6 +1085,14 @@
       front: vp.front ? { ...vp.front, id: cloneStoredPicture(vp.front.id) } : null,
       rear: vp.rear ? { ...vp.rear, id: cloneStoredPicture(vp.rear.id) } : null,
     };
+    state.events = state.events.map((ev) => ({
+      ...ev,
+      damage: ev.damage && {
+        ...ev.damage,
+        photos: (ev.damage.photos || []).map((p) => ({ ...p, id: cloneStoredPicture(p.id) })),
+        modelShotId: ev.damage.modelShotId ? cloneStoredPicture(ev.damage.modelShotId) : null,
+      },
+    }));
     saveWithFlash();
   }
 
@@ -1054,11 +1102,14 @@
     const s = loadAll()[sessionId];
     if (!s) return;
     const data = { sessionId: s.sessionId, vehicle: s.vehicle, pathId: s.pathId, answers: s.answers };
+    if (s.events && s.events.length) {
+      data.events = s.events.map((ev) => ({ ...ev, damage: ev.damage && { ...ev.damage, photos: [], modelShotId: null } }));
+    }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = (s.vehicle.name || "rollcage") + ".json";
+    a.download = (s.vehicle.name || NOUN) + ".json";
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -1074,11 +1125,11 @@
       try {
         data = JSON.parse(reader.result);
       } catch (e) {
-        alert("That file isn't a valid rollcage export (not JSON).");
+        alert("That file isn't a valid " + NOUN + " export (not JSON).");
         return;
       }
       if (!data || typeof data !== "object" || !data.vehicle || !data.answers) {
-        alert("That file isn't a valid rollcage export.");
+        alert("That file isn't a valid " + NOUN + " export.");
         return;
       }
       const all = loadAll();
@@ -1091,6 +1142,7 @@
         pictures: [],
         homologationPhotos: [],
         vehiclePhotos: { front: null, rear: null },
+        events: Array.isArray(data.events) ? data.events.map((ev) => ({ ...ev, damage: ev.damage && { ...ev.damage, photos: [], modelShotId: null } })) : [],
         updatedAt: new Date().toISOString(),
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
@@ -1238,7 +1290,7 @@
         advisoriesLabel: "To check manually",
       };
     }
-    if (!rules || rules.agnostic) return null;
+    if (!rules || rules.agnostic) return null; // incl. documentation-only bodies
     const results = computeResults(compliancePath(path));
     return {
       verdictLabel: results.verdict.label,
@@ -1433,25 +1485,19 @@
     }
   }
 
+  // The logbook app's report also carries the logbook paperwork, the
+  // homologation papers (for a homologated cage) and every event entry.
   function generatePdfReport() {
-    return runPdfGeneration((data) => {
-      data.filename = (state.vehicle.name || "rollcage") + "-report.pdf";
-    });
-  }
-
-  // "For now" (per the user) this is the same report as generatePdfReport()
-  // plus the actual logbook paperwork fields appended at the end -- a real,
-  // separately-scoped "logbook application" report (asking for more detail
-  // than this checklist currently captures) is planned as its own later
-  // feature, not this one.
-  function generateLogbookApplicationPdf() {
     return runPdfGeneration(async (data) => {
-      data.filename = (state.vehicle.name || "rollcage") + "-logbook-application.pdf";
+      data.filename = (state.vehicle.name || NOUN) + "-report.pdf";
+      data.title = CFG.pdfTitle;
+      if (!CFG.logbook) return;
       const path = RULES[state.vehicle.org].paths[state.pathId];
       data.logbookApplicationDetails = buildReportLogbookApplicationDetails(path);
       if (getAnswer("homologation_route").value === "homologated") {
         data.homologationPhotos = await buildReportHomologationPhotos();
       }
+      data.events = await buildReportEvents();
     });
   }
 
@@ -1463,7 +1509,7 @@
     const nameInput = el("input", {
       type: "text",
       class: "session-bar-name-input",
-      placeholder: "Name this rollcage...",
+      placeholder: "Name this " + NOUN + "...",
       value: state.vehicle.name,
       oninput: (e) => {
         state.vehicle.name = e.target.value;
@@ -1474,18 +1520,18 @@
     holder.appendChild(
       el("div", { class: "session-bar" }, [
         el("div", { class: "session-bar-group" }, [
-          el("label", { for: "rollcageNameInput" }, ["Rollcage name: "]),
+          el("label", { for: "rollcageNameInput" }, [NOUN_CAP + " name: "]),
           Object.assign(nameInput, { id: "rollcageNameInput" }),
         ]),
         el("div", { class: "session-bar-group" }, [
           el("button", { class: "btn small secondary", onclick: saveWithFlash }, [state.justSaved ? "Saved ✓" : "Save"]),
-          el("button", { class: "btn small secondary", title: "Save as a new rollcage, leaving the original as it was last saved", onclick: startSaveAs }, ["Save as…"]),
+          el("button", { class: "btn small secondary", title: "Save as a new " + NOUN + ", leaving the original as it was last saved", onclick: startSaveAs }, ["Save as…"]),
           el(
             "button",
             { class: "btn small secondary", disabled: state.pdfReportStatus === "generating" || !state.pathId, onclick: generatePdfReport },
             [state.pdfReportStatus === "generating" ? "Generating report…" : "PDF report"]
           ),
-          el("button", { class: "btn small secondary", onclick: () => { state.libraryOpen = true; state.librarySelectedId = null; render(); } }, ["Rollcage library"]),
+          el("button", { class: "btn small secondary", onclick: () => { state.libraryOpen = true; state.librarySelectedId = null; render(); } }, [CFG.libraryName]),
         ]),
       ])
     );
@@ -1494,7 +1540,7 @@
   function deleteSavedRollcage(sessionId) {
     const s = loadAll()[sessionId];
     if (!s) return;
-    const name = s.vehicle.name || "this unnamed rollcage";
+    const name = s.vehicle.name || "this unnamed " + NOUN;
     if (!confirm('Delete "' + name + '"? This removes it from your saved rollcages and can\'t be undone.')) return;
     const all = loadAll();
     delete all[sessionId];
@@ -1523,39 +1569,69 @@
   // time with a short callout (step count, Next/Done, Exit the tutorial).
   // A step whose target isn't on the page right now (e.g. no photos yet)
   // points at its fallback instead, or is skipped if that's missing too.
+  // A step's text may be a function -- evaluated when shown, for text that
+  // names a Part (partName is defined further down this file).
+  const TOUR_STEP_3D = { target: "cageViewerContainer", text: "The live 3D model shows the cage as you answer. Click a bar to jump to its question; double-click it to cycle through its designs. Drag to rotate, scroll to zoom, shift+drag to pan." };
+  const TOUR_STEP_LAYOUT = { target: "section-main_structure_layout", onEnter: () => { state.activeTab = 1; }, text: () => "Start " + partName(1) + " with the base structure layout, then work down the design choices -- each answer lights up on the model." };
+  const TOUR_STEP_SCORE = { target: "cageViewerSafetyScore", fallback: "cageViewerContainer", text: "Once a layout is picked, the Frog Safety score appears on the model. It rates the design itself, independent of any rulebook -- click it for the details. Each row links to its question, and unsafe designs explain why, some with a photo or video." };
+  const TOUR_STEP_PICTURES = { target: "pictures-panel", text: "Add photos of the cage in Pictures: tag which designs each one shows on the 3D model, or let AI analysis (beta) suggest them. Pictures has its own \"How it works\" tour." };
+  const ROLLCAGE_APP_TOUR = {
+    intro: {
+      title: "How the Rollcage assessment tool works",
+      text: "Describe a roll cage once -- its design, tubing, installation and welds -- and the tool builds a live 3D model of it, rates its safety with the Frog Safety score, and can check it against the rules of the sanctioning body you race with. Here's a quick tour of the main features.",
+    },
+    onStart: () => { state.tourReturnTab = state.activeTab; state.activeTab = 1; },
+    onEnd: () => { state.activeTab = state.tourReturnTab || 1; },
+    steps: [
+      { target: "sessionBarHolder", text: "Name your rollcage here. Save keeps it in this browser, Save as makes a copy, PDF report prints everything, and the Rollcage library holds your saved cages plus ready-made design templates to start from." },
+      { target: "cageViewerPartDropdown", text: "The checklist is split into 6 parts: design choices, tubing, installation, welds, seats and belts, and sanctioning body compliance. Switch parts here -- it stays at hand while you scroll." },
+      TOUR_STEP_3D,
+      TOUR_STEP_LAYOUT,
+      TOUR_STEP_SCORE,
+      TOUR_STEP_PICTURES,
+      {
+        target: "compliance-panel",
+        onEnter: () => { state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; },
+        text: () => partName(LOGBOOK_PHASE) + " checks the cage against a sanctioning body's rules. None is selected by default, so the checklist just records the design -- pick FIA, a rally body (new construction or grandfathered rules), or one of 20 other bodies that require a cage to check compliance.",
+      },
+      {
+        target: "headerHelpLinks",
+        onEnter: () => { state.activeTab = 1; },
+        text: "Take this quick tutorial again any time from here. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
+      },
+    ],
+  };
+  const LOGBOOK_APP_TOUR = {
+    intro: {
+      title: "How Digital logbooks work",
+      text: "A digital logbook replaces a car's paper logbook: the car and its sanctioning body, the documented roll cage -- with a live 3D model -- and an entry for every event it enters, with its tech inspection result and any rollcage damage. Here's a quick tour of the main features.",
+    },
+    onStart: () => { state.tourReturnTab = state.activeTab; state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; },
+    onEnd: () => { state.activeTab = state.tourReturnTab || LOGBOOK_PHASE; },
+    steps: [
+      { target: "sessionBarHolder", text: "Name the logbook here. Save keeps it in this browser, Save as makes a copy, PDF report prints the whole logbook, and the Logbook library holds your saved logbooks plus ready-made cage templates to start from." },
+      { target: "compliance-panel", onEnter: () => { state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; }, text: () => partName(LOGBOOK_PHASE) + " is the logbook itself: the vehicle, its sanctioning body (and whether the cage meets its rules), and the logbook details -- owner, builder, inspector, logbook number." },
+      { target: "logbook-events", fallback: "compliance-panel", text: "Add an entry for every event the car enters: event name and date, driver, the tech inspection result with any notes, and the scrutineer and chief scrutineer. If the car crashed, note it -- and for rollcage damage, add photos and mark the damaged parts on the 3D model." },
+      { target: "cageViewerPartDropdown", text: () => "The other parts document the roll cage itself, " + partName(1) + " through " + partName(SEATS_PHASE) + ": design choices, tubing, installation, welds, seats and belts. Switch parts here -- it stays at hand while you scroll." },
+      TOUR_STEP_3D,
+      TOUR_STEP_LAYOUT,
+      TOUR_STEP_SCORE,
+      TOUR_STEP_PICTURES,
+      {
+        target: "headerHelpLinks",
+        onEnter: () => { state.activeTab = LOGBOOK_PHASE; },
+        text: "Take this quick tutorial again any time from here. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
+      },
+    ],
+  };
   const TOURS = {
     // First-visit tour of the main features (auto-started once, see boot;
     // "Quick tutorial" in the header reruns it).
-    app: {
-      intro: {
-        title: "How the Rollcage assessment tool works",
-        text: "Describe a roll cage once -- its design, tubing, installation and welds -- and the tool builds a live 3D model of it, rates its safety, and can check it against the rules of the sanctioning body you race with. Here's a quick tour of the main features.",
-      },
-      onStart: () => { state.tourReturnTab = state.activeTab; state.activeTab = 1; },
-      onEnd: () => { state.activeTab = state.tourReturnTab || 1; },
-      steps: [
-        { target: "sessionBarHolder", text: "Name your rollcage here. Save keeps it in this browser, Save as makes a copy, PDF report prints everything, and the Rollcage library holds your saved cages plus ready-made design templates to start from." },
-        { target: "cageViewerPartDropdown", text: "The checklist is split into 6 parts: design choices, tubing, installation, welds, seats and belts, and sanctioning body compliance. Switch parts here -- it stays at hand while you scroll." },
-        { target: "cageViewerContainer", text: "The live 3D model shows the cage as you answer. Click a bar to jump to its question; double-click it to cycle through its designs. Drag to rotate, scroll to zoom, shift+drag to pan." },
-        { target: "section-main_structure_layout", text: "Start here in Part 1 with the base structure layout, then work down the design choices -- each answer lights up on the model." },
-        { target: "cageViewerSafetyScore", fallback: "cageViewerContainer", text: "Once a layout is picked, a safety score appears on the model. It rates the design itself, independent of any rulebook -- click it for the details. Each row links to its question, and unsafe designs explain why, some with a photo or video." },
-        { target: "pictures-panel", text: "Add photos of the cage in Pictures: tag which designs each one shows on the 3D model, or let AI analysis (beta) suggest them. Pictures has its own \"How it works\" tour." },
-        {
-          target: "compliance-panel",
-          onEnter: () => { state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; },
-          text: "Part 6 checks the cage against a sanctioning body's rules. None is selected by default, so the checklist just records the design -- pick FIA, a rally body (new construction or grandfathered rules), or one of 20 other bodies that require a cage to check compliance.",
-        },
-        {
-          target: "headerHelpLinks",
-          onEnter: () => { state.activeTab = 1; },
-          text: "Take this quick tutorial again any time from here. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
-        },
-      ],
-    },
+    app: CFG.logbook ? LOGBOOK_APP_TOUR : ROLLCAGE_APP_TOUR,
     pictures: {
       onStart: () => { state.picturesExpanded = true; },
       steps: [
-        { target: "pictures-panel", text: "Photos help document the cage -- they're saved with this rollcage and included in the PDF report. Nothing here changes the checklist by itself." },
+        { target: "pictures-panel", text: "Photos help document the cage -- they're saved with this " + NOUN + " and included in the PDF report. Nothing here changes the checklist by itself." },
         { target: "pictures-autosort", text: "Not sure where a photo belongs? Automatic AI sorting (beta) takes up to 20 photos at once. Each one waits here until a vision model places it in a category below; one it can't place stays here for you to move." },
         { target: "pictures-cat-overview", text: "Overview is for whole-cage or blueprint shots -- front 3/4, rear 3/4, side, a diagram. It holds more photos than the close-up categories, since those are genuinely different views." },
         { target: "pictures-cat-main_rollbar", text: "Each close-up category holds a few photos of one specific area, so AI analysis only has to consider the designs possible there -- a smaller, more accurate list than the whole cage." },
@@ -1631,7 +1707,7 @@
         el("span", { class: "tour-step-count" }, ["Step " + (index + 1 + (tour.intro ? 1 : 0)) + " of " + total]),
         el("button", { class: "btn small secondary", onclick: endTour }, ["Exit the tutorial"]),
       ]),
-      el("p", {}, [step.text]),
+      el("p", {}, [typeof step.text === "function" ? step.text() : step.text]),
       el("button", { class: "btn tour-next", onclick: next }, [isLast ? "Done" : "Next"]),
     ]);
     holder.appendChild(blocker);
@@ -1721,7 +1797,7 @@
       type: "text",
       class: "save-as-name-input",
       value: dlg.name,
-      "aria-label": "New rollcage name",
+      "aria-label": "New " + NOUN + " name",
       oninput: (e) => { dlg.name = e.target.value; },
       onkeydown: (e) => {
         if (e.key === "Enter") submitSaveAsDialog();
@@ -1729,8 +1805,8 @@
       },
     });
     const dialog = el("div", { class: "load-dialog confirm-dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "saveAsDialogTitle" }, [
-      el("h2", { id: "saveAsDialogTitle" }, ["Save as a new rollcage"]),
-      el("p", {}, ["The original stays as it was last saved. Name the new rollcage:"]),
+      el("h2", { id: "saveAsDialogTitle" }, ["Save as a new " + NOUN]),
+      el("p", {}, ["The original stays as it was last saved. Name the new " + NOUN + ":"]),
       input,
       dlg.error ? el("div", { class: "save-as-error" }, [dlg.error]) : null,
       el("div", { class: "toolbar confirm-dialog-actions" }, [
@@ -1750,7 +1826,7 @@
     const saveBtn = el("button", { class: "btn small", onclick: () => resolveUnsavedDialog("save") }, ["Save"]);
     const dialog = el("div", { class: "load-dialog confirm-dialog", role: "alertdialog", "aria-modal": "true", "aria-labelledby": "unsavedDialogTitle" }, [
       el("h2", { id: "unsavedDialogTitle" }, ["Unsaved changes"]),
-      el("p", {}, ['"' + (state.vehicle.name || "This rollcage") + '" has changes that haven\'t been saved. Save them before continuing?']),
+      el("p", {}, ['"' + (state.vehicle.name || "This " + NOUN) + '" has changes that haven\'t been saved. Save them before continuing?']),
       el("div", { class: "toolbar confirm-dialog-actions" }, [
         saveBtn,
         el("button", { class: "btn small secondary", onclick: () => resolveUnsavedDialog("discard") }, ["Discard"]),
@@ -1826,7 +1902,7 @@
 
     const sessions = Object.values(loadAll()).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
     const list = el("div", { class: "load-dialog-list" });
-    if (!sessions.length) list.appendChild(el("div", { class: "ai-status" }, ["No saved rollcages yet."]));
+    if (!sessions.length) list.appendChild(el("div", { class: "ai-status" }, ["No saved " + NOUN + "s yet."]));
     sessions.forEach((s) => {
       const thumbId = sessionThumbId(s.sessionId);
       loadPictureImage(thumbId);
@@ -1894,7 +1970,7 @@
       el("span", { class: "library-selection" }, [
         selected ? "Selected: " + (selected.vehicle.name || "Unnamed vehicle")
           : selectedTemplate ? "Selected template: " + selectedTemplate.vehicle.name
-          : sessions.length || templates.length ? "Select a rollcage below" : "",
+          : sessions.length || templates.length ? "Select a " + NOUN + " below" : "",
       ]),
       el("button", {
         class: "btn small", disabled: !selectedId && !selectedTemplate,
@@ -1908,19 +1984,19 @@
       el("button", { class: "btn small secondary", disabled: !selectedId, onclick: () => deleteSavedRollcage(selectedId) }, ["Delete"]),
     ]);
 
-    const dialog = el("div", { class: "load-dialog", role: "dialog", "aria-modal": "true", "aria-label": "Rollcage library" }, [
+    const dialog = el("div", { class: "load-dialog", role: "dialog", "aria-modal": "true", "aria-label": CFG.libraryName }, [
       el("div", { class: "load-dialog-header" }, [
-        el("h2", {}, ["Rollcage library"]),
+        el("h2", {}, [CFG.libraryName]),
         el("button", { class: "btn small secondary", onclick: close }, ["Close"]),
       ]),
       el("div", { class: "element-desc" }, ["Saved in this browser only."]),
       el("div", { class: "toolbar" }, [
-        el("button", { class: "btn small secondary", onclick: () => confirmDiscardIfDirty(() => { state.libraryOpen = false; startNew(); }) }, ["Start a new rollcage"]),
-        el("button", { class: "btn small secondary", onclick: () => importInput.click() }, ["Import a rollcage from file"]),
+        el("button", { class: "btn small secondary", onclick: () => confirmDiscardIfDirty(() => { state.libraryOpen = false; startNew(); }) }, ["Start a new " + NOUN]),
+        el("button", { class: "btn small secondary", onclick: () => importInput.click() }, ["Import a " + NOUN + " from file"]),
         importInput,
       ]),
       actions,
-      el("h3", { class: "library-section-heading" }, ["Saved rollcages"]),
+      el("h3", { class: "library-section-heading" }, ["Saved " + NOUN + "s"]),
       list,
       templates.length ? el("h3", { class: "library-section-heading" }, ["Design templates"]) : null,
       templates.length ? templateList : null,
@@ -2005,7 +2081,13 @@
       })
     );
 
-    if (state.vehicleExpanded) {
+    if (state.vehicleExpanded) appendVehicleFields(vehiclePanel);
+    root.appendChild(vehiclePanel);
+  }
+  // The vehicle's own fields -- the rollcage app's Vehicle description
+  // panel, and the top of the logbook app's Logbook information.
+  function appendVehicleFields(vehiclePanel) {
+    {
       const nameField = el("div", { class: "field" }, [
         el("label", {}, ["Vehicle / entry name"]),
         el("input", {
@@ -2061,7 +2143,6 @@
         ])
       );
     }
-    root.appendChild(vehiclePanel);
   }
 
   // One of the 2 fixed vehicle-photo slots (3/4 front, 3/4 rear) on the
@@ -2237,10 +2318,12 @@
       if (state.vehicle.org === orgKey) opt.selected = true;
       return opt;
     };
-    const keys = Object.keys(RULES);
-    orgSelect.appendChild(option("none"));
+    const keys = offeredOrgKeys();
+    if (keys.includes("none")) orgSelect.appendChild(option("none"));
     const fullChecklist = keys.filter((k) => !RULES[k].agnostic);
     if (fullChecklist.length) orgSelect.appendChild(el("optgroup", { label: "FIA 253 -- full checklist" }, fullChecklist.map(option)));
+    const docOnly = keys.filter((k) => RULES[k].docOnly);
+    if (docOnly.length) orgSelect.appendChild(el("optgroup", { label: "Documentation only -- no compliance check yet" }, docOnly.map(option)));
     const byGroup = {};
     keys.filter((k) => RULES[k].passTech).forEach((k) => {
       const g = RULES[k].passTech.disciplineGroup;
@@ -2303,7 +2386,7 @@
     const need = tier.minSizes.map(fmtTube).join(" or ");
     const where = weightLbs == null ? "" : " for " + Math.round(weightLbs) + " lbs";
     const target = { elementId };
-    if (od == null || wall == null) return { label, status: "pending", detail: "Enter its size in Part 2 (needs " + need + where + ")", target };
+    if (od == null || wall == null) return { label, status: "pending", detail: "Enter its size in " + partName(2) + " (needs " + need + where + ")", target };
     const ok = tier.minSizes.some((sz) => od >= sz.outerDiameterIn - 1e-6 && wall >= sz.wallThicknessIn - 1e-6);
     return { label, status: ok ? "pass" : "fail", detail: +od.toFixed(3) + '" x ' + +wall.toFixed(3) + '" -- needs at least ' + need + where, target };
   }
@@ -2315,7 +2398,7 @@
     if (rule.rolloverProtectionRequiresFullCage) {
       const target = { elementId: "main_structure_layout" };
       checks.push(!layout
-        ? { label: "Full roll cage", status: "pending", detail: "Choose a base structure layout in Part 1", target }
+        ? { label: "Full roll cage", status: "pending", detail: "Choose a base structure layout in " + partName(1), target }
         : layout === "half-rollcage"
           ? { label: "Full roll cage", status: "fail", detail: "A roll bar / half rollcage isn't accepted -- a full cage is required", target }
           : { label: "Full roll cage", status: "pass", detail: "Full cage", target });
@@ -2349,7 +2432,7 @@
         ? { label: "Welded mounting plates", status: "fail", detail: "Bolted mounting feet aren't accepted", target }
         : types.length && types.every((t) => t === "welded")
           ? { label: "Welded mounting plates", status: "pass", detail: "All feet welded", target }
-          : { label: "Welded mounting plates", status: "pending", detail: "Mark each mounting foot bolted or welded in Part 1", target });
+          : { label: "Welded mounting plates", status: "pending", detail: "Mark each mounting foot bolted or welded in " + partName(1), target });
     }
     if (rule.materialNote) checks.push({ label: "Material", status: "manual", detail: rule.materialNote });
     if (rule.rolloverProtectionRequiresWelded) checks.push({ label: "Welded construction", status: "manual", detail: "Cage joints must be welded (no bolt-together joints)" });
@@ -2406,6 +2489,10 @@
   }
 
   function appendLogbookFields(logbookPanel) {
+    appendHomologationRouteField(logbookPanel);
+    appendLogbookPaperworkFields(logbookPanel);
+  }
+  function appendHomologationRouteField(logbookPanel) {
     const orgRules = RULES[state.vehicle.org];
 
     // This app only checks new-construction compliance now -- grandfathering
@@ -2445,7 +2532,9 @@
       }
       logbookPanel.appendChild(routeField);
     }
-
+  }
+  function appendLogbookPaperworkFields(logbookPanel) {
+    const routeAnswer = getAnswer("homologation_route");
     // Only meaningful for a homologated cage (the FIA/ASN certificate # is
     // what ties it to its homologation papers) -- hidden rather than just
     // disabled once that's no longer the selected route, since the route
@@ -2533,6 +2622,241 @@
     logbookPanel.appendChild(el("div", { class: "field" }, [el("label", {}, ["Notes"]), notesInput]));
   }
 
+  // ---- Logbook events (logbook app) --------------------------------------
+  // One entry per event the car entered, like a paper logbook's event
+  // pages: event, date, driver, the tech inspection result (with optional
+  // notes), who inspected it (optional scrutineer, chief scrutineer) and
+  // optional event notes -- e.g. a crash. Rollcage damage gets its own
+  // photos and the damaged parts marked on the 3D model.
+  function eventUid() { return "ev_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6); }
+  function newLogbookEvent() {
+    return {
+      id: eventUid(), name: "", date: new Date().toISOString().slice(0, 10), driver: "",
+      techResult: "", techNotes: "", scrutineerName: "", scrutineerLicense: "", chiefName: "", chiefLicense: "",
+      notes: "", damage: null,
+    };
+  }
+  function eventsInOrder() {
+    // Newest first, like flipping to the last filled-in page.
+    return state.events.slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  }
+  function eventTextField(ev, label, key, opts) {
+    const o = opts || {};
+    const input = el(o.multiline ? "textarea" : "input", Object.assign(
+      { class: o.multiline ? "note-input" : "", placeholder: o.placeholder || "" },
+      o.multiline ? {} : { type: o.type || "text", value: ev[key] || "" },
+      { onchange: (e) => { ev[key] = e.target.value; markDirty(); if (o.rerender) render(); } }
+    ));
+    if (o.multiline) input.value = ev[key] || "";
+    return el("div", { class: "field" }, [el("label", {}, [label]), input]);
+  }
+  function damagedPartLabel(file) {
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    const elmId = CAGE_FILE_OWNER[file];
+    const elm = elmId && path && path.elements.find((e) => e.id === elmId);
+    const part = file.replace(/\.(stl|virtual)$/i, "");
+    return elm && elm.name !== part ? elm.name + " (" + part + ")" : part;
+  }
+  function renderLogbookEvents(panel) {
+    panel.appendChild(el("div", { class: "category-heading logbook-events-heading", id: "logbook-events" }, [
+      "Events (" + state.events.length + ")",
+    ]));
+    panel.appendChild(el("div", { class: "toolbar" }, [
+      el("button", {
+        class: "btn small", disabled: !!state.damageSelectMode,
+        onclick: () => {
+          const ev = newLogbookEvent();
+          state.events.push(ev);
+          state.expandedEvents[ev.id] = true;
+          markDirty();
+          render();
+        },
+      }, ["Add event"]),
+    ]));
+    if (!state.events.length) {
+      panel.appendChild(el("div", { class: "element-desc" }, ["No events yet -- add one for each event the car enters, with its tech inspection result."]));
+      return;
+    }
+    const list = el("div", { class: "logbook-event-list" });
+    eventsInOrder().forEach((ev) => list.appendChild(renderLogbookEvent(ev)));
+    panel.appendChild(list);
+  }
+  function renderLogbookEvent(ev) {
+    const open = !!state.expandedEvents[ev.id];
+    const result = ev.techResult === "pass" ? "PASS" : ev.techResult === "fail" ? "FAIL" : "Not inspected";
+    const card = el("div", { class: "logbook-event state-" + (ev.techResult === "pass" ? "pass" : ev.techResult === "fail" ? "fail" : "warn"), id: "event-" + ev.id });
+    const summary = [ev.date || "No date", ev.name || "Unnamed event", ev.driver].filter(Boolean).join(" — ");
+    card.appendChild(el("div", { class: "logbook-event-head", onclick: () => { state.expandedEvents[ev.id] = !open; render(); } }, [
+      el("span", { class: "logbook-event-title" }, [summary]),
+      ev.damage && ev.damage.present ? el("span", { class: "logbook-event-badge damage" }, ["Rollcage damage"]) : null,
+      el("span", { class: "logbook-event-badge result-" + (ev.techResult || "none") }, [result]),
+      el("span", { class: "logbook-event-toggle" }, [open ? "▴" : "▾"]),
+    ]));
+    if (!open) return card;
+
+    const body = el("div", { class: "logbook-event-body" });
+    body.appendChild(el("div", { class: "field-row" }, [
+      eventTextField(ev, "Event name", "name", { placeholder: "e.g. NEFR 2026", rerender: true }),
+      eventTextField(ev, "Event date", "date", { type: "date", rerender: true }),
+    ]));
+    body.appendChild(el("div", { class: "field-row" }, [eventTextField(ev, "Driver name", "driver", { rerender: true })]));
+    body.appendChild(el("div", { class: "field" }, [
+      el("label", {}, ["Tech inspection result"]),
+      el("div", { class: "radio-group" }, [
+        radioOption("tech_" + ev.id, "pass", "Pass", ev.techResult === "pass", (v) => { ev.techResult = v; markDirty(); render(); }),
+        radioOption("tech_" + ev.id, "fail", "Fail", ev.techResult === "fail", (v) => { ev.techResult = v; markDirty(); render(); }),
+      ]),
+    ]));
+    body.appendChild(eventTextField(ev, "Tech inspection notes (optional)", "techNotes", { multiline: true, placeholder: "e.g. OK to run" }));
+    body.appendChild(el("div", { class: "field-row" }, [
+      eventTextField(ev, "Scrutineer name (optional)", "scrutineerName"),
+      eventTextField(ev, "Scrutineer license (optional)", "scrutineerLicense"),
+    ]));
+    body.appendChild(el("div", { class: "field-row" }, [
+      eventTextField(ev, "Chief Scrutineer name", "chiefName"),
+      eventTextField(ev, "Chief Scrutineer license", "chiefLicense", { placeholder: "e.g. A-23" }),
+    ]));
+    body.appendChild(eventTextField(ev, "Event notes (optional)", "notes", { multiline: true, placeholder: "e.g. rolled on stage 4, front of the car damaged" }));
+    body.appendChild(renderEventDamage(ev));
+    body.appendChild(el("div", { class: "toolbar" }, [
+      el("button", {
+        class: "btn small secondary", disabled: !!state.damageSelectMode,
+        onclick: () => {
+          if (!confirm("Delete the event \"" + (ev.name || "Unnamed event") + "\"? This can't be undone.")) return;
+          const photoIds = ev.damage ? (ev.damage.photos || []).map((p) => p.id).concat(ev.damage.modelShotId ? [ev.damage.modelShotId] : []) : [];
+          photoIds.forEach((id) => { deletePictureRecord(id); delete pictureImageCache[id]; });
+          state.events = state.events.filter((x) => x !== ev);
+          if (state.damageViewEventId === ev.id) state.damageViewEventId = null;
+          markDirty();
+          render();
+        },
+      }, ["Delete event"]),
+    ]));
+    card.appendChild(body);
+    return card;
+  }
+  function renderEventDamage(ev) {
+    const box = el("div", { class: "logbook-event-damage" });
+    const present = !!(ev.damage && ev.damage.present);
+    const toggle = el("input", {
+      type: "checkbox", id: "damage_" + ev.id,
+      onchange: (e) => {
+        ev.damage = Object.assign({ photos: [], files: [], modelShotId: null }, ev.damage || {}, { present: e.target.checked });
+        markDirty();
+        render();
+      },
+    });
+    toggle.checked = present;
+    box.appendChild(el("label", { class: "checkbox-label", for: "damage_" + ev.id }, [toggle, " The rollcage was damaged at this event"]));
+    if (!present) return box;
+
+    // Damage photos (same compressed-JPEG picture store as everywhere else).
+    const photos = ev.damage.photos || (ev.damage.photos = []);
+    const photoInput = el("input", {
+      type: "file", accept: "image/*", multiple: true, disabled: !!state.damageSelectMode,
+      onchange: (e) => {
+        const files = [...(e.target.files || [])];
+        if (!files.length) return;
+        Promise.all(files.map((f) => compressImageToDataUrl(f, 2048, 0.85))).then((urls) => {
+          urls.forEach((dataUrl) => {
+            const id = picUid();
+            putPictureRecord(id, { photo: dataUrl, screenshot: null });
+            pictureImageCache[id] = { photo: dataUrl };
+            photos.push({ id });
+          });
+          markDirty();
+          render();
+        });
+      },
+    });
+    box.appendChild(el("div", { class: "field" }, [el("label", {}, ["Damage photos"]), photoInput]));
+    if (photos.length) {
+      const grid = el("div", { class: "damage-photo-grid" });
+      photos.forEach((p) => {
+        loadPictureImage(p.id);
+        const cached = pictureImageCache[p.id] || {};
+        grid.appendChild(el("div", { class: "photo-thumb" }, [
+          cached.photo
+            ? el("img", { src: cached.photo, alt: "Damage photo", onclick: () => { state.mediaViewer = { image: cached.photo, caption: (ev.name || "Event") + " -- rollcage damage" }; render(); } })
+            : el("div", { class: "picture-card-loading" }, ["…"]),
+          el("button", {
+            type: "button", title: "Delete photo",
+            onclick: () => { ev.damage.photos = photos.filter((x) => x !== p); deletePictureRecord(p.id); delete pictureImageCache[p.id]; markDirty(); render(); },
+          }, ["×"]),
+        ]));
+      });
+      box.appendChild(grid);
+    }
+
+    // Damaged parts, marked on the 3D model.
+    const files = ev.damage.files || (ev.damage.files = []);
+    const viewing = state.damageViewEventId === ev.id;
+    box.appendChild(el("div", { class: "toolbar" }, [
+      el("button", {
+        class: "btn small", disabled: !!state.damageSelectMode || !!state.pictureSelectMode,
+        onclick: () => { state.damageSelectMode = { eventId: ev.id, files: new Set(files) }; state.damageViewEventId = null; render(); },
+      }, [files.length ? "Edit damaged parts on the 3D model" : "Mark damaged parts on the 3D model"]),
+      files.length ? el("button", {
+        class: "btn small secondary", disabled: !!state.damageSelectMode,
+        onclick: () => { state.damageViewEventId = viewing ? null : ev.id; render(); },
+      }, [viewing ? "Stop showing on the 3D model" : "Show on the 3D model"]) : null,
+    ]));
+    if (files.length) {
+      box.appendChild(el("div", { class: "picture-elements" }, files.map((f) => el("span", { class: "picture-element-chip damage-chip" }, [damagedPartLabel(f)]))));
+    }
+    return box;
+  }
+  function finishDamageSelectMode() {
+    const mode = state.damageSelectMode;
+    if (!mode) return;
+    const ev = state.events.find((x) => x.id === mode.eventId);
+    state.damageSelectMode = null;
+    if (ev) {
+      ev.damage = Object.assign({ photos: [], present: true }, ev.damage || {});
+      ev.damage.files = [...mode.files];
+      // A still of the marked model for the PDF report (same preserved
+      // drawing buffer picture tagging uses for its own screenshots).
+      const canvas = document.querySelector("#cageViewerContainer canvas");
+      if (ev.damage.modelShotId) { deletePictureRecord(ev.damage.modelShotId); delete pictureImageCache[ev.damage.modelShotId]; }
+      ev.damage.modelShotId = null;
+      if (canvas && mode.files.size) {
+        const id = picUid();
+        putPictureRecord(id, { photo: canvas.toDataURL("image/jpeg", 0.85), screenshot: null });
+        ev.damage.modelShotId = id;
+      }
+      state.damageViewEventId = ev.id;
+      markDirty();
+    }
+    render();
+  }
+  function cancelDamageSelectMode() { state.damageSelectMode = null; render(); }
+  async function buildReportEvents() {
+    const out = [];
+    for (const ev of eventsInOrder()) {
+      const lines = [
+        { label: "Event date", value: ev.date || "" },
+        { label: "Driver", value: ev.driver || "" },
+        { label: "Tech inspection", value: ev.techResult === "pass" ? "Pass" : ev.techResult === "fail" ? "Fail" : "Not inspected" },
+      ];
+      if (ev.techNotes) lines.push({ label: "Tech notes", value: ev.techNotes });
+      if (ev.scrutineerName || ev.scrutineerLicense) lines.push({ label: "Scrutineer", value: [ev.scrutineerName, ev.scrutineerLicense && "lic. " + ev.scrutineerLicense].filter(Boolean).join(", ") });
+      if (ev.chiefName || ev.chiefLicense) lines.push({ label: "Chief Scrutineer", value: [ev.chiefName, ev.chiefLicense && "lic. " + ev.chiefLicense].filter(Boolean).join(", ") });
+      if (ev.notes) lines.push({ label: "Event notes", value: ev.notes });
+      const entry = { title: ev.name || "Unnamed event", result: ev.techResult || "", lines };
+      if (ev.damage && ev.damage.present) {
+        const photos = [];
+        for (const p of ev.damage.photos || []) {
+          const rec = await getPictureRecord(p.id).catch(() => null);
+          if (rec && rec.photo) photos.push(rec.photo);
+        }
+        const shot = ev.damage.modelShotId ? await getPictureRecord(ev.damage.modelShotId).catch(() => null) : null;
+        entry.damage = { parts: (ev.damage.files || []).map(damagedPartLabel), photos, modelShot: shot && shot.photo };
+      }
+      out.push(entry);
+    }
+    return out;
+  }
+
   function radioOption(name, value, label, checked, onChange) {
     const input = el("input", {
       type: "radio",
@@ -2599,14 +2923,22 @@
   const WELDS_PHASE = 4;
   const SEATS_PHASE = 5;
   const LOGBOOK_PHASE = 6;
-  const PHASE_LABELS = {
-    1: "Part 1 — Structure & design choices",
-    2: "Part 2 — Tubing sizes & materials",
-    [INSTALLATION_PHASE]: "Part 3 — Installation constraints",
-    [WELDS_PHASE]: "Part 4 — Welds",
-    [SEATS_PHASE]: "Part 5 — Seats, belts & routing",
-    [LOGBOOK_PHASE]: "Part 6 — Sanctioning body compliance / Logbook",
+  const PHASE_TITLES = {
+    1: "Structure & design choices",
+    2: "Tubing sizes & materials",
+    [INSTALLATION_PHASE]: "Installation constraints",
+    [WELDS_PHASE]: "Welds",
+    [SEATS_PHASE]: "Seats, belts & routing",
+    [LOGBOOK_PHASE]: CFG.logbook ? "Logbook information" : "Sanctioning body compliance",
   };
+  // Display order (and so each part's number): the logbook app puts its
+  // Logbook information first, ahead of the cage's own parts.
+  const PHASE_ORDER = CFG.logbook
+    ? [LOGBOOK_PHASE, 1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE]
+    : [1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE, LOGBOOK_PHASE];
+  function partName(phase) { return "Part " + (PHASE_ORDER.indexOf(phase) + 1); }
+  const PHASE_LABELS = {};
+  PHASE_ORDER.forEach((p) => { PHASE_LABELS[p] = partName(p) + " — " + PHASE_TITLES[p]; });
   // Padding and sections 9-11 of the source document (seat mounting, belt
   // anchoring, routing of lines) are a distinct later stage of the
   // inspection -- occupant safety equipment rather than the cage structure
@@ -2815,7 +3147,7 @@
   // Throws on any failure (network, non-2xx, bad JSON) rather than returning
   // an error shape, so callers can use plain try/catch.
   async function callAnalyzeCageApi(images, elements) {
-    const resp = await fetch("api/analyze-cage", {
+    const resp = await fetch(CFG.apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ images, elements }),
@@ -3356,7 +3688,7 @@
     // directly, gated on this phase in render()) so nothing ever populates
     // phases[LOGBOOK_PHASE] -- it's still always offered as a destination.
     usedPhases.push(LOGBOOK_PHASE);
-    return { phases, usedPhases };
+    return { phases, usedPhases: PHASE_ORDER.filter((p) => usedPhases.includes(p)) };
   }
   // Safety score / Vehicle description always trail the checklist -- Logbook
   // used to as well, but now it's its own phase (LOGBOOK_PHASE), gated the
@@ -4727,7 +5059,7 @@
     // computed during a render pass. Set even while collapsed, since the
     // badge keeps showing the total either way.
     lastSafetyScoreSummary = { totalPoints, ratedRows };
-    const title = "Safety score" + (ratedRows ? ": " + (totalPoints > 0 ? "+" : "") + totalPoints : "");
+    const title = "Frog Safety score" + (ratedRows ? ": " + (totalPoints > 0 ? "+" : "") + totalPoints : "");
     panel.appendChild(
       collapsiblePanelHeader(title, state.safetyScoreExpanded, () => {
         state.safetyScoreExpanded = !state.safetyScoreExpanded;
@@ -4739,7 +5071,7 @@
       return;
     }
     if (noLayout) {
-      panel.appendChild(el("div", { class: "safety-score-placeholder" }, ["Choose a base structure layout in Part 1 to see the safety score."]));
+      panel.appendChild(el("div", { class: "safety-score-placeholder" }, ["Choose a base structure layout in " + partName(1) + " to see the Frog Safety score."]));
       root.appendChild(panel);
       return;
     }
@@ -4801,6 +5133,9 @@
       const checked = checks.filter((c) => c.status !== "manual");
       return { kind: "passtech", verdict, summary: checked.filter((c) => c.status === "pass").length + " / " + checked.length + " checked items met" };
     }
+    if (rules && rules.docOnly) {
+      return { kind: "doc", verdict: { level: "neutral", label: rules.orgFullName + " -- documentation only" }, summary: "No automatic compliance check yet" };
+    }
     if (!rules || rules.agnostic) {
       return { kind: "none", verdict: { level: "neutral", label: "No sanctioning body selected" }, summary: "Pick one to check the cage against its rules" };
     }
@@ -4838,10 +5173,21 @@
         ),
       ])
     );
+    if (CFG.logbook) {
+      // The logbook's own page: the vehicle first (what the Vehicle
+      // description panel shows in the rollcage app), then its sanctioning
+      // body and compliance, then the logbook paperwork and its events.
+      panel.appendChild(el("div", { class: "category-heading" }, ["Vehicle"]));
+      appendVehicleFields(panel);
+      panel.appendChild(el("div", { class: "category-heading" }, ["Sanctioning body"]));
+    }
     panel.appendChild(renderSanctioningBodyField());
-    if (compliance.kind === "none") {
+    if (compliance.kind === "doc") {
+      panel.appendChild(el("div", { class: "verdict neutral" }, [compliance.verdict.label]));
+      panel.appendChild(el("div", { class: "element-desc" }, [RULES[state.vehicle.org].docNote || ""]));
+    } else if (compliance.kind === "none") {
       panel.appendChild(el("div", { class: "element-desc" }, [
-        "No sanctioning body is selected, so the checklist isn't judged against any rulebook -- cards only show what's answered, and the safety score rates the design itself. Pick a sanctioning body above to check the cage against its rules.",
+        "No sanctioning body is selected, so the checklist isn't judged against any rulebook -- cards only show what's answered, and the Frog Safety score rates the design itself. Pick a sanctioning body above to check the cage against its rules.",
       ]));
     } else if (compliance.kind === "passtech") {
       renderPassTechCompliance(panel, RULES[state.vehicle.org].passTech);
@@ -4855,20 +5201,16 @@
         compliance.results = computeResults(gf);
       }
       renderRulebookVerdict(panel, compliance.results);
+      // Whether the cage is FIA/ASN homologated decides the verdict itself
+      // (a homologated cage is exempt from the rest of the checklist).
+      if (!CFG.logbook) appendHomologationRouteField(panel);
     }
 
-    panel.appendChild(el("div", { class: "category-heading" }, ["Logbook details"]));
-    appendLogbookFields(panel);
-
-    panel.appendChild(
-      el("div", { class: "toolbar" }, [
-        el(
-          "button",
-          { class: "btn secondary", disabled: state.pdfReportStatus === "generating", onclick: generateLogbookApplicationPdf },
-          [state.pdfReportStatus === "generating" ? "Generating…" : "Logbook application PDF"]
-        ),
-      ])
-    );
+    if (CFG.logbook) {
+      panel.appendChild(el("div", { class: "category-heading" }, ["Logbook details"]));
+      appendLogbookFields(panel);
+      renderLogbookEvents(panel);
+    }
 
     root.appendChild(panel);
   }
@@ -4935,6 +5277,7 @@
     // currently tagged in a picture's "Edit rollcage elements" mode. See
     // computeCageColors' two overlay blocks below.
     aiPreview: "#39ff14",
+    damage: "#ff2d2d", // an event's damaged parts (logbook app)
     // Driver/Codriver mannequins -- seat shell and body render dim/ghosted
     // (not a compliance item themselves, and shouldn't visually compete
     // with actual cage tubes), while whatever they're holding (steering
@@ -6435,6 +6778,18 @@
     // actually tagged. A tag with no known value (an element tagged before
     // it had a checklist answer) highlights nothing -- there's no single
     // "correct" shape to show yet.
+    // Marking (or viewing) an event's rollcage damage: only the damaged
+    // parts show, in red, everything else ghosted -- same idea as picture
+    // tagging below.
+    const damageFiles = state.damageSelectMode ? state.damageSelectMode.files
+      : state.damageViewEventId ? new Set(((state.events.find((x) => x.id === state.damageViewEventId) || {}).damage || {}).files || []) : null;
+    if (damageFiles) {
+      Object.keys(colors).forEach((f) => {
+        if (colors[f] === "hidden" || DRIVER_FILES.indexOf(f) !== -1 || CODRIVER_FILES.indexOf(f) !== -1) return;
+        delete colors[f];
+      });
+      damageFiles.forEach((f) => { colors[f] = CAGE_COLOR.damage; });
+    }
     // Only this picture's own tags show -- every other colored bar (the
     // checklist's answers) goes back to a ghost, so the model shows what's
     // visible in this photo, not the whole cage plus the tags on top.
@@ -7061,6 +7416,7 @@
     return null;
   }
   function handleCagePartDoubleClick(file, frac) {
+    if (state.damageSelectMode) return; // single clicks toggle there
     // Picture "Edit rollcage elements" mode: double-click toggles a sill
     // bar on/off for whichever door bar design is CURRENTLY tagged there --
     // a sill bar is an extra sub-toggle on the door_bars_left/right answer
@@ -7219,6 +7575,13 @@
     return [];
   }
   function handleCagePartClick(file) {
+    // Marking an event's damaged parts: a click toggles that part.
+    if (state.damageSelectMode) {
+      const files = state.damageSelectMode.files;
+      if (files.has(file)) files.delete(file); else files.add(file);
+      render();
+      return;
+    }
     // Picture "Edit rollcage elements" mode overrides every other click
     // behavior while active. selected's values are {value, extra} objects
     // (extra mirrors a real answer's own extra sub-fields, e.g. door bars'
@@ -7392,7 +7755,9 @@
     const tooltip = document.getElementById("cageViewerTooltip");
     if (!tooltip) return;
     let label = null;
-    if (file && state.pictureSelectMode) {
+    if (file && state.damageSelectMode) {
+      label = damagedPartLabel(file) + (state.damageSelectMode.files.has(file) ? " -- damaged (click to unmark)" : " -- click to mark as damaged");
+    } else if (file && state.pictureSelectMode) {
       label = pictureTagHoverLabel(file);
     } else if (file && (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE)) {
       const target = resolvePart3WeldTarget(file, frac);
@@ -7447,6 +7812,13 @@
     // elements -- the safety score is about the checklist's answers, not
     // about a specific photo, so showing it here during picture tagging
     // would be misleading; a plain non-interactive label instead.
+    if (state.damageSelectMode) {
+      btn.hidden = false;
+      btn.textContent = "Damaged parts selection";
+      btn.className = "cage-viewer-safety-score";
+      btn.onclick = null;
+      return;
+    }
     if (state.pictureSelectMode) {
       btn.hidden = false;
       btn.textContent = "Picture elements selection";
@@ -7460,7 +7832,7 @@
     }
     const totalPoints = lastSafetyScoreSummary.totalPoints;
     btn.hidden = false;
-    btn.textContent = "Safety score: " + (totalPoints > 0 ? "+" : "") + totalPoints;
+    btn.textContent = "Frog Safety score: " + (totalPoints > 0 ? "+" : "") + totalPoints;
     btn.className = "cage-viewer-safety-score " + (totalPoints > 0 ? "tier-green" : totalPoints < 0 ? "tier-red" : "tier-orange");
     btn.onclick = () => {
       if (!state.safetyScoreExpanded) {
@@ -7490,13 +7862,19 @@
     const thumb = document.getElementById("cageViewerPictureModeThumb");
     if (!buttons || !banner) return;
     const mode = state.pictureSelectMode;
-    const active = !!mode;
+    const active = !!mode || !!state.damageSelectMode;
     buttons.hidden = active;
     banner.hidden = !active;
+    const bannerText = banner.querySelector("span");
+    if (bannerText) {
+      bannerText.textContent = state.damageSelectMode
+        ? "Marking damaged parts -- click each damaged bar, gusset or foot."
+        : "Selecting parts for this picture — click a bar to tag it (or cycle its design options).";
+    }
     if (partDropdown) partDropdown.hidden = active;
     if (part3Controls) part3Controls.hidden = active;
     if (thumb) {
-      const cached = active && pictureImageCache[mode.pictureId];
+      const cached = mode && pictureImageCache[mode.pictureId]; // (no picture while marking damage)
       if (cached && cached.photo) {
         thumb.src = cached.photo;
         thumb.hidden = false;
@@ -7604,7 +7982,8 @@
     renderSessionBar(document.getElementById("sessionBarHolder"));
     renderModals(document.getElementById("modalHolder"));
 
-    renderVehicleDescription(root);
+    // (The logbook app shows the vehicle inside Logbook information.)
+    if (!CFG.logbook) renderVehicleDescription(root);
 
     const path = RULES[state.vehicle.org].paths[state.pathId];
     // Logbook (verdict for the selected sanctioning body, merged with its
@@ -7626,7 +8005,7 @@
 
   // ---- Boot -------------------------------------------------------
 
-  const APP_TOUR_SEEN_KEY = "rollcage-app-tour-seen";
+  const APP_TOUR_SEEN_KEY = CFG.tourSeenKey;
 
   function boot() {
     const buildEl = document.getElementById("buildNumber");
@@ -7636,7 +8015,7 @@
     // Installable app / offline support (see sw.js) -- a progressive
     // enhancement, silently skipped where unsupported (e.g. file://).
     if ("serviceWorker" in navigator && location.protocol !== "file:") {
-      navigator.serviceWorker.register("sw.js").then((reg) => {
+      navigator.serviceWorker.register(CFG.swUrl).then((reg) => {
         reg.update().catch(() => {});
         window.addEventListener("online", () => reg.update().catch(() => {}));
       }).catch(() => {});
@@ -7681,10 +8060,12 @@
         syncCageView();
       });
     }
+    // The viewer banner's Done/Cancel serve both picture tagging and
+    // marking an event's damaged parts.
     const pmDone = document.getElementById("cageViewerPictureModeDone");
-    if (pmDone) pmDone.addEventListener("click", finishPictureSelectMode);
+    if (pmDone) pmDone.addEventListener("click", () => (state.damageSelectMode ? finishDamageSelectMode() : finishPictureSelectMode()));
     const pmCancel = document.getElementById("cageViewerPictureModeCancel");
-    if (pmCancel) pmCancel.addEventListener("click", cancelPictureSelectMode);
+    if (pmCancel) pmCancel.addEventListener("click", () => (state.damageSelectMode ? cancelDamageSelectMode() : cancelPictureSelectMode()));
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
       if (pendingUnsavedProceed) resolveUnsavedDialog("cancel");

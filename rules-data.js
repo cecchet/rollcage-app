@@ -146,6 +146,12 @@
   // id (optionOverrides), append new options (addOptions), patch table
   // columns by key (columnOverrides), or fully replace the tubing
   // sub-fields (tubing is always org-specific, never shared).
+  // "Part N" as the app numbers it: the logbook app (window.APP_CONFIG.
+  // logbook) puts its Logbook information first, so the cage's own parts
+  // shift up by one there -- same order as app.js's PHASE_ORDER.
+  const LOGBOOK_APP = !!(window.APP_CONFIG && window.APP_CONFIG.logbook);
+  function PART(n) { return "Part " + (LOGBOOK_APP ? (n === 6 ? 1 : n + 1) : n); }
+
   function patchElements(base, patches) {
     return base.map((el) => {
       const p = patches[el.id];
@@ -613,7 +619,7 @@
       category: "Welds",
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.6",
-      description: "Minimum one mounting point per front-rollbar pillar, per lateral/half-lateral-rollbar pillar, per main-rollbar pillar, and per backstay (six total for the common 253-3 layout). Location is given from the driver's perspective (left is driver side in a LHD car). Design, bolted/welded, and plate size are captured in Part 1/Part 2.",
+      description: "Minimum one mounting point per front-rollbar pillar, per lateral/half-lateral-rollbar pillar, per main-rollbar pillar, and per backstay (six total for the common 253-3 layout). Location is given from the driver's perspective (left is driver side in a LHD car). Design, bolted/welded, and plate size are captured in " + PART(1) + "/" + PART(2) + ".",
       evaluationType: "table",
       rows: MOUNTING_FEET_ROWS,
       columns: WELD_COLUMNS,
@@ -2191,7 +2197,7 @@
       category: "Mounting feet",
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.6",
-      description: "One of 5 plate designs per foot: 253-50/51/52 (single plane plate), 253-53 (double plane plate), 253-54 (multiplane box), 253-55/56 (multiplane rocker plate), or 253-57 (flat or curved plate -- technically for the rear backstays only, but captured here for identification either way). Plate size and weld completion are captured in Part 3.",
+      description: "One of 5 plate designs per foot: 253-50/51/52 (single plane plate), 253-53 (double plane plate), 253-54 (multiplane box), 253-55/56 (multiplane rocker plate), or 253-57 (flat or curved plate -- technically for the rear backstays only, but captured here for identification either way). Plate size and weld completion are captured in " + PART(3) + ".",
       evaluationType: "table",
       rows: (getAnswer) => mountingFeetDesignRows(getAnswer),
       columns: [
@@ -2214,7 +2220,7 @@
       category: "Gussets",
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1",
-      description: "Minimum 2 gussets required at main-rollbar diagonal junctions, roof-bar junctions, door-bar junctions, and (where present) windshield-bar and rear-lower-X junctions. Each is built either as a taco (a sleeve wrapped around the two tubes) or a single flat plate spanning them. Material/thickness and dimensions are captured in Part 2 and Part 3.",
+      description: "Minimum 2 gussets required at main-rollbar diagonal junctions, roof-bar junctions, door-bar junctions, and (where present) windshield-bar and rear-lower-X junctions. Each is built either as a taco (a sleeve wrapped around the two tubes) or a single flat plate spanning them. Material/thickness and dimensions are captured in " + PART(2) + " and " + PART(3) + ".",
       evaluationType: "table",
       rows: (getAnswer) => gussetJunctionRows(getAnswer),
       rowGroups: (getAnswer) => gussetRowGroups(getAnswer),
@@ -2228,7 +2234,7 @@
       category: "Gussets",
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1",
-      description: "Assumes all gussets use the same plate material and thickness. Per-gusset dimensions (length, corner cutout, hole diameter) are captured in Part 3.",
+      description: "Assumes all gussets use the same plate material and thickness. Per-gusset dimensions (length, corner cutout, hole diameter) are captured in " + PART(3) + ".",
       evaluationType: "gussetSolo",
       visuallyVerifiable: false,
       hardFail: true,
@@ -2239,7 +2245,7 @@
       category: "Gussets",
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1 (diagram 253-34)",
-      description: "One row per gusset location confirmed present in Part 1.\nD = outer diameter of the biggest tube joined.\nH = diameter of the hole (if present).\nR = radius of the corner cutout (if present).\nE = length of the gusset.",
+      description: "One row per gusset location confirmed present in " + PART(1) + ".\nD = outer diameter of the biggest tube joined.\nH = diameter of the hole (if present).\nR = radius of the corner cutout (if present).\nE = length of the gusset.",
       diagram: "gusset-dims",
       evaluationType: "table",
       // Only gussets actually confirmed as taco/single-plate in Part 1's
@@ -3032,8 +3038,8 @@
   // judged in Part 6 against their own rollover protection rule instead.
   const AGNOSTIC_ELEMENTS = patchElements(FIA_253_DOCUMENT_BASE, {
     homologation_route: { reference: "" },
-    primary_tubing: { reference: "Size check depends on the sanctioning body -- see Part 6" },
-    secondary_tubing: { reference: "Size check depends on the sanctioning body -- see Part 6" },
+    primary_tubing: { reference: "Size check depends on the sanctioning body -- see " + PART(6) },
+    secondary_tubing: { reference: "Size check depends on the sanctioning body -- see " + PART(6) },
   }).concat(FIA_253_COMMON_TAIL);
   // ---- Generic FIA Appendix J Article 253 (2020), Chapter 8 ----
   // The FIA base checklist judged as written, with FIA's own minimum tube
@@ -3091,6 +3097,26 @@
     paths: {
       new_construction: { label: "New Construction", reference: "2020 FIA Appendix J Article 253, Chapter 8", elements: AGNOSTIC_ELEMENTS },
     },
+  };
+
+  // Documentation-only sanctioning bodies -- offered by the logbook app so a
+  // logbook can record which body logbooked the car (older cages are often
+  // logbooked under a body that no longer exists). The cage is documented
+  // through the same agnostic checklist; there's no automatic compliance
+  // check until their rules are encoded.
+  function docOnlyRules(org, orgFullName, docNote) {
+    return {
+      org, orgFullName, agnostic: true, docOnly: true, docNote,
+      paths: { new_construction: { label: "Documented cage", elements: AGNOSTIC_ELEMENTS } },
+    };
+  }
+  const DOC_ONLY_RULES = {
+    "scca-prorally": docOnlyRules("SCCA ProRally", "SCCA ProRally",
+      "SCCA ProRally's roll cage rules aren't encoded yet, so a cage logbooked under SCCA ProRally is documented here without an automatic compliance check -- record what its logbook says in the logbook details and events."),
+    "rally-america": docOnlyRules("Rally America", "Rally America",
+      "Rally America's roll cage rules aren't encoded yet, so a cage logbooked under Rally America is documented here without an automatic compliance check -- record what its logbook says in the logbook details and events."),
+    "fia-passport": docOnlyRules("FIA passport", "FIA passport",
+      "A car with an FIA passport is checked against its passport and homologation papers rather than a checklist verdict -- record the passport details in the logbook details, and each event's inspection below."),
   };
 
   window.RULES_DATA = {
@@ -3248,6 +3274,7 @@
     },
     ara: ARA_RULES,
     cars: CARS_RULES,
+    ...DOC_ONLY_RULES,
   };
 
   // Sanctioning bodies whose rollover protection rule comes from PassTech

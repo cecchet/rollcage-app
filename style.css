@@ -870,3 +870,21 @@ textarea { resize: vertical; min-height: 50px; }
 .tour-intro { position: static; width: min(440px, 100%); max-height: 85vh; }
 .tour-intro h2 { margin: 0; font-size: 1.1rem; }
 .tour-intro-logo { display: block; width: 96px; height: 96px; margin: 12px auto 0; border-radius: 18px; }
+/* Logbook events (logbook app) */
+.logbook-event-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.logbook-event { border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.logbook-event.state-pass { border-left-color: var(--pass); }
+.logbook-event.state-fail { border-left-color: var(--fail); }
+.logbook-event.state-warn { border-left-color: var(--warn); }
+.logbook-event-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; }
+.logbook-event-title { flex: 1 1 auto; font-weight: 600; min-width: 0; }
+.logbook-event-badge { font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); white-space: nowrap; }
+.logbook-event-badge.result-pass { background: var(--pass-bg); color: var(--pass); }
+.logbook-event-badge.result-fail, .logbook-event-badge.damage { background: var(--fail-bg); color: var(--fail); }
+.logbook-event-toggle { color: var(--muted); }
+.logbook-event-body { padding: 0 12px 12px; }
+.logbook-event-damage { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.checkbox-label { display: inline-flex; gap: 6px; align-items: center; font-weight: 600; cursor: pointer; }
+.damage-photo-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.damage-photo-grid .photo-thumb img { cursor: zoom-in; }
+.damage-chip { background: var(--fail-bg); color: var(--fail); }
