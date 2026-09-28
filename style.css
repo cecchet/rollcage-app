@@ -893,3 +893,6 @@ textarea { resize: vertical; min-height: 50px; }
 .footer-affiliate img { display: block; border: 0; }
 .footer-affiliate-disclosure { max-width: 30rem; font-size: 0.72rem; opacity: 0.75; }
 @media print { .footer-affiliate { display: none; } }
+.video-walkaround-row { align-items: flex-end; }
+.video-frame-count { min-width: 5rem; }
+.picture-video-frame { font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 4px; }

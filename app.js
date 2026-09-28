@@ -1635,6 +1635,7 @@
       onStart: () => { state.picturesExpanded = true; },
       steps: [
         { target: "pictures-panel", text: "Photos help document the cage -- they're saved with this " + NOUN + " and included in the PDF report. Nothing here changes the checklist by itself." },
+        { target: "pictures-video", text: "Video walk-around (beta): record a slow walk-around of the cage and the sharpest frames are picked out of it, spread over the whole video, then sorted like photos. A video shows how the bars connect and which side is which; close-up photos are still best for gussets, feet and welds." },
         { target: "pictures-autosort", text: "Not sure where a photo belongs? Automatic AI sorting (beta) takes up to 20 photos at once. Each one waits here until a vision model places it in a category below; one it can't place stays here for you to move." },
         { target: "pictures-cat-overview", text: "Overview is for whole-cage or blueprint shots -- front 3/4, rear 3/4, side, a diagram. It holds more photos than the close-up categories, since those are genuinely different views." },
         { target: "pictures-cat-main_rollbar", text: "Each close-up category holds a few photos of one specific area, so AI analysis only has to consider the designs possible there -- a smaller, more accurate list than the whole cage." },
@@ -3306,6 +3307,161 @@
   }
 
   const PICTURE_LIMIT = 20;
+
+  // ---- Video walk-around -> frames (beta) -------------------------------
+  // A walk-around video shows how the bars connect and which side is which,
+  // but a vision model samples video sparsely and at low detail -- so
+  // instead of sending the video, pull its best frames out right here in
+  // the browser (the video itself never leaves the device) and feed them
+  // through the same photo sorting/analysis as any uploaded photo.
+  // The video is split into as many equal stretches as frames wanted, and
+  // each stretch keeps its sharpest sample (variance of a Laplacian on a
+  // small grayscale copy; too-dark samples lose), so the frames cover the
+  // whole walk-around rather than bunching where the video happens to be
+  // steady.
+  const VIDEO_SAMPLES_PER_SECOND = 2;
+  const VIDEO_MAX_SAMPLES = 240;
+  const VIDEO_SCORE_WIDTH = 256;
+  let videoFramesWanted = 12; // UI-only: the "Frames to take" choice
+  let videoExtraction = null; // UI-only: { status: "scanning"|"saving"|"done"|"error", progress, message }
+  function videoFrameScore(ctx, w, h) {
+    const data = ctx.getImageData(0, 0, w, h).data;
+    const gray = new Float32Array(w * h);
+    let sum = 0;
+    for (let i = 0, j = 0; i < data.length; i += 4, j++) { gray[j] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]; sum += gray[j]; }
+    const mean = sum / (w * h);
+    let lapSum = 0, lapSq = 0, n = 0;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const k = y * w + x;
+        const lap = gray[k - w] + gray[k + w] + gray[k - 1] + gray[k + 1] - 4 * gray[k];
+        lapSum += lap; lapSq += lap * lap; n++;
+      }
+    }
+    const variance = lapSq / n - (lapSum / n) * (lapSum / n);
+    // A mostly black frame (inside the car, lens covered) is useless however sharp its few edges are.
+    return mean < 28 ? variance * 0.1 : variance;
+  }
+  function seekVideo(video, t) {
+    return new Promise((resolve, reject) => {
+      const done = () => { video.removeEventListener("seeked", done); video.removeEventListener("error", fail); resolve(); };
+      const fail = () => { video.removeEventListener("seeked", done); video.removeEventListener("error", fail); reject(new Error("seek failed")); };
+      video.addEventListener("seeked", done);
+      video.addEventListener("error", fail);
+      video.currentTime = t;
+    });
+  }
+  function formatVideoTime(t) {
+    const m = Math.floor(t / 60), sec = Math.floor(t % 60);
+    return m + ":" + String(sec).padStart(2, "0");
+  }
+  async function extractVideoFrames(file, wanted) {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = url;
+    const setStatus = (status, progress, message) => { videoExtraction = { status, progress, message }; render(); };
+    try {
+      await new Promise((resolve, reject) => {
+        video.addEventListener("loadeddata", resolve, { once: true });
+        video.addEventListener("error", () => reject(new Error("unreadable")), { once: true });
+      });
+      let duration = video.duration;
+      // Some recordings (browser-made WebM) only learn their length once
+      // played to the end -- seeking far past it makes the browser find it.
+      if (!isFinite(duration) && video.videoWidth) {
+        await seekVideo(video, 1e9).catch(() => {});
+        duration = video.duration;
+      }
+      if (!isFinite(duration) || duration <= 0 || !video.videoWidth) throw new Error("unreadable");
+      // Pass 1: score evenly spaced samples.
+      const count = Math.max(wanted, Math.min(VIDEO_MAX_SAMPLES, Math.ceil(duration * VIDEO_SAMPLES_PER_SECOND)));
+      const sw = VIDEO_SCORE_WIDTH, sh = Math.max(1, Math.round(sw * video.videoHeight / video.videoWidth));
+      const small = document.createElement("canvas");
+      small.width = sw; small.height = sh;
+      const sctx = small.getContext("2d", { willReadFrequently: true });
+      const samples = [];
+      for (let i = 0; i < count; i++) {
+        const t = Math.min(duration - 0.05, (i + 0.5) * duration / count);
+        await seekVideo(video, t);
+        sctx.drawImage(video, 0, 0, sw, sh);
+        samples.push({ t, score: videoFrameScore(sctx, sw, sh) });
+        if (i % 4 === 0) setStatus("scanning", i / count, "Scanning the video for sharp frames…");
+      }
+      // Sharpest sample per equal stretch of the video.
+      const picks = [];
+      for (let k = 0; k < wanted; k++) {
+        const from = k * duration / wanted, to = (k + 1) * duration / wanted;
+        const inStretch = samples.filter((x) => x.t >= from && x.t < to);
+        if (inStretch.length) picks.push(inStretch.reduce((a, b) => (b.score > a.score ? b : a)));
+      }
+      // Pass 2: the picked frames at full photo resolution.
+      const scale = Math.min(1, 2048 / Math.max(video.videoWidth, video.videoHeight));
+      const full = document.createElement("canvas");
+      full.width = Math.round(video.videoWidth * scale);
+      full.height = Math.round(video.videoHeight * scale);
+      const fctx = full.getContext("2d");
+      const ids = [];
+      for (let i = 0; i < picks.length; i++) {
+        setStatus("saving", i / picks.length, "Saving frame " + (i + 1) + " of " + picks.length + "…");
+        await seekVideo(video, picks[i].t);
+        fctx.drawImage(video, 0, 0, full.width, full.height);
+        const id = picUid();
+        const dataUrl = full.toDataURL("image/jpeg", 0.85);
+        putPictureRecord(id, { photo: dataUrl, screenshot: null });
+        pictureImageCache[id] = { photo: dataUrl };
+        state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false, category: UNSORTED_PICTURES, videoFrame: { name: file.name, t: picks[i].t } });
+        ids.push(id);
+      }
+      markDirty();
+      ids.forEach((id) => queuePictureTriage(id));
+      setStatus("done", 1, picks.length + " frame" + (picks.length === 1 ? "" : "s") + " taken from the video -- they're being sorted below.");
+    } catch (e) {
+      setStatus("error", 0, e.message === "unreadable"
+        ? "This browser can't read that video. iPhone videos (HEVC) may need Safari, or Settings > Camera > Formats > Most Compatible."
+        : "Couldn't take frames from that video (" + e.message + ").");
+    } finally {
+      URL.revokeObjectURL(url);
+      video.removeAttribute("src");
+      video.load();
+    }
+  }
+  function renderVideoWalkaround(totalRemaining) {
+    const busy = videoExtraction && (videoExtraction.status === "scanning" || videoExtraction.status === "saving");
+    const max = Math.max(0, totalRemaining);
+    const wanted = Math.min(videoFramesWanted, max);
+    const countSelect = el("select", { class: "video-frame-count", disabled: busy || max <= 0, onchange: (e) => { videoFramesWanted = Number(e.target.value); } });
+    [4, 6, 8, 10, 12, 16, 20].filter((n) => n <= max).concat(max && ![4, 6, 8, 10, 12, 16, 20].includes(max) && max < 20 ? [max] : [])
+      .sort((a, b) => a - b)
+      .forEach((n) => { const o = el("option", { value: String(n) }, [String(n)]); if (n === wanted) o.selected = true; countSelect.appendChild(o); });
+    if (!countSelect.options.length && max > 0) countSelect.appendChild(el("option", { value: String(max) }, [String(max)]));
+    const input = el("input", {
+      type: "file", accept: "video/*", disabled: busy || max <= 0 || !!state.pictureSelectMode,
+      onchange: (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (file) extractVideoFrames(file, Number(countSelect.value) || wanted);
+      },
+    });
+    const children = [
+      el("h3", { class: "picture-category-heading" }, ["Video walk-around (beta)"]),
+      el("div", { class: "picture-autosort-label" }, [
+        "Record a slow walk-around of the cage (doors open, inside and out) and the sharpest frames are picked out of it -- spread over the whole video -- then sorted like uploaded photos. The video itself stays on this device.",
+      ]),
+      el("div", { class: "field-row video-walkaround-row" }, [
+        el("div", { class: "field" }, [el("label", {}, ["Frames to take"]), countSelect]),
+        el("div", { class: "field" }, [el("label", {}, ["Video"]), input]),
+      ]),
+    ];
+    if (max <= 0) children.push(el("div", { class: "ai-status" }, ["Picture limit reached (" + PICTURE_LIMIT + ") -- delete some photos to take frames from a video."]));
+    if (videoExtraction) {
+      children.push(el("div", { class: "ai-status" + (videoExtraction.status === "error" ? " ai-error" : "") }, [videoExtraction.message]));
+      if (busy) children.push(el("div", { class: "score-bar-outer" }, [el("div", { class: "score-bar-inner", style: "width:" + Math.round(videoExtraction.progress * 100) + "%" })]));
+    }
+    return el("div", { class: "picture-category-section picture-autosort-field", id: "pictures-video" }, children);
+  }
   // Soft cap per category -- enforced on direct category uploads and on
   // the batch auto-sort uploader, but NOT when moving a picture in
   // manually via "Move to" (an explicit correction shouldn't be blocked by
@@ -3334,6 +3490,7 @@
     const cached = pictureImageCache[pic.id] || {};
     const card = el("div", { class: "picture-card" });
     if (tourAnchors) card.id = "tour-picture-card";
+    if (pic.videoFrame) card.appendChild(el("div", { class: "picture-video-frame", title: pic.videoFrame.name }, ["Video frame " + formatVideoTime(pic.videoFrame.t)]));
     card.appendChild(
       cached.photo
         ? el("img", { class: "picture-card-photo", src: cached.photo, alt: "" })
@@ -3522,6 +3679,7 @@
       unsorted.forEach((pic) => grid.appendChild(card(pic)));
       sortSection.appendChild(grid);
     }
+    panel.appendChild(renderVideoWalkaround(totalRemaining));
     panel.appendChild(sortSection);
 
     PICTURE_CATEGORIES.forEach((cat) => {
