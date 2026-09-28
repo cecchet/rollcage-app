@@ -896,3 +896,10 @@ textarea { resize: vertical; min-height: 50px; }
 .video-walkaround-row { align-items: flex-end; }
 .video-frame-count { min-width: 5rem; }
 .picture-video-frame { font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+.video-review-head { margin: 6px 0; }
+.video-review-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 8px 0; }
+.video-review-frame { position: relative; padding: 0; border: 3px solid transparent; border-radius: 8px; background: none; cursor: pointer; overflow: hidden; opacity: 0.45; filter: grayscale(0.6); transition: opacity 0.1s; }
+.video-review-frame.selected { border-color: var(--accent, #6b9bff); opacity: 1; filter: none; }
+.video-review-frame img { display: block; width: 100%; height: auto; }
+.video-review-time { position: absolute; left: 4px; bottom: 4px; padding: 1px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.65); color: #fff; font-size: 0.72rem; }
+.video-review-check { position: absolute; right: 4px; top: 4px; width: 22px; height: 22px; line-height: 22px; border-radius: 50%; background: var(--accent, #6b9bff); color: #fff; font-weight: 700; font-size: 0.8rem; }
