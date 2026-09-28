@@ -12,7 +12,9 @@
 //
 // Same model PassTech (a sibling project) already uses successfully with
 // Gemini's free tier.
-const GEMINI_MODEL = "gemini-3.5-flash-lite";
+// Overridable per deployment (Vercel environment variable GEMINI_MODEL) to
+// try a stronger model without a code change.
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // Same 2-key pattern as PassTech: GEMINI_API_KEY is a free-tier key (used
@@ -58,11 +60,15 @@ const ELEMENT_HINTS = {
   roof_bars:
     "IMPORTANT: this item's own description above (\"Pick 253-12 or 253-14\") is compliance advice for a human BUILDING a cage, not an instruction for you -- it does not mean you should default to 253-12. Identify purely from the roof's actual visible shape. 253-12 is a full X spanning corner-to-corner across the ENTIRE roof: one long diagonal running all the way from one front corner to the OPPOSITE rear corner, crossed by another bar doing the same the other way (pick \"253-12-1\" or \"253-12-2\", either is fine if you can't tell which tube is continuous). 253-14 is a V/chevron shape instead: TWO separate bars, each running from a FRONT corner back to a shared peak at the CENTER of the roof -- they do NOT reach the opposite rear corner. If the bars stop at a center peak rather than crossing all the way to the far corner, that is \"253-14\", not 253-12 -- do not default to 253-12 just because it's listed first or recommended for compliance. \"253-13\" has no front roof corner support at all (rare and deficient -- only pick it if the front corners are specifically unsupported). A single bar reaching only one point = one of the \"single-...\" options.",
   main_hoop_diagonals:
-    "Look at the main rollbar (the rearmost/tallest hoop) for diagonal bracing between its two legs. Two straight bars crossing in a clear X = \"253-7-1\" or \"253-7-2\" (pick either if you can't tell which tube is the continuous one -- it doesn't matter which). Anything else is one of 5 other configurations, captured for identification (none of these satisfy the X-brace rule): a single diagonal from top-left to bottom-right = \"diag-left\"; a single diagonal from top-right to bottom-left = \"diag-right\"; one horizontal bar straight across = \"diag-horizontal\"; a V-brace (two short bars from partway up each leg down to a point at the bottom center, only spanning the lower half) = \"diag-lower-half\"; a V/chevron shape meeting at the center = \"diag-v-center\". If the main rollbar is clearly visible and has no bracing bar between its legs at all = \"none\" -- but omit the item rather than answer \"none\" if the hoop's lower area isn't clearly in frame.",
+    "This X is IN the main hoop itself -- the bracing between the hoop's two legs, directly behind the front seats. Photographed from behind the hoop looking forward (seats and dash in the background), or from the front seats looking back, it's the X nearest the camera. Do NOT report an X in the main hoop's own plane as backstay_diagonals: those are further back, between the two backstays. Look at the main rollbar (the rearmost/tallest hoop) for diagonal bracing between its two legs. Two straight bars crossing in a clear X = \"253-7-1\" or \"253-7-2\" (pick either if you can't tell which tube is the continuous one -- it doesn't matter which). Anything else is one of 5 other configurations, captured for identification (none of these satisfy the X-brace rule): a single diagonal from top-left to bottom-right = \"diag-left\"; a single diagonal from top-right to bottom-left = \"diag-right\"; one horizontal bar straight across = \"diag-horizontal\"; a V-brace (two short bars from partway up each leg down to a point at the bottom center, only spanning the lower half) = \"diag-lower-half\"; a V/chevron shape meeting at the center = \"diag-v-center\". If the main rollbar is clearly visible and has no bracing bar between its legs at all = \"none\" -- but omit the item rather than answer \"none\" if the hoop's lower area isn't clearly in frame.",
   backstay_diagonals:
-    "IMPORTANT: this item's own description above calls 253-20 \"the compulsory baseline\" -- that is compliance guidance for a human BUILDING a cage (253-20 is the minimum acceptable design), not an instruction for you to default your answer to it. Identify purely from what the photo actually shows. Look at the two backstays (the bars running rearward from the main rollbar's top bends) for a diagonal brace between them, usually visible from a rear-interior or rear-3/4 angle. A single diagonal bar between the two backstays = \"253-20\" (top end on the left backstay) or \"253-20-right\" (top end on the right backstay) -- pick whichever side the diagonal's top end is actually on. Two bars crossing in an X between the backstays = \"253-21-1\" or \"253-21-2\" (pick either if you can't tell which tube is continuous). A V/chevron shape where two bars meet at a shared CENTER point = \"253-22\" (this one pairs with a center-peak/253-14 roof bar design, if that's also visible) -- do not default to 253-20 just because it's called the baseline; pick 253-22 whenever that V shape is actually visible. Do not guess \"none\" just because the angle is unclear -- omit the item instead if you can't tell whether a diagonal is present at all.",
+    "Only answer if you can actually see the two BACKSTAYS -- the bars running rearward from the top of the main hoop down toward the rear of the car -- and a brace BETWEEN them, behind the main hoop. An X directly behind the seats spanning the main hoop's own two legs is the MAIN HOOP diagonal (main_hoop_diagonals, 253-7), not a backstay diagonal. IMPORTANT: this item's own description above calls 253-20 \"the compulsory baseline\" -- that is compliance guidance for a human BUILDING a cage (253-20 is the minimum acceptable design), not an instruction for you to default your answer to it. Identify purely from what the photo actually shows. Look at the two backstays (the bars running rearward from the main rollbar's top bends) for a diagonal brace between them, usually visible from a rear-interior or rear-3/4 angle. A single diagonal bar between the two backstays = \"253-20\" (top end on the left backstay) or \"253-20-right\" (top end on the right backstay) -- pick whichever side the diagonal's top end is actually on. Two bars crossing in an X between the backstays = \"253-21-1\" or \"253-21-2\" (pick either if you can't tell which tube is continuous). A V/chevron shape where two bars meet at a shared CENTER point = \"253-22\" (this one pairs with a center-peak/253-14 roof bar design, if that's also visible) -- do not default to 253-20 just because it's called the baseline; pick 253-22 whenever that V shape is actually visible. Do not guess \"none\" just because the angle is unclear -- omit the item instead if you can't tell whether a diagonal is present at all.",
   a_pillar_reinforcement:
     "This is the windscreen-pillar/A-pillar bar running from the front rollbar's top down to the front floor/foot, alongside the windscreen opening. A gusset plate at each of its two END mounts (top and bottom) is normal for EITHER design -- that alone is not evidence of anything. The deciding signal is whether there's an ADDITIONAL gusseted joint somewhere in the MIDDLE of the run: a separate plate connecting two tube segments partway down, not at either end. If you see that mid-span joint, it's built as 2 bars meeting there = \"two_bars\". If the tube runs unbroken for its full length with no joint in the middle (only the two end gussets, or no gussets at all) = \"continuous\". Do not default to \"continuous\" just because gussets are visible -- check specifically for one in the MIDDLE of the span, not just at the ends.",
+  harness_bar_present:
+    "The harness bar (253-26/27) is a horizontal bar ACROSS the main hoop itself, between its two legs at roughly shoulder height, where the shoulder belts wrap. \"253-28-66\" is the rear harness bar variant, set further back. It is NOT 253-18 (rear_transversal_present), which joins the two backstays behind the hoop.",
+  rear_transversal_present:
+    "253-18 is a transverse bar joining the two BACKSTAYS, behind the main hoop -- not the harness bar, which is on the main hoop itself at shoulder height. Only answer \"yes\" if both backstays are visible AND a separate bar between them is visible, distinct from any harness bar on the hoop; a single horizontal bar across the main hoop is the harness bar, not 253-18. Otherwise omit this item.",
   lower_main_hoop_bar_present:
     "253-30 is a rare, optional bar running straight across the BOTTOM of the main rollbar, low near the floor -- most cages do not have one. Only answer \"yes\" if you can clearly and unambiguously see a bar spanning the main hoop's two legs down near the floor; otherwise OMIT this item entirely rather than guessing \"no\" or \"yes\" -- do not answer just because the item is in the list.",
   door_bars_left:
@@ -91,18 +97,27 @@ function buildPrompt(elements) {
   return [
     "You are helping pre-fill a rollcage (roll cage) inspection checklist from photos of an installed roll cage, or a cage blueprint/diagram.",
     "Multiple photos may show the same cage from different angles -- combine information across all of them before answering; a bar that's unclear in one photo may be obvious in another.",
+    "",
+    "Cage geometry -- which bar is where (most misidentifications come from putting a bar in the wrong plane):",
+    "- MAIN HOOP: the tall hoop just behind the front seats, roughly vertical. Its diagonal bracing (253-7 X) and the harness bar (253-26/27, horizontal at shoulder height) lie IN this hoop, between its two legs.",
+    "- BACKSTAYS: two bars running from the top corners of the main hoop rearward and down to the rear floor. Bracing BETWEEN the backstays (253-20/21/22 diagonals, the 253-18 transverse bar) lies BEHIND the main hoop, not in it.",
+    "- ROOF BARS: across the roof, forward of the main hoop's top. DOOR BARS: along each door opening, between the front and main hoops. A-PILLAR BAR: along the windscreen pillar.",
+    "Before answering, work out the camera viewpoint (e.g. from the rear of the car looking forward, from a front seat looking back, from outside through a door) and which of these structures are actually in frame; report it in \"viewpoint\". Then only answer items whose structure is visible, placing each bar in the right plane given that viewpoint.",
     "For each checklist item below, decide which single option (by its exact id string) is clearly visible in the photos. If you cannot tell, or the item simply isn't visible/determinable from any photo, OMIT that item from your answer entirely -- do not guess just to fill every item. Some structural elements only show up in a photo aimed at that specific area of the car; if none of the provided photos cover that area, omit the item rather than assuming it's absent.",
     "",
     "Checklist items:",
     buildCatalogText(elements),
     "",
-    'Respond with a JSON object matching the provided schema. For each item you include, "value" must be exactly one of that item\'s option id strings (or "yes"/"no" for boolean items) -- never invent a new id. Give a one-sentence "rationale" describing what you actually saw that supports this, and a "confidence" of "low", "medium", or "high".',
+    'Respond with a JSON object matching the provided schema: first "viewpoint" (one or two sentences: where the camera is and which structures are visible), then "suggestions". For each item you include, "value" must be exactly one of that item\'s option id strings (or "yes"/"no" for boolean items) -- never invent a new id. Give a one-sentence "rationale" describing what you actually saw that supports this, and a "confidence" of "low", "medium", or "high".',
   ].join("\n");
 }
 
 const RESPONSE_SCHEMA = {
   type: "object",
   properties: {
+    // Written first (propertyOrdering) so the model commits to a viewpoint
+    // before it assigns bars to structures.
+    viewpoint: { type: "string" },
     suggestions: {
       type: "array",
       items: {
@@ -117,7 +132,8 @@ const RESPONSE_SCHEMA = {
       },
     },
   },
-  required: ["suggestions"],
+  required: ["viewpoint", "suggestions"],
+  propertyOrdering: ["viewpoint", "suggestions"],
 };
 
 module.exports = async function handler(req, res) {

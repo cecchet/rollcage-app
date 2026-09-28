@@ -1564,6 +1564,7 @@
     renderUnsavedDialog(holder);
     renderSaveAsDialog(holder);
     renderMediaViewer(holder);
+    renderVideoFrameViewer(holder);
     renderTour(holder);
   }
 
@@ -3208,7 +3209,7 @@
           // Keeps a prior manual extra (e.g. a sill-bar tag) when the AI
           // re-suggests the same element with a new value, so overwriting
           // wholesale doesn't silently drop it.
-          byId.set(s.elementId, { elementId: s.elementId, value: s.value, extra: prior && prior.extra });
+          byId.set(s.elementId, { elementId: s.elementId, value: s.value, extra: prior && prior.extra, confidence: s.confidence });
         });
         sillBarSuggestions.forEach((s) => {
           const parentId = s.elementId.replace(/__sill_bar$/, "");
@@ -3339,7 +3340,9 @@
   const VIDEO_MAX_CANDIDATES = 80;
   let videoFramesWanted = 12; // UI-only: the "Frames to take" preselection size
   let videoExtraction = null; // UI-only: { status: "scanning"|"review"|"saving"|"done"|"error", progress, message }
-  let videoReview = null; // UI-only: { file, url, video, duration, candidates: [{t, score, thumb, selected}] } during phase 2
+  let videoReview = null; // UI-only: { file, url, video, duration, candidates: [{t, score, thumb, selected, full?}] } during phase 2
+  let videoFrameViewer = null; // UI-only: { index, zoomed } while a frame is open full-size (renderVideoFrameViewer)
+  let videoSeekQueue = Promise.resolve(); // full-size grabs and saving share one <video>, one seek at a time
   function videoFrameScore(ctx, w, h) {
     const data = ctx.getImageData(0, 0, w, h).data;
     const gray = new Float32Array(w * h);
@@ -3387,7 +3390,69 @@
     const m = Math.floor(t / 60), sec = Math.floor(t % 60);
     return m + ":" + String(sec).padStart(2, "0");
   }
+  // A candidate at full resolution (fit for zooming), grabbed from the
+  // video on first view and kept on the candidate.
+  function grabFullVideoFrame(c) {
+    if (c.full || c.grabbing || !videoReview) return;
+    const review = videoReview;
+    c.grabbing = true;
+    videoSeekQueue = videoSeekQueue.then(async () => {
+      if (videoReview !== review) return;
+      const video = review.video;
+      const scale = Math.min(1, 2048 / Math.max(video.videoWidth, video.videoHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(video.videoWidth * scale);
+      canvas.height = Math.round(video.videoHeight * scale);
+      await seekVideo(video, c.t);
+      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+      c.full = canvas.toDataURL("image/jpeg", 0.85);
+    }).catch(() => {}).then(() => { c.grabbing = false; if (videoFrameViewer) render(); });
+  }
+  function openVideoFrameViewer(index) { videoFrameViewer = { index, zoomed: false }; render(); }
+  function renderVideoFrameViewer(holder) {
+    if (!videoFrameViewer || !videoReview) { videoFrameViewer = null; return; }
+    const cands = videoReview.candidates;
+    const i = Math.max(0, Math.min(cands.length - 1, videoFrameViewer.index));
+    const c = cands[i];
+    grabFullVideoFrame(c);
+    const go = (d) => { videoFrameViewer = { index: Math.max(0, Math.min(cands.length - 1, i + d)), zoomed: false }; render(); };
+    const toggle = () => { c.selected = !c.selected; render(); };
+    const close = () => { videoFrameViewer = null; render(); };
+    const selectedCount = cands.filter((x) => x.selected).length;
+    const img = el("img", { src: c.full || c.thumb, alt: "Video frame " + formatVideoTime(c.t), onclick: () => { videoFrameViewer.zoomed = !videoFrameViewer.zoomed; render(); } });
+    const keepBtn = el("button", { class: "btn small" + (c.selected ? " secondary" : ""), onclick: toggle }, [c.selected ? "Discard this frame" : "Keep this frame"]);
+    const overlay = el("div", { class: "modal-overlay video-frame-viewer", role: "dialog", "aria-modal": "true", "aria-label": "Video frame " + formatVideoTime(c.t) }, [
+      el("div", { class: "video-frame-viewer-box" }, [
+        el("div", { class: "video-frame-viewer-head" }, [
+          el("strong", {}, ["Frame " + (i + 1) + " of " + cands.length + " -- " + formatVideoTime(c.t)]),
+          el("span", { class: "video-frame-viewer-state" + (c.selected ? " kept" : "") }, [c.selected ? "✓ Kept" : "Discarded"]),
+          el("span", { class: "picture-autosort-label" }, [selectedCount + " selected" + (c.full ? "" : " · loading full resolution…")]),
+        ]),
+        el("div", { class: "video-frame-viewer-image" + (videoFrameViewer.zoomed ? " zoomed" : ""), title: videoFrameViewer.zoomed ? "Click to fit" : "Click to zoom in" }, [img]),
+        el("div", { class: "toolbar video-frame-viewer-actions" }, [
+          el("button", { class: "btn small secondary", disabled: i === 0, onclick: () => go(-1) }, ["◀ Previous"]),
+          keepBtn,
+          el("button", { class: "btn small secondary", disabled: i === cands.length - 1, onclick: () => go(1) }, ["Next ▶"]),
+          el("button", { class: "btn small secondary", onclick: close }, ["Close"]),
+        ]),
+        el("div", { class: "picture-autosort-label" }, ["Click the image to zoom in or out · ← → to move between frames · space to keep/discard · Esc to close"]),
+      ]),
+    ]);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    overlay.tabIndex = -1;
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft") { e.preventDefault(); go(-1); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); go(1); }
+      else if (e.key === " ") { e.preventDefault(); toggle(); }
+      else if (e.key === "Escape") { e.preventDefault(); close(); }
+    });
+    holder.appendChild(overlay);
+    requestAnimationFrame(() => overlay.focus());
+    // Warm up the neighbours so stepping through feels instant.
+    if (cands[i + 1]) grabFullVideoFrame(cands[i + 1]);
+  }
   function releaseVideoReview() {
+    videoFrameViewer = null;
     if (!videoReview) return;
     URL.revokeObjectURL(videoReview.url);
     videoReview.video.removeAttribute("src");
@@ -3497,6 +3562,8 @@
   async function saveSelectedVideoFrames() {
     const review = videoReview;
     if (!review) return;
+    videoFrameViewer = null;
+    await videoSeekQueue;
     const picks = review.candidates.filter((c) => c.selected).slice(0, Math.max(0, PICTURE_LIMIT - state.pictures.length));
     if (!picks.length) return;
     const video = review.video;
@@ -3557,20 +3624,23 @@
       const over = selected > max;
       children.push(el("div", { class: "video-review-head" }, [
         el("strong", {}, [selected + " of " + cands.length + " frames selected"]),
-        el("span", { class: "picture-autosort-label" }, [" -- click a frame to keep or discard it (double-click to see it larger). Discard frames outside the car and duplicate shots of the same part."]),
+        el("span", { class: "picture-autosort-label" }, [" -- click a frame to keep or discard it; 🔍 (or double-click) opens it full size, where you can zoom in and step through the frames. Discard frames outside the car and duplicate shots of the same part."]),
       ]));
       if (over) children.push(el("div", { class: "ai-status ai-error" }, ["Only " + max + " more picture" + (max === 1 ? "" : "s") + " fit (limit " + PICTURE_LIMIT + ") -- discard " + (selected - max) + " more."]));
       const grid = el("div", { class: "video-review-grid" });
-      cands.forEach((c) => {
-        grid.appendChild(el("button", {
-          type: "button", class: "video-review-frame" + (c.selected ? " selected" : ""), disabled: busy,
-          title: formatVideoTime(c.t) + (c.selected ? " -- selected, click to discard" : " -- click to keep"),
-          onclick: () => { c.selected = !c.selected; render(); },
-          ondblclick: () => { state.mediaViewer = { image: c.thumb, caption: "Video frame " + formatVideoTime(c.t) + " (preview -- saved at full resolution)" }; render(); },
-        }, [
-          el("img", { src: c.thumb, alt: "Video frame " + formatVideoTime(c.t) }),
-          el("span", { class: "video-review-time" }, [formatVideoTime(c.t)]),
-          c.selected ? el("span", { class: "video-review-check" }, ["✓"]) : null,
+      cands.forEach((c, index) => {
+        grid.appendChild(el("div", { class: "video-review-cell" }, [
+          el("button", {
+            type: "button", class: "video-review-frame" + (c.selected ? " selected" : ""), disabled: busy,
+            title: formatVideoTime(c.t) + (c.selected ? " -- selected, click to discard" : " -- click to keep"),
+            onclick: () => { c.selected = !c.selected; render(); },
+            ondblclick: () => openVideoFrameViewer(index),
+          }, [
+            el("img", { src: c.thumb, alt: "Video frame " + formatVideoTime(c.t) }),
+            el("span", { class: "video-review-time" }, [formatVideoTime(c.t)]),
+            c.selected ? el("span", { class: "video-review-check" }, ["✓"]) : null,
+          ]),
+          el("button", { type: "button", class: "video-review-zoom", title: "View full size", "aria-label": "View frame " + formatVideoTime(c.t) + " full size", disabled: busy, onclick: () => openVideoFrameViewer(index) }, ["🔍"]),
         ]));
       });
       children.push(grid);
@@ -3662,7 +3732,7 @@
     if (pic.category === UNSORTED_PICTURES) {
       const t = pictureTriageState[pic.id];
       if (t && (t.status === "sorting" || t.status === "queued")) {
-        card.appendChild(el("div", { class: "ai-status" }, [t.status === "sorting" ? "Sorting into a category…" : "Waiting to be sorted…"]));
+        card.appendChild(el("div", { class: "ai-status ai-busy" + (t.status === "sorting" ? " ai-spinning" : "") }, [t.status === "sorting" ? "Sorting into a category…" : "Waiting to be sorted…"]));
       } else {
         card.appendChild(el("div", { class: "ai-status" }, [(t && t.note) || "Not sorted yet."]));
         card.appendChild(el("button", { class: "btn small secondary", disabled: !!state.pictureSelectMode, onclick: () => queuePictureTriage(pic.id) }, ["Sort again (beta)"]));
@@ -3702,8 +3772,12 @@
         let label = target ? (tag.value ? target.name + ": " + elementSummary(target, { value: tag.value }) : target.name) : tag.elementId;
         if (tag.extra && tag.extra.sill_bar === "yes") label += " + sill bar";
         const canRemove = editing || !state.pictureSelectMode;
-        chips.appendChild(el("span", { class: "picture-element-chip" }, [
+        // AI tags carry the model's own confidence -- a low one is worth a
+        // second look (and is one click to remove).
+        const conf = tag.confidence;
+        chips.appendChild(el("span", { class: "picture-element-chip" + (conf ? " ai-" + conf : ""), title: conf ? "AI suggestion, " + conf + " confidence" : "" }, [
           label,
+          conf ? el("span", { class: "picture-element-confidence" }, [conf === "high" ? "AI" : "AI · " + conf]) : null,
           canRemove ? el("button", { type: "button", class: "picture-element-remove", title: "Remove from this picture", "aria-label": "Remove " + label + " from this picture", onclick: () => removeTag(tag.elementId) }, ["×"]) : null,
         ]));
       });
@@ -3741,7 +3815,7 @@
             disabled: ui.status === "loading" || !!state.pictureSelectMode,
             onclick: () => analyzePictureElements(pic.id, path, pictureCategoryFor(pic)),
           },
-          [ui.status === "loading" ? "Analyzing..." : "AI analysis (beta)"]
+          [ui.status === "loading" ? el("span", { class: "ai-busy ai-spinning" }, ["Analyzing…"]) : "AI analysis (beta)"]
         ),
       ])
     );
