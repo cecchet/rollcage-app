@@ -8336,6 +8336,8 @@
       window.CageView.onPartClick(handleCagePartClick);
       window.CageView.onPartDoubleClick(handleCagePartDoubleClick);
       window.CageView.onPartHover(handleCagePartHover);
+      // The answers (and so the tooltip's label) may have just changed.
+      if (window.CageView.refreshHover) window.CageView.refreshHover();
       window.CageView.setDriverMirrored(getAnswer("vehicle_drive_side").value === "rhd");
     }
   }

@@ -289,6 +289,9 @@
   let partClickCb = null;
   let partDoubleClickCb = null;
   let partHoverCb = null;
+  // Re-runs the hover hit-test at the cursor's last position -- set up in
+  // init() (it needs the renderer/raycaster). See refreshHover().
+  let rehover = null;
 
   function colorToRGB(color) {
     const c = new THREE.Color(color);
@@ -525,14 +528,22 @@
     // dragging (rotate/pan) and the cursor is actually over the canvas --
     // reuses the identical hit-test click uses, so the tooltip and a
     // subsequent click always agree.
+    let lastPointer = null; // the cursor's last position over the canvas
     renderer.domElement.addEventListener("mousemove", (e) => {
+      lastPointer = { x: e.clientX, y: e.clientY };
       if (dragging || !partHoverCb) return;
       const hit = raycastPart(e.clientX, e.clientY);
       partHoverCb(hit ? hit.file : null, hit ? hit.frac : null, e.clientX, e.clientY);
     });
     renderer.domElement.addEventListener("mouseleave", () => {
+      lastPointer = null;
       if (partHoverCb) partHoverCb(null, null, 0, 0);
     });
+    rehover = () => {
+      if (!lastPointer || dragging || !partHoverCb) return;
+      const hit = raycastPart(lastPointer.x, lastPointer.y);
+      partHoverCb(hit ? hit.file : null, hit ? hit.frac : null, lastPointer.x, lastPointer.y);
+    };
     renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
     renderer.domElement.addEventListener("wheel", (e) => {
       radius = Math.max(10, Math.min(5000, radius * (e.deltaY > 0 ? 1.1 : 0.9)));
@@ -1121,6 +1132,10 @@
   function onPartClick(cb) { partClickCb = cb; }
   function onPartDoubleClick(cb) { partDoubleClickCb = cb; }
   function onPartHover(cb) { partHoverCb = cb; }
+  // After the model changes under a still cursor (e.g. a click swapped a
+  // bar's design), the tooltip would otherwise keep describing what used to
+  // be there until the mouse moves -- this re-checks what's under it now.
+  function refreshHover() { if (rehover) rehover(); }
   // Every mesh file the model actually has, loaded or not -- lets app.js
   // default EVERY part to hidden in Part 3 (not just ones some rule
   // happened to touch), so an optional bar that's simply absent from this
@@ -1275,7 +1290,7 @@
     renderer.render(scene, camera);
     return out.toDataURL("image/jpeg", 0.85);
   }
-  window.CageView = { init, applyState, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setBackground, resetBackground, snapshot };
+  window.CageView = { init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setBackground, resetBackground, snapshot };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
