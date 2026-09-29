@@ -928,3 +928,5 @@ textarea { resize: vertical; min-height: 50px; }
 .video-frame-viewer-image.zoomed { cursor: zoom-out; justify-content: flex-start; }
 .video-frame-viewer-image.zoomed img { max-width: none; max-height: none; }
 .video-frame-viewer-actions { justify-content: center; }
+.picture-pairing-note { margin: 4px 0; padding: 6px 8px; border-radius: 6px; font-size: 0.78rem; background: var(--warn-bg); color: var(--warn); }
+.library-notice { margin: 6px 0; padding: 8px 10px; border-radius: 6px; background: var(--pass-bg); color: var(--pass); font-size: 0.85rem; }

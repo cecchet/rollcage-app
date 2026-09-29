@@ -1099,15 +1099,49 @@
     saveWithFlash();
   }
 
+  // Rewrites every picture-store id a saved rollcage refers to (its
+  // pictures, homologation and vehicle photos, and each event's damage
+  // photos and 3D shot) through mapId -- used to list them for an export
+  // and to move them to fresh ids on import. An id mapId returns null for
+  // drops that reference.
+  function mapSessionPictureIds(s, mapId) {
+    const remap = (list) => (list || []).map((x) => ({ ...x, id: mapId(x.id) })).filter((x) => x.id);
+    const vp = s.vehiclePhotos || {};
+    const one = (x) => { const id = x && mapId(x.id); return id ? { ...x, id } : null; };
+    return {
+      pictures: remap(s.pictures),
+      homologationPhotos: remap(s.homologationPhotos),
+      vehiclePhotos: { front: one(vp.front), rear: one(vp.rear) },
+      events: (s.events || []).map((ev) => ({
+        ...ev,
+        damage: ev.damage && { ...ev.damage, photos: remap(ev.damage.photos), modelShotId: ev.damage.modelShotId ? mapId(ev.damage.modelShotId) : null },
+      })),
+    };
+  }
+
   // Exports a rollcage as last SAVED (from the library), not whatever
-  // unsaved edits the open one may have on top.
-  function exportSavedSessionToFile(sessionId) {
+  // unsaved edits the open one may have on top. Photos come along: each
+  // picture-store record the rollcage refers to is embedded under its id
+  // in "images", so the file is self-contained.
+  async function exportSavedSessionToFile(sessionId) {
     const s = loadAll()[sessionId];
     if (!s) return;
-    const data = { sessionId: s.sessionId, vehicle: s.vehicle, pathId: s.pathId, answers: s.answers };
-    if (s.events && s.events.length) {
-      data.events = s.events.map((ev) => ({ ...ev, damage: ev.damage && { ...ev.damage, photos: [], modelShotId: null } }));
+    // Same file format in both apps (the rollcage app and Digital logbooks),
+    // so an export from either imports into the other -- exportedFrom just
+    // lets the importing app say where a file came from.
+    const ids = new Set();
+    const refs = mapSessionPictureIds(s, (id) => { if (id) ids.add(id); return id; });
+    const images = {};
+    for (const id of ids) {
+      const record = await getPictureRecord(id).catch(() => null);
+      if (record) images[id] = record;
     }
+    const data = {
+      exportedFrom: CFG.appName, sessionId: s.sessionId, vehicle: s.vehicle, pathId: s.pathId, answers: s.answers,
+      pictures: refs.pictures, homologationPhotos: refs.homologationPhotos, vehiclePhotos: refs.vehiclePhotos,
+      images,
+    };
+    if (refs.events.length) data.events = refs.events;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1117,10 +1151,14 @@
     URL.revokeObjectURL(url);
   }
 
-  // Adds the file to the saved-rollcages list as a new, separate entry (a
-  // fresh sessionId, so it never collides with an existing save that
-  // happens to reuse an old id) -- the rollcage currently open is left
-  // untouched, so there's no unsaved work to put at risk here.
+  // Adds the file to the saved list as a new, separate entry (a fresh
+  // sessionId, so it never collides with an existing save that happens to
+  // reuse an old id) -- the one currently open is left untouched, so
+  // there's no unsaved work to put at risk here. Accepts exports from
+  // either app (same format): a rollcage imported into the logbook app
+  // becomes a logbook with no events yet. A sanctioning body this app
+  // doesn't offer (e.g. a road-racing body, in the logbook app) falls back
+  // to none -- the library then says so.
   function importSessionFromFile(file) {
     const reader = new FileReader();
     reader.onload = () => {
@@ -1137,19 +1175,51 @@
       }
       const all = loadAll();
       const sessionId = uid();
+      const fromOrg = data.vehicle.org;
+      const org = knownOrg(fromOrg);
+      const name = data.vehicle.name || "Unnamed " + NOUN;
+      const notes = [];
+      if (data.exportedFrom && data.exportedFrom !== CFG.appName) notes.push("It came from the " + data.exportedFrom + ".");
+      if (fromOrg && fromOrg !== "none" && org === "none") {
+        notes.push("Its sanctioning body (" + (RULES[fromOrg] ? RULES[fromOrg].orgFullName : fromOrg) + ") isn't offered here, so none is set -- pick one in " + partName(LOGBOOK_PHASE) + ".");
+      }
+      // Embedded photos go into this browser's picture store under fresh
+      // ids (so they never collide with, or get deleted along with, another
+      // rollcage's). Older exports carry no images -- their photo
+      // references are dropped rather than left pointing at nothing.
+      const images = data.images && typeof data.images === "object" ? data.images : {};
+      const newIds = {};
+      const refs = mapSessionPictureIds(
+        { pictures: data.pictures, homologationPhotos: data.homologationPhotos, vehiclePhotos: data.vehiclePhotos, events: Array.isArray(data.events) ? data.events : [] },
+        (id) => {
+          if (!id || !images[id] || !images[id].photo) return null;
+          return newIds[id] || (newIds[id] = picUid());
+        }
+      );
+      const photoCount = Object.keys(newIds).length;
+      notes.push(photoCount ? photoCount + " photo" + (photoCount === 1 ? "" : "s") + " restored." : data.images ? "It has no photos." : "This file is from an older export without photos.");
+      state.libraryNotice = "Imported \"" + name + "\". " + notes.join(" ");
+      state.librarySelectedId = sessionId;
       all[sessionId] = {
         sessionId,
-        vehicle: Object.assign({}, data.vehicle, { org: knownOrg(data.vehicle.org) }),
+        vehicle: Object.assign({}, data.vehicle, { org }),
         pathId: data.pathId || "new_construction",
         answers: data.answers || {},
-        pictures: [],
-        homologationPhotos: [],
-        vehiclePhotos: { front: null, rear: null },
-        events: Array.isArray(data.events) ? data.events.map((ev) => ({ ...ev, damage: ev.damage && { ...ev.damage, photos: [], modelShotId: null } })) : [],
+        pictures: refs.pictures,
+        homologationPhotos: refs.homologationPhotos,
+        vehiclePhotos: refs.vehiclePhotos,
+        events: refs.events,
         updatedAt: new Date().toISOString(),
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
-      render();
+      Promise.all(Object.keys(newIds).map((oldId) => putPictureRecord(newIds[oldId], images[oldId]))).then(() => {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+        } catch (e) {
+          alert("Couldn't save the imported " + NOUN + " (browser storage is full).");
+          return;
+        }
+        render();
+      }, () => alert("Couldn't store the imported " + NOUN + "'s photos in this browser."));
     };
     reader.readAsText(file);
   }
@@ -1893,7 +1963,7 @@
   // that selection. Also the home of "new" and "import from file".
   function renderLibrary(holder) {
     if (!state.libraryOpen) return;
-    const close = () => { state.libraryOpen = false; render(); };
+    const close = () => { state.libraryOpen = false; state.libraryNotice = null; render(); };
     const importInput = el("input", {
       type: "file",
       accept: "application/json",
@@ -1995,9 +2065,10 @@
         el("button", { class: "btn small secondary", onclick: close }, ["Close"]),
       ]),
       el("div", { class: "element-desc" }, ["Saved in this browser only."]),
+      state.libraryNotice ? el("div", { class: "library-notice" }, [state.libraryNotice]) : null,
       el("div", { class: "toolbar" }, [
         el("button", { class: "btn small secondary", onclick: () => confirmDiscardIfDirty(() => { state.libraryOpen = false; startNew(); }) }, ["Start a new " + NOUN]),
-        el("button", { class: "btn small secondary", onclick: () => importInput.click() }, ["Import a " + NOUN + " from file"]),
+        el("button", { class: "btn small secondary", onclick: () => importInput.click() }, [CFG.logbook ? "Import a logbook or rollcage from file" : "Import a " + NOUN + " from file"]),
         importInput,
       ]),
       actions,
@@ -3038,14 +3109,14 @@
     {
       id: "main_rollbar",
       label: "Main rollbar (diagonal, harness bar)",
-      elementIds: ["main_hoop_diagonals", "harness_bar_present", "lower_main_hoop_bar_present"],
+      elementIds: ["main_hoop_diagonals", "harness_bar_present", "lower_main_hoop_bar_present", "temple_bar_present"],
     },
     {
       id: "backstay_diagonals",
       label: "Backstay diagonals",
       elementIds: ["backstay_diagonals", "rear_transversal_present", "rear_lateral_reinforcement_present", "rear_lower_x_present"],
     },
-    { id: "roof_bars", label: "Roof bars", elementIds: ["roof_bars"] },
+    { id: "roof_bars", label: "Roof bars", elementIds: ["roof_bars", "windshield_reinforcement_present", "temple_bar_present"] },
     // Door bars are split left/right rather than one combined category --
     // the model has no reliable way to know which physical side a close-up
     // photo shows (no consistent left/right visual cue like a steering
@@ -3054,13 +3125,13 @@
     {
       id: "door_bars_left",
       label: "Door bars — Left",
-      elementIds: ["door_bars_left", "a_pillar_reinforcement"],
+      elementIds: ["door_bars_left", "a_pillar_reinforcement", "windshield_reinforcement_present"],
       sillBar: "left",
     },
     {
       id: "door_bars_right",
       label: "Door bars — Right",
-      elementIds: ["door_bars_right", "a_pillar_reinforcement"],
+      elementIds: ["door_bars_right", "a_pillar_reinforcement", "windshield_reinforcement_present"],
       sillBar: "right",
     },
   ];
@@ -3785,6 +3856,15 @@
       chips.appendChild(el("span", { class: "picture-elements-empty" }, ["No elements tagged yet"]));
     }
     card.appendChild(chips);
+    // 253-14 roof and 253-22 backstay V always come together -- a picture
+    // tagged with one and a different design for the other is worth a look.
+    const tagValue = (id) => { const t = tags.find((x) => x.elementId === id); return t && t.value; };
+    const roofTag = tagValue("roof_bars"), backstayTag = tagValue("backstay_diagonals");
+    if ((roofTag === "253-14" && backstayTag && backstayTag !== "253-22") || (backstayTag === "253-22" && roofTag && roofTag !== "253-14")) {
+      card.appendChild(el("div", { class: "picture-pairing-note" }, [
+        "A 253-14 roof always comes with a 253-22 backstay V -- check which one is right (the V is sometimes painted a different colour).",
+      ]));
+    }
 
     const ui = pictureUiState[pic.id] || { status: "idle" };
     card.appendChild(
