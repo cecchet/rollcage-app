@@ -380,12 +380,13 @@
       description: "Cage tubing can only be bent using a cold process. The diameter of the thinner part of the bend must be at least 90% of the tubing size, and the bend radius must be at least 3x the tube diameter. Shown per bar that's actually permitted to have a bend (see each bar's own bend-count/angle question above/below).",
       evaluationType: "table",
       diagram: "bend-radius",
-      rows: [
+      // No front rollbar or A-pillar bars on a half rollcage.
+      rows: (getAnswer) => [
         { id: "main_rollbar", label: "Main rollbar" },
         { id: "front_rollbar", label: "Front rollbar" },
         { id: "a_pillar_left", label: "A-pillar (253-15) — left" },
         { id: "a_pillar_right", label: "A-pillar (253-15) — right" },
-      ],
+      ].filter((r) => r.id === "main_rollbar" || !isHalfRollcage(getAnswer)),
       columns: [{ key: "compliant", label: "Bend radius/stretch", type: "compliance" }],
       visuallyVerifiable: false,
       hardFail: true,
@@ -621,6 +622,15 @@
   ];
 
   // -- 2.2. Mounting feet --
+  // A half rollcage (main rollbar + backstays only) has no front structure
+  // at all -- no front rollbar/laterals, transverse member, windscreen
+  // pillar or front feet -- so nothing about them is asked.
+  function isHalfRollcage(getAnswer) { return getAnswer("main_structure_layout").value === "half-rollcage"; }
+  const NOT_HALF_ROLLCAGE = { id: "main_structure_layout", notEquals: "half-rollcage" };
+  // Which feet a cage has: a half rollcage has none at the front.
+  function withoutFrontFeet(rows) {
+    return (getAnswer) => (isHalfRollcage(getAnswer) ? rows.filter((r) => !/^front_/.test(r.id)) : rows);
+  }
   const MOUNTING_FEET_ROWS = [
     { id: "front_left", label: "Front left foot" },
     { id: "front_right", label: "Front right foot" },
@@ -638,7 +648,7 @@
       reference: "2020 FIA 253 Ch.8.3.2.6",
       description: "Minimum one mounting point per front-rollbar pillar, per lateral/half-lateral-rollbar pillar, per main-rollbar pillar, and per backstay (six total for the common 253-3 layout). Location is given from the driver's perspective (left is driver side in a LHD car). Design, bolted/welded, and plate size are captured in " + PART(1) + "/" + PART(2) + ".",
       evaluationType: "table",
-      rows: MOUNTING_FEET_ROWS,
+      rows: withoutFrontFeet(MOUNTING_FEET_ROWS),
       columns: WELD_COLUMNS,
       visuallyVerifiable: true,
       hardFail: true,
@@ -652,7 +662,7 @@
       reference: "2020 FIA 253 Ch.8.3.2.6",
       description: "The weld joining each pillar's own tube to its mounting foot plate -- a separate joint from the plate-to-chassis weld tracked above.",
       evaluationType: "table",
-      rows: MOUNTING_FEET_ROWS,
+      rows: withoutFrontFeet(MOUNTING_FEET_ROWS),
       columns: WELD_COLUMNS,
       visuallyVerifiable: true,
       hardFail: true,
@@ -1157,11 +1167,14 @@
       // table already uses -- a bar marked "not present"/"none" in Part 1
       // shouldn't still ask for a tube spec here.
       rows: (getAnswer) => {
+        const half = isHalfRollcage(getAnswer);
         const rows = [
           { id: "main_rollbar", label: "Main rollbar" },
-          { id: "front_laterals_left", label: "Front / lateral rollbar -- Left" },
-          { id: "front_laterals_right", label: "Front / lateral rollbar -- Right" },
-          { id: "transverse_member", label: "Transverse member(s)" },
+          ...(half ? [] : [
+            { id: "front_laterals_left", label: "Front / lateral rollbar -- Left" },
+            { id: "front_laterals_right", label: "Front / lateral rollbar -- Right" },
+            { id: "transverse_member", label: "Transverse member(s)" },
+          ]),
           { id: "backstays_left", label: "Backstay -- Left" },
           { id: "backstays_right", label: "Backstay -- Right" },
           ...backstayDiagonalTubeRows(getAnswer("backstay_diagonals").value),
@@ -1172,15 +1185,17 @@
         ];
         if (getAnswer("door_bars_left").extra.sill_bar === "yes") rows.push({ id: "sill_bar_left", label: "Sill bar -- Left" });
         if (getAnswer("door_bars_right").extra.sill_bar === "yes") rows.push({ id: "sill_bar_right", label: "Sill bar -- Right" });
-        rows.push(
-          { id: "a_pillar_left", label: "253-15: A-pillar reinforcement -- Left" },
-          { id: "a_pillar_right", label: "253-15: A-pillar reinforcement -- Right" }
-        );
+        if (!half) {
+          rows.push(
+            { id: "a_pillar_left", label: "253-15: A-pillar reinforcement -- Left" },
+            { id: "a_pillar_right", label: "253-15: A-pillar reinforcement -- Right" }
+          );
+        }
         const harnessVal = getAnswer("harness_bar_present").value;
         if (harnessVal === "253-26-27" || harnessVal === "253-28-66") {
           rows.push({ id: "harness_bar", label: "253-26/27, 253-28/66: Harness bar" });
         }
-        if (getAnswer("rear_lateral_reinforcement_present").value !== "none") {
+        if (["upper", "lower", "both"].includes(getAnswer("rear_lateral_reinforcement_present").value)) {
           rows.push({ id: "rear_lateral_left", label: "253-17: Rear lateral reinforcement -- Left" }, { id: "rear_lateral_right", label: "253-17: Rear lateral reinforcement -- Right" });
         }
         if (getAnswer("rear_transversal_present").value === "yes") {
@@ -1201,10 +1216,11 @@
         if (getAnswer("lower_main_hoop_bar_present").value === "yes") {
           rows.push({ id: "lower_main_hoop_bar", label: "253-30: Lower main hoop bar" });
         }
-        if (getAnswer("temple_bar_present").value !== "none") {
+        const sidePicked = (id) => ["left", "right", "both"].includes(getAnswer(id).value);
+        if (sidePicked("temple_bar_present")) {
           sideRows(getAnswer("temple_bar_present").value).forEach((s) => rows.push({ id: "temple_bar_" + s.id, label: "253-31: Temple bar -- " + s.label }));
         }
-        if (getAnswer("windshield_reinforcement_present").value !== "none") {
+        if (sidePicked("windshield_reinforcement_present")) {
           sideRows(getAnswer("windshield_reinforcement_present").value).forEach((s) => rows.push({ id: "windshield_reinforcement_" + s.id, label: "253-31: Windshield reinforcement -- " + s.label }));
         }
         return rows;
@@ -2031,7 +2047,7 @@
       name: "253-17 rear lateral reinforcement welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "Each tube's own 2 ends -- front (at the door bar) and rear (at the backstay) -- so a \"both\" configuration (4 tubes) has 8 welds to check.",
-      showIf: { id: "rear_lateral_reinforcement_present", notEquals: "none" },
+      showIf: { id: "rear_lateral_reinforcement_present", in: ["upper", "lower", "both"] }, // only once a design is picked
       evaluationType: "table",
       rows: (getAnswer) => {
         const v = getAnswer("rear_lateral_reinforcement_present").value;
@@ -2095,7 +2111,7 @@
       name: "253-19 rear lower X welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "The 4 far corners (2 per diagonal) plus, where the diagonals aren't both one continuous piece, the 2 crossing points of whichever leg is cut into half-bars -- same \"corners + center\" shape as the other X-braced bars (253-9/12/21).",
-      showIf: { id: "rear_lower_x_present", notEquals: "none" },
+      showIf: { id: "rear_lower_x_present", in: ["253-19-1", "253-19-2"] }, // only once a design is picked (unanswered is "", not "none")
       evaluationType: "table",
       // center_1/center_2 are the 2 crossing-point weld ends of whichever
       // leg is cut into half-bars -- WHICH physical id ends up "upper" vs
@@ -2217,7 +2233,7 @@
       name: "253-31 temple bar welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "Each bar's own top and bottom ends.",
-      showIf: { id: "temple_bar_present", notEquals: "none" },
+      showIf: { id: "temple_bar_present", in: ["left", "right", "both"] },
       evaluationType: "table",
       rows: (getAnswer) => sideTopBottomRows(getAnswer("temple_bar_present").value, "253-31 temple bar"),
       columns: WELD_COLUMNS,
@@ -2247,7 +2263,7 @@
       name: "253-31 windshield reinforcement welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "Each bar's own top and bottom ends.",
-      showIf: { id: "windshield_reinforcement_present", notEquals: "none" },
+      showIf: { id: "windshield_reinforcement_present", in: ["left", "right", "both"] },
       evaluationType: "table",
       rows: (getAnswer) => sideTopBottomRows(getAnswer("windshield_reinforcement_present").value, "253-31 windshield reinforcement"),
       columns: WELD_COLUMNS,
@@ -2757,6 +2773,17 @@
     .concat(SECTION_4_1)
     .concat(SECTION_5_1, SECTION_5_2, SECTION_5_3)
     .concat(SECTION_6_WINDSHIELD);
+  // Everything about the front structure, hidden on a half rollcage (see
+  // isHalfRollcage) -- on top of any condition an item already has.
+  const FRONT_STRUCTURE_ONLY = new Set([
+    "installation_constraints", "a_pillar_dimension_a", "windshield_measurements", "front_rollbar_angle",
+    "front_feet_forward_of_rollbar", "backstay_distance_upper_laterals", "windshield_distances", "windshield_welds",
+    "lateral_main_hoop_welds", "transverse_member_welds",
+  ]);
+  FIA_253_DOCUMENT_BASE.forEach((el) => {
+    if (!FRONT_STRUCTURE_ONLY.has(el.id)) return;
+    el.showIf = [NOT_HALF_ROLLCAGE].concat(el.showIf ? (Array.isArray(el.showIf) ? el.showIf : [el.showIf]) : []);
+  });
 
   // ---- NASA Rally Sport variances on the FIA base ----
   const NASA_NEW_CONSTRUCTION_ELEMENTS = insertElements(

@@ -3067,6 +3067,8 @@
     ? [LOGBOOK_PHASE, 1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE]
     : [1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE, LOGBOOK_PHASE]).concat(CFG.safetyScorePart ? [SAFETY_PHASE] : []);
   function partName(phase) { return "Part " + (PHASE_ORDER.indexOf(phase) + 1); }
+  // "1.Design", "3.Constraints"... -- a 3D view labelled with its part number.
+  function viewLabel(phase, text) { return (PHASE_ORDER.indexOf(phase) + 1) + "." + text; }
   const PHASE_LABELS = {};
   PHASE_ORDER.forEach((p) => { PHASE_LABELS[p] = partName(p) + " — " + PHASE_TITLES[p]; });
   // Padding and sections 9-11 of the source document (seat mounting, belt
@@ -8401,10 +8403,12 @@
     el3.appendChild(
       el("div", { class: "radio-group" }, [
         el("strong", { class: "cage-view-switch-label" }, ["View"]),
-        radioOption("cageViewSwitch", "design", "Design", state.activeTab === 1, () => goToView(1)),
-        radioOption("cageViewSwitch", "tubing", "Tube size", state.activeTab === 2, () => goToView(2)),
-        radioOption("cageViewSwitch", "junctions", "Junctions", state.activeTab === INSTALLATION_PHASE, () => goToView(INSTALLATION_PHASE)),
-        radioOption("cageViewSwitch", "welds", "Welds", state.activeTab === WELDS_PHASE, () => goToView(WELDS_PHASE)),
+        // Each view is prefixed with the number of the part it belongs to
+        // (the logbook app numbers its parts differently -- see partName).
+        radioOption("cageViewSwitch", "design", viewLabel(1, "Design"), state.activeTab === 1, () => goToView(1)),
+        radioOption("cageViewSwitch", "tubing", viewLabel(2, "Tube size"), state.activeTab === 2, () => goToView(2)),
+        radioOption("cageViewSwitch", "junctions", viewLabel(INSTALLATION_PHASE, "Constraints"), state.activeTab === INSTALLATION_PHASE, () => goToView(INSTALLATION_PHASE)),
+        radioOption("cageViewSwitch", "welds", viewLabel(WELDS_PHASE, "Welds"), state.activeTab === WELDS_PHASE, () => goToView(WELDS_PHASE)),
       ])
     );
   }
