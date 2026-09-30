@@ -502,7 +502,9 @@ textarea { resize: vertical; min-height: 50px; }
 .extra-field-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; flex-wrap: wrap; }
 .extra-field-row .answer-row { margin: 0; }
 .numeric-input { max-width: 120px; }
-.numeric-field-label { flex: 1; font-size: 0.85rem; }
+.numeric-field-label { flex: 0 1 auto; font-size: 0.85rem; }
+.numeric-fields { display: grid; grid-template-columns: minmax(0, auto) auto auto; justify-content: start; align-items: center; column-gap: 8px; row-gap: 6px; margin: 6px 0; }
+.numeric-fields .numeric-row { display: contents; }
 .unit-label { color: var(--muted); font-size: 0.85rem; }
 .numeric-warning { color: var(--fail); font-weight: 600; font-size: 0.85rem; margin: 2px 0 6px; }
 

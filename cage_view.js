@@ -577,6 +577,7 @@
         });
         const mesh = new THREE.Mesh(geometry, material);
         mesh.userData.rawPositions = positions;
+        mesh.userData.basePositions = positions; // undeformed current variant (see applyMainHoopLean)
         mesh.userData.geometryVariant = null;
         const dz = Z_FIXUPS[file] || 0;
         if (dz) mesh.position.z = dz;
@@ -674,6 +675,7 @@
         transparent: true, opacity: GHOST_OPACITY,
       });
       const mesh = new THREE.Mesh(geometry, material);
+      mesh.userData.basePositions = geometry.attributes.position.array.slice();
       mesh.position.copy(position);
       if (quaternion) mesh.quaternion.copy(quaternion);
       scene.add(mesh);
@@ -955,6 +957,8 @@
     if ((mesh.userData.geometryVariant || null) === variantKey) return;
     mesh.userData.geometryVariant = variantKey;
     const positions = variantKey ? subdivideAlongAxis(mesh.userData.rawPositions, axisIdx, numSlices) : mesh.userData.rawPositions;
+    mesh.userData.basePositions = positions;
+    mesh.userData.leanKey = null; // fresh undeformed geometry -- the next lean pass redoes it
     mesh.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     mesh.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(positions.length), 3));
     // computeVertexNormals() REUSES an existing "normal" attribute in place
@@ -1199,6 +1203,461 @@
       });
     });
   }
+  // Main hoop leaning angle (degrees from vertical; positive = its top
+  // leans toward the front of the car, negative = toward the rear, as in
+  // the checklist's own -10/+10 diagram). The modeled hoop is vertical, and
+  // tilting it alone would pull it off every bar welded to it -- so instead
+  // the whole cage is deformed by one smooth world-space field: every
+  // point is pushed fore/aft by tan(angle) x its height above the hoop's
+  // feet, scaled by a weight that is 1 in the main hoop's own plane (the
+  // hoop, its diagonals, harness bar, gussets...) and falls linearly to 0
+  // at the front rollbar's top (the transverse member) going forward and at
+  // the rear feet going back. Roof bars, door bars, laterals and backstays
+  // therefore stretch to stay attached at both ends, while the front hoop,
+  // the pillars and every mounting foot stay where they are. The mannequins
+  // and seats aren't part of the cage and are left alone.
+  //
+  // Backstay angle (degrees from vertical) works the same way, on the rear
+  // half only: the backstays' lower ends -- the rear feet, and whatever
+  // braces the backstays (253-18, rear diagonals...) -- slide fore/aft so
+  // each backstay, from its (possibly leaning) top at the main hoop down to
+  // its foot, makes the entered angle. The shift grows linearly from 0 at
+  // the hoop to its full value at the feet, so the backstays stay straight
+  // and still meet the hoop, and the braces between them follow along.
+  //
+  // Front rollbar angle (degrees rearward: the lower, near-vertical part of
+  // each front pillar leaning back as it rises) pivots that lower part
+  // about its bend -- where it starts following the windscreen pillar --
+  // so the front feet move forward (or back) and everything below the bend
+  // that hangs off the front legs (door bars, sill bars, 253-15's lower
+  // run, the dash bar...) follows, fading to no shift at the main hoop.
+  const LEAN_EXEMPT = new Set(DRIVER_MIRROR_FILES);
+  let leanDeg = 0;
+  let backstayDeg = null; // null = as modeled
+  let frontDeg = null;    // null = as modeled
+  // Bar ends entered as off their junction (over 100mm), drawn visibly
+  // off it: [{ file, end: "top"|"bottom"|"front"|"rear", move, frac? }]
+  // (front/rear pick the end by fore/aft position, for a near-level bar
+  // like a roof bar). Each end stays on the tube it's welded to and slides
+  // along it, away from the junction:
+  // - "inward": toward the car's centerline by `frac` (default a third) of
+  //   the main hoop's top width (a backstay top missing the hoop's corner,
+  //   a roof bar end off the transverse member or hoop corner);
+  // - "toward": toward the car's `toward` side ("left"/"right") by `frac`
+  //   of the hoop's top width -- for ends meeting near the middle of the
+  //   hoop's top (253-14/253-22), where "inward" has no clear direction;
+  // - "alongHoop": along the main hoop's own centerline -- bends included
+  //   -- toward the middle of its top, by a sixth of the hoop's top width
+  //   for a top end, an eighth of its height for a foot end (a 253-7
+  //   diagonal landing too far from its corner, or too high up the leg);
+  // - "alongBackstay": along that side's backstay, by a sixth of its length
+  //   -- down from its top, or up from its foot (a 253-20/21 diagonal);
+  // - "alongPillar": along that `side`'s front pillar (the lateral's leg
+  //   and windscreen pillar) by an eighth of the main hoop's height -- down
+  //   from the top, or up from the foot (a 253-15 bar).
+  // The shift fades linearly to nothing at the bar's other end, so the bar
+  // stays straight.
+  let junctionOffsets = [];
+  let leanAnchors = null;
+  function computeLeanAnchors() {
+    const box = (file) => {
+      const mesh = meshes[file];
+      const pos = mesh && mesh.userData.basePositions;
+      if (!pos) return null;
+      const b = { minX: Infinity, maxX: -Infinity, minZ: Infinity };
+      for (let i = 0; i < pos.length; i += 3) {
+        if (pos[i] < b.minX) b.minX = pos[i];
+        if (pos[i] > b.maxX) b.maxX = pos[i];
+        if (pos[i + 2] + mesh.position.z < b.minZ) b.minZ = pos[i + 2] + mesh.position.z;
+      }
+      b.midX = (b.minX + b.maxX) / 2;
+      return b;
+    };
+    const hoop = box("Main rollbar.stl"), front = box("Transverse member.stl");
+    const rearL = box("Foot rear left.stl"), rearR = box("Foot rear right.stl");
+    if (!hoop || !front || !rearL || !rearR) return null;
+    const dir = front.midX > hoop.midX ? 1 : -1; // world X sign pointing toward the front
+    const a = {
+      dir, z0: hoop.minZ,
+      bandFront: dir > 0 ? hoop.maxX : hoop.minX, bandRear: dir > 0 ? hoop.minX : hoop.maxX,
+      frontX: front.midX, rearX: (rearL.midX + rearR.midX) / 2,
+    };
+    // Each backstay's two ends: the mean X of its vertices near its highest
+    // and lowest points (the tube's end faces), averaged over both sides.
+    const ends = ["Left backstay.stl", "Right backstay.stl"].map((file) => {
+      const mesh = meshes[file];
+      const pos = mesh && mesh.userData.basePositions;
+      if (!pos) return null;
+      const dz = mesh.position.z;
+      let zMax = -Infinity, zMin = Infinity;
+      for (let i = 2; i < pos.length; i += 3) { zMax = Math.max(zMax, pos[i] + dz); zMin = Math.min(zMin, pos[i] + dz); }
+      let tx = 0, tn = 0, bx = 0, bn = 0;
+      for (let i = 0; i < pos.length; i += 3) {
+        const z = pos[i + 2] + dz;
+        if (z > zMax - 3) { tx += pos[i]; tn++; }
+        if (z < zMin + 3) { bx += pos[i]; bn++; }
+      }
+      return { topX: tx / tn, topZ: zMax, footX: bx / bn, footZ: zMin };
+    }).filter(Boolean);
+    if (ends.length) {
+      const avg = (k) => ends.reduce((sum, e) => sum + e[k], 0) / ends.length;
+      a.stayTopZ = avg("topZ");
+      a.stayFootZ = avg("footZ");
+      a.stayTopRear = (a.bandRear - avg("topX")) * dir;  // rearward distance behind the hoop's rear face
+      a.stayFootRear = (a.bandRear - avg("footX")) * dir;
+      a.stayHeight = Math.max(1, a.stayTopZ - a.stayFootZ);
+      a.modeledBackstayDeg = (Math.atan2(a.stayFootRear - a.stayTopRear, a.stayHeight) * 180) / Math.PI;
+    }
+    // The main hoop's straight top: its Y extent near its highest point.
+    {
+      const mesh = meshes["Main rollbar.stl"];
+      const pos = mesh.userData.basePositions;
+      let zMax = -Infinity;
+      for (let i = 2; i < pos.length; i += 3) zMax = Math.max(zMax, pos[i]);
+      let yMin = Infinity, yMax = -Infinity;
+      for (let i = 0; i < pos.length; i += 3) if (pos[i + 2] > zMax - 5) { yMin = Math.min(yMin, pos[i + 1]); yMax = Math.max(yMax, pos[i + 1]); }
+      a.hoopTopWidth = yMax - yMin;
+      a.centerY = (yMin + yMax) / 2;
+      a.hoopHeight = zMax + mesh.position.z - a.z0;
+      // The hoop's centerline, as the mean of its vertices in 2-degree
+      // sectors around a point near its middle (0 = straight up, negative
+      // = the lower-Y side) -- inner and outer surface average out to the
+      // tube's center -- with cumulative arc length s, left foot to right.
+      const cy = a.centerY, cz = a.z0 + a.hoopHeight * 0.45;
+      const bins = new Map();
+      for (let i = 0; i < pos.length; i += 3) {
+        const y = pos[i + 1], z = pos[i + 2] + mesh.position.z;
+        const key = Math.round((Math.atan2(y - cy, z - cz) * 180) / Math.PI / 2);
+        const b = bins.get(key) || { x: 0, y: 0, z: 0, n: 0 };
+        b.x += pos[i]; b.y += y; b.z += z; b.n++;
+        bins.set(key, b);
+      }
+      let s = 0, prev = null;
+      a.hoopCurve = [...bins.keys()].sort((p, q) => p - q).map((key) => {
+        const b = bins.get(key);
+        const pt = { phi: key * 2, p: new THREE.Vector3(b.x / b.n, b.y / b.n, b.z / b.n) };
+        if (prev) s += pt.p.distanceTo(prev);
+        prev = pt.p;
+        pt.s = s;
+        return pt;
+      });
+      a.hoopCenterS = a.hoopCurve.reduce((best, c) => (Math.abs(c.phi) < Math.abs(best.phi) ? c : best)).s;
+      a.hoopCy = cy; a.hoopCz = cz;
+    }
+    // Each front lateral's leg + windscreen pillar as a centerline, bottom
+    // to top: the mean of its vertices in 2-unit height slices, below the
+    // roof run (which starts at the transverse member's height). s = arc
+    // length from the foot.
+    {
+      const tm = meshes["Transverse member.stl"];
+      let tz = Infinity;
+      if (tm) { const tp = tm.userData.basePositions; for (let i = 2; i < tp.length; i += 3) tz = Math.min(tz, tp[i] + tm.position.z); }
+      a.pillarCurves = {};
+      [["left", "Front left lateral.stl"], ["right", "Front right lateral.stl"]].forEach(([side, file]) => {
+        const mesh = meshes[file];
+        const pos = mesh && mesh.userData.basePositions;
+        if (!pos || !isFinite(tz)) return;
+        const bins = new Map();
+        for (let i = 0; i < pos.length; i += 3) {
+          const z = pos[i + 2] + mesh.position.z;
+          if (z >= tz - 2) continue;
+          const key = Math.floor(z / 2);
+          const b = bins.get(key) || { x: 0, y: 0, z: 0, n: 0 };
+          b.x += pos[i]; b.y += pos[i + 1]; b.z += z; b.n++;
+          bins.set(key, b);
+        }
+        let s = 0, prev = null;
+        a.pillarCurves[side] = [...bins.keys()].sort((p, q) => p - q).map((key) => {
+          const b = bins.get(key);
+          const p = new THREE.Vector3(b.x / b.n, b.y / b.n, b.z / b.n);
+          if (prev) s += p.distanceTo(prev);
+          prev = p;
+          return { p, s };
+        });
+      });
+    }
+    // Which way along Y the car's left side is (from the left backstay).
+    {
+      const m = meshes["Left backstay.stl"], p = m && m.userData.basePositions;
+      let sy = 0;
+      if (p) for (let i = 1; i < p.length; i += 3) sy += p[i];
+      a.leftSignY = p && sy / (p.length / 3) < a.centerY ? -1 : 1;
+    }
+    // Each backstay as a straight line, top to foot (world coordinates).
+    a.stayLines = ["Left backstay.stl", "Right backstay.stl"].map((file) => {
+      const mesh = meshes[file];
+      const pos = mesh && mesh.userData.basePositions;
+      if (!pos) return null;
+      const dz = mesh.position.z;
+      let zMax = -Infinity, zMin = Infinity;
+      for (let i = 2; i < pos.length; i += 3) { zMax = Math.max(zMax, pos[i] + dz); zMin = Math.min(zMin, pos[i] + dz); }
+      const top = new THREE.Vector3(), foot = new THREE.Vector3();
+      let tn = 0, fn = 0;
+      for (let i = 0; i < pos.length; i += 3) {
+        const p = new THREE.Vector3(pos[i], pos[i + 1], pos[i + 2] + dz);
+        if (p.z > zMax - 3) { top.add(p); tn++; }
+        if (p.z < zMin + 3) { foot.add(p); fn++; }
+      }
+      return tn && fn ? { file, top: top.multiplyScalar(1 / tn), foot: foot.multiplyScalar(1 / fn) } : null;
+    }).filter(Boolean);
+    // Each front leg's lower part: its mean X at the floor, and the height
+    // (its bend) where its centerline starts running back along the pillar.
+    const legs = ["Front left lateral.stl", "Front right lateral.stl"].map((file) => {
+      const mesh = meshes[file];
+      const pos = mesh && mesh.userData.basePositions;
+      if (!pos) return null;
+      const dz = mesh.position.z;
+      let zMin = Infinity;
+      for (let i = 2; i < pos.length; i += 3) zMin = Math.min(zMin, pos[i] + dz);
+      const sliceX = (z0, z1) => {
+        let sx = 0, n = 0;
+        for (let i = 0; i < pos.length; i += 3) { const z = pos[i + 2] + dz; if (z >= z0 && z < z1) { sx += pos[i]; n++; } }
+        return n ? sx / n : null;
+      };
+      const footX = sliceX(zMin, zMin + 10);
+      let bendZ = null;
+      for (let z = zMin + 10; z < zMin + 200; z += 2) {
+        const x = sliceX(z, z + 2);
+        if (x != null && Math.abs(x - footX) > 2) { bendZ = z; break; }
+      }
+      if (bendZ == null || footX == null) return null;
+      return { footX, footZ: zMin, bendZ, bendX: sliceX(bendZ - 6, bendZ - 2) };
+    }).filter(Boolean);
+    if (legs.length) {
+      const avg = (k) => legs.reduce((sum, e) => sum + e[k], 0) / legs.length;
+      a.legFootZ = avg("footZ");
+      a.legBendZ = avg("bendZ");
+      a.legAhead = Math.max(1, (avg("footX") - a.bandFront) * dir); // how far ahead of the hoop the front legs stand
+      // As modeled: how far the bend sits behind the foot, over the leg's height.
+      a.modeledFrontTan = ((avg("footX") - avg("bendX")) * dir) / Math.max(1, a.legBendZ - a.legFootZ);
+    }
+    return a;
+  }
+  // 1 at (and ahead of) the front legs, 0 at the main hoop's front face,
+  // times the height below the bend -- so a point's forward shift is
+  // (tan(new) - tan(modeled)) x this.
+  function frontLegWeight(a, x, z) {
+    if (a.legBendZ == null || z >= a.legBendZ) return 0;
+    const ahead = (x - a.bandFront) * a.dir;
+    if (ahead <= 0) return 0;
+    return Math.min(1, ahead / a.legAhead) * (a.legBendZ - z);
+  }
+  // How far (rearward, world units) the backstay feet must move so the
+  // backstays make backstayDeg from vertical, given the main hoop lean k
+  // (which carries the backstays' tops forward or back).
+  function backstayFootShift(a, k) {
+    if (backstayDeg == null || a.stayHeight == null) return 0;
+    const topRear = a.stayTopRear - k * (a.stayTopZ - a.z0);
+    return topRear + a.stayHeight * Math.tan((backstayDeg * Math.PI) / 180) - a.stayFootRear;
+  }
+  // 0 in the main hoop's plane and at the backstays' tops, 1 at their feet
+  // (and below/behind them) -- linear along each backstay.
+  function backstayWeight(a, x, z) {
+    const r = (a.bandRear - x) * a.dir;
+    if (r <= 0 || a.stayHeight == null) return 0;
+    const byDepth = r / Math.max(1, a.stayFootRear);
+    const byHeight = (a.stayTopZ - z) / a.stayHeight;
+    return Math.max(0, Math.min(1, byDepth, byHeight));
+  }
+  function leanWeight(a, x) {
+    const f = (x - a.bandFront) * a.dir; // > 0: forward of the hoop's plane
+    const r = (a.bandRear - x) * a.dir;  // > 0: behind it
+    if (f > 0) return Math.max(0, 1 - f / Math.max(1, Math.abs(a.frontX - a.bandFront)));
+    if (r > 0) return Math.max(0, 1 - r / Math.max(1, Math.abs(a.bandRear - a.rearX)));
+    return 1;
+  }
+  // How far (a vector) a bar end at world point `here` moves for an
+  // "alongHoop"/"alongBackstay" junction offset -- the difference between
+  // where its host tube's centerline is next to it now, and where that
+  // centerline is after sliding the given distance along it. Both points
+  // are taken on the host tube as DEFORMED (`deform`: the angle fields --
+  // hoop lean, backstay/front rollbar angles), so the end follows the tube
+  // where it's actually drawn, not where it was modeled.
+  function junctionSlide(a, o, here, deform) {
+    if (o.move === "alongHoop" && a.hoopCurve && a.hoopCurve.length > 1) {
+      const c = a.hoopCurve;
+      const phi = (Math.atan2(here.y - a.hoopCy, here.z - a.hoopCz) * 180) / Math.PI;
+      const near = c.reduce((best, pt) => (Math.abs(pt.phi - phi) < Math.abs(best.phi - phi) ? pt : best));
+      const d = o.end === "top" ? a.hoopTopWidth / 6 : a.hoopHeight / 8;
+      // Toward the middle of the top, never past it.
+      const target = near.s < a.hoopCenterS ? Math.min(a.hoopCenterS, near.s + d) : Math.max(a.hoopCenterS, near.s - d);
+      const at = (s) => {
+        for (let i = 1; i < c.length; i++) {
+          if (c[i].s >= s) {
+            const f = (s - c[i - 1].s) / Math.max(1e-6, c[i].s - c[i - 1].s);
+            return c[i - 1].p.clone().lerp(c[i].p, f);
+          }
+        }
+        return c[c.length - 1].p.clone();
+      };
+      return deform(at(target)).sub(deform(near.p));
+    }
+    if (o.move === "alongPillar" && a.pillarCurves && a.pillarCurves[o.side] && a.pillarCurves[o.side].length > 1) {
+      const c = a.pillarCurves[o.side];
+      const near = c.reduce((best, pt) => (pt.p.distanceTo(here) < best.p.distanceTo(here) ? pt : best));
+      const d = a.hoopHeight / 8;
+      const target = o.end === "top" ? Math.max(0, near.s - d) : Math.min(c[c.length - 1].s, near.s + d);
+      let pt = c[c.length - 1].p.clone();
+      for (let i = 1; i < c.length; i++) {
+        if (c[i].s >= target) { pt = c[i - 1].p.clone().lerp(c[i].p, (target - c[i - 1].s) / Math.max(1e-6, c[i].s - c[i - 1].s)); break; }
+      }
+      return deform(pt).sub(deform(near.p));
+    }
+    if (o.move === "alongBackstay" && a.stayLines && a.stayLines.length) {
+      // The backstay on this end's side of the car.
+      const line = a.stayLines.reduce((best, l) => (Math.abs(l.top.y - here.y) < Math.abs(best.top.y - here.y) ? l : best));
+      // The backstay's own top may itself be drawn off its junction
+      // (pulled inward) -- follow the backstay as drawn.
+      const top = line.top.clone();
+      if (junctionOffsets.some((j) => j.file === line.file && j.move === "inward")) {
+        const j = junctionOffsets.find((x) => x.file === line.file && x.move === "inward");
+        top.y += (a.centerY - top.y >= 0 ? 1 : -1) * a.hoopTopWidth * (j.frac || 1 / 3);
+      }
+      const along = deform(line.foot).sub(deform(top));
+      const len = along.length();
+      along.normalize().multiplyScalar(len / 6);
+      return o.end === "top" ? along : along.negate();
+    }
+    return null;
+  }
+  // Re-derives each mesh's deformed positions from its undeformed ones, only
+  // where the angle, the mesh's placement (setMeshTransforms) or its
+  // geometry variant (applyState's subdivisions) changed since last time.
+  function applyMainHoopLean() {
+    if (!leanAnchors) leanAnchors = computeLeanAnchors();
+    const a = leanAnchors;
+    if (!a) return;
+    const k = Math.tan((leanDeg * Math.PI) / 180);
+    const shift = backstayFootShift(a, k);
+    const frontK = frontDeg == null || a.modeledFrontTan == null ? 0 : Math.tan((frontDeg * Math.PI) / 180) - a.modeledFrontTan;
+    const v = new THREE.Vector3();
+    const inv = new THREE.Matrix4();
+    // The angle fields' fore/aft shift at an undeformed world point, and
+    // that point deformed (a copy).
+    const fieldDx = (q) => a.dir * k * (q.z - a.z0) * leanWeight(a, q.x)
+      + (shift ? -a.dir * shift * backstayWeight(a, q.x, q.z) : 0)
+      + (frontK ? a.dir * frontK * frontLegWeight(a, q.x, q.z) : 0);
+    const deform = (q) => { const c = q.clone(); c.x += fieldDx(q); return c; };
+    Object.keys(meshes).forEach((file) => {
+      if (LEAN_EXEMPT.has(file)) return;
+      const mesh = meshes[file];
+      const base = mesh.userData.basePositions;
+      if (!base) return;
+      if (mesh.matrixAutoUpdate) mesh.updateMatrix();
+      const offs = a.hoopTopWidth ? junctionOffsets.filter((o) => o.file === file) : [];
+      const key = k === 0 && shift === 0 && frontK === 0 && !offs.length ? "0" : k.toFixed(6) + "|" + shift.toFixed(3) + "|" + frontK.toFixed(6) + "|" + JSON.stringify(offs) + "|" + mesh.matrix.elements.map((e) => e.toFixed(3)).join(",");
+      if ((mesh.userData.leanKey || "0") === key) return;
+      mesh.userData.leanKey = key;
+      const geometry = mesh.geometry;
+      if (key === "0") {
+        geometry.setAttribute("position", new THREE.BufferAttribute(base, 3));
+      } else {
+        let attr = geometry.attributes.position;
+        if (attr.array === base || attr.array.length !== base.length) {
+          attr = new THREE.BufferAttribute(new Float32Array(base.length), 3);
+          geometry.setAttribute("position", attr);
+        }
+        const out = attr.array;
+        inv.copy(mesh.matrix).invert();
+        // This bar's own extent along the axis its ends are picked by
+        // (height for top/bottom, fore-aft toward the front for front/rear)
+        // and each end's side of the car (read off the undeformed bar).
+        const along = (o, p) => (o.end === "front" || o.end === "rear" ? p.x * a.dir : p.z);
+        const hiEnd = (o) => o.end === "top" || o.end === "front";
+        let barMin = { z: Infinity, f: Infinity }, barMax = { z: -Infinity, f: -Infinity };
+        const ends = [];
+        if (offs.length) {
+          for (let i = 0; i < base.length; i += 3) {
+            v.set(base[i], base[i + 1], base[i + 2]).applyMatrix4(mesh.matrix);
+            barMin.z = Math.min(barMin.z, v.z); barMax.z = Math.max(barMax.z, v.z);
+            barMin.f = Math.min(barMin.f, v.x * a.dir); barMax.f = Math.max(barMax.f, v.x * a.dir);
+          }
+          offs.forEach((o) => {
+            const key = o.end === "front" || o.end === "rear" ? "f" : "z";
+            const lo = barMin[key], hi = barMax[key];
+            // Centers of this end and of the bar's other end.
+            const here = new THREE.Vector3(), there = new THREE.Vector3();
+            let n = 0, m = 0;
+            for (let i = 0; i < base.length; i += 3) {
+              v.set(base[i], base[i + 1], base[i + 2]).applyMatrix4(mesh.matrix);
+              const q = along(o, v);
+              const atHi = q > hi - 3, atLo = q < lo + 3;
+              if (hiEnd(o) ? atHi : atLo) { here.add(v); n++; }
+              if (hiEnd(o) ? atLo : atHi) { there.add(v); m++; }
+            }
+            if (n) here.multiplyScalar(1 / n);
+            if (m) there.multiplyScalar(1 / m);
+            ends.push({
+              o, lo, span: Math.max(1, hi - lo),
+              inwardSign: a.centerY - (n ? here.y : a.centerY) >= 0 ? 1 : -1,
+              slide: n ? junctionSlide(a, o, here, deform) : null,
+            });
+          });
+        }
+        for (let i = 0; i < base.length; i += 3) {
+          v.set(base[i], base[i + 1], base[i + 2]).applyMatrix4(mesh.matrix);
+          // Both weights are read off the undeformed point.
+          const dAngles = fieldDx(v);
+          ends.forEach(({ o, lo, span, inwardSign, slide }) => {
+            const f = (along(o, v) - lo) / span; // 0 at the low end, 1 at the high one
+            const t = Math.max(0, Math.min(1, hiEnd(o) ? f : 1 - f));
+            if (o.move === "inward") v.y += inwardSign * a.hoopTopWidth * (o.frac || 1 / 3) * t;
+            else if (o.move === "toward") v.y += (o.toward === "left" ? a.leftSignY : -a.leftSignY) * a.hoopTopWidth * (o.frac || 1 / 6) * t;
+            else if (slide) v.addScaledVector(slide, t);
+          });
+          v.x += dAngles;
+          v.applyMatrix4(inv);
+          out[i] = v.x; out[i + 1] = v.y; out[i + 2] = v.z;
+        }
+        attr.needsUpdate = true;
+      }
+      geometry.deleteAttribute("normal");
+      geometry.computeVertexNormals();
+      geometry.boundingBox = null;
+      geometry.boundingSphere = null;
+    });
+  }
+  // Called by app.js after every applyState/setMeshTransforms (it depends
+  // on both); a missing/non-numeric answer means a vertical hoop. Capped
+  // well past the 10-degree limit so a typo can't fold the cage over.
+  function setMainHoopLean(degrees) {
+    const d = Number(degrees);
+    onReady(() => {
+      leanDeg = Number.isFinite(d) ? Math.max(-25, Math.min(25, d)) : 0;
+      applyMainHoopLean();
+    });
+  }
+  // Degrees from vertical; null/non-numeric = as modeled. Clamped to a
+  // physically sensible range (a near-vertical or near-flat backstay would
+  // shoot the feet off the car).
+  function setBackstayAngle(degrees) {
+    const d = degrees === "" || degrees == null ? NaN : Number(degrees);
+    onReady(() => {
+      backstayDeg = Number.isFinite(d) ? Math.max(5, Math.min(70, d)) : null;
+      applyMainHoopLean();
+    });
+  }
+  // Degrees rearward; null/non-numeric = as modeled. Clamped to a
+  // sensible range around the 0-10 limit.
+  function setFrontRollbarAngle(degrees) {
+    const d = degrees === "" || degrees == null ? NaN : Number(degrees);
+    onReady(() => {
+      frontDeg = Number.isFinite(d) ? Math.max(-15, Math.min(30, d)) : null;
+      applyMainHoopLean();
+    });
+  }
+  // See junctionOffsets above.
+  function setJunctionOffsets(list) {
+    onReady(() => {
+      junctionOffsets = Array.isArray(list) ? list : [];
+      applyMainHoopLean();
+    });
+  }
+  // The backstays' angle in the model as drawn (before any deformation).
+  function getModeledBackstayAngle() {
+    if (!leanAnchors) leanAnchors = computeLeanAnchors();
+    return leanAnchors ? leanAnchors.modeledBackstayDeg : null;
+  }
   function getMeshAxisBounds(file) {
     const mesh = meshes[file];
     return mesh ? meshAxisBounds(mesh) : null;
@@ -1290,7 +1749,7 @@
     renderer.render(scene, camera);
     return out.toDataURL("image/jpeg", 0.85);
   }
-  window.CageView = { init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setBackground, resetBackground, snapshot };
+  window.CageView = { init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");

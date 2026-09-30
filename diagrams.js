@@ -209,6 +209,11 @@
   // ---- Front rollbar angle (-10/0 degree cone on both front pillars) ----
   D["front-rollbar-angle"] = wrapImg("front_rollbar_angle.png");
 
+  // ---- 253-15 junction distances: along the bend to the windshield
+  // transverse at the top, up from the foot plate at the bottom (user-
+  // supplied illustration) ----
+  D["253-15-junctions"] = wrapImg("253-15_junction_distances.png");
+
   // ---- Front mounting feet forward of foremost rollbar (foot-plate +
   // reference-line marker on both front feet) ----
   D["front-feet-forward"] = wrapImg("front_feet_forward.png");

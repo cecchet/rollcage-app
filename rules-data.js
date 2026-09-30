@@ -127,7 +127,9 @@
   // ---- Shared column sets for table elements ---------------------------
   const WELD_COLUMNS = [{ key: "weld", label: "Complete weld", type: "boolean" }];
   const DISTANCE_COLUMNS = [
-    { key: "distance", label: "Distance from junction (<100mm/3.94in)", type: "length", compare: { op: "lt", value: 100 } },
+    // safetyLimit: a bar off its junction is unsafe whatever the rulebook,
+    // so a failing distance shows red even with no sanctioning body set.
+    { key: "distance", label: "Distance from junction (≤100mm/3.94in)", type: "length", compare: { op: "lte", value: 100 }, safetyLimit: true },
   ];
   // A car's manufacture year (vehicle_year, free text -- not the logbook
   // issue date used for grandfathering routing) parsed as best-effort
@@ -150,6 +152,14 @@
   // logbook) puts its Logbook information first, so the cage's own parts
   // shift up by one there -- same order as app.js's PHASE_ORDER.
   const LOGBOOK_APP = !!(window.APP_CONFIG && window.APP_CONFIG.logbook);
+  // The app's own getAnswer, handed over at startup (RULES_DATA.useAnswers)
+  // -- lets an element's name/description follow the design picked (e.g.
+  // "253-7" only for the X, not a single diagonal) via a getter, so every
+  // place that reads elm.name/elm.description gets the right wording.
+  let answerSource = () => ({ value: "" });
+  const answerOf = (id) => answerSource(id) || { value: "" };
+  function isMainHoopX() { return /^253-7-/.test(answerOf("main_hoop_diagonals").value); }
+  function isRoof12() { return /^253-12-/.test(answerOf("roof_bars").value); }
   function PART(n) { return "Part " + (LOGBOOK_APP ? (n === 6 ? 1 : n + 1) : n); }
 
   function patchElements(base, patches) {
@@ -239,13 +249,13 @@
       diagram: "installation-constraints",
       evaluationType: "table",
       rows: [
-        { id: "a", label: "A (>300mm/11.8in)", compare: { op: "gt", value: 300 } },
-        { id: "b", label: "B (<250mm/9.85in)", compare: { op: "lt", value: 250 } },
-        { id: "c", label: "C (<300mm/11.8in)", compare: { op: "lt", value: 300 } },
+        { id: "a", label: "A (≥300mm/11.8in)", compare: { op: "gte", value: 300 } },
+        { id: "b", label: "B (≤250mm/9.85in)", compare: { op: "lte", value: 250 } },
+        { id: "c", label: "C (≤300mm/11.8in)", compare: { op: "lte", value: 300 } },
         { id: "h", label: "H (door opening height)" },
-        { id: "e", label: "E (<0.5 H)", compare: { op: "ltFractionOfRow", fraction: 0.5, ofRow: "h" } },
-        { id: "r1", label: "R1 (top projection through windshield <100mm)", compare: { op: "lt", value: 100 } },
-        { id: "r2", label: "R2 (side projection through windshield <70mm)", compare: { op: "lt", value: 70 } },
+        { id: "e", label: "E (≤0.5 H)", compare: { op: "lteFractionOfRow", fraction: 0.5, ofRow: "h" } },
+        { id: "r1", label: "R1 (top projection through windshield ≤100mm)", compare: { op: "lte", value: 100 } },
+        { id: "r2", label: "R2 (side projection through windshield ≤70mm)", compare: { op: "lte", value: 70 } },
       ],
       columns: [{ key: "value", label: "Value", type: "length" }],
       visuallyVerifiable: false,
@@ -315,11 +325,12 @@
       hideNotes: true,
       requirement: "required",
       reference: "",
-      description: "The design of the main rollbar has to be as straight as possible but it can lean up to 10 degrees of the vertical in any direction.",
+      description: "The design of the main rollbar has to be as straight as possible but it can lean up to 10 degrees of the vertical in any direction. Enter a positive angle if its top leans toward the front of the car, negative if toward the rear -- the 3D model tilts to match.",
       diagram: "lean-angle",
       evaluationType: "numeric",
       unit: "degrees",
-      compare: { op: "lte", value: 10 },
+      // Signed (see description), so the limit applies both ways.
+      compare: { op: "between", min: -10, max: 10 },
       visuallyVerifiable: false,
       hardFail: true,
       hardFailMessage: "Main hoop leans more than 10 degrees from vertical.",
@@ -560,7 +571,7 @@
       hideNotes: true,
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.1",
-      description: "At least 30 degrees from vertical.",
+      description: "At least 30 degrees from vertical. The 3D model's backstays swing to the angle entered.",
       evaluationType: "numeric",
       unit: "degrees from vertical",
       compare: { op: "gte", value: 30 },
@@ -576,7 +587,7 @@
       hideNotes: true,
       requirement: "required",
       reference: "",
-      description: "The lower part of the front pillar must be near-vertical, with no bends below where it ceases to follow the windscreen pillar, and a maximum angle of 10 degrees to the vertical towards the rear.",
+      description: "The lower part of the front pillar must be near-vertical, with no bends below where it ceases to follow the windscreen pillar, and a maximum angle of 10 degrees to the vertical towards the rear. The 3D model's front legs tilt to the angle entered.",
       evaluationType: "numeric",
       fields: [
         { key: "bend_count", label: "Number of bends below where it ceases to follow the windscreen pillar", unit: "bends", compare: { op: "lte", value: 0 } },
@@ -1249,6 +1260,26 @@
   // =====================================================================
   // Section 3. Main rollbar diagonals (253-7)
   // =====================================================================
+  // Which ends a main rollbar diagonal design actually has: both legs of
+  // the 253-7 X, or just the one bar of a single diagonal ("top on right"
+  // runs from the right backstay junction down to the left foot). The
+  // other designs (horizontal bar, V-braces) have no diagonal ends at all.
+  const MAIN_DIAG_ROWS = {
+    foot_left: "foot left", foot_right: "foot right", backstay_left: "backstay left", backstay_right: "backstay right",
+  };
+  const MAIN_DIAG_END_IDS = {
+    "253-7-1": ["foot_left", "foot_right", "backstay_left", "backstay_right"],
+    "253-7-2": ["foot_left", "foot_right", "backstay_left", "backstay_right"],
+    "diag-right": ["foot_left", "backstay_right"],
+    "diag-left": ["backstay_left", "foot_right"],
+  };
+  const MAIN_DIAG_WITH_ENDS = Object.keys(MAIN_DIAG_END_IDS);
+  // "253-7" only names the X -- a single diagonal is just "Main diagonal".
+  function mainDiagEndRows(getAnswer) {
+    const v = getAnswer("main_hoop_diagonals").value;
+    const prefix = /^253-7-/.test(v) ? "253-7 main diagonal -- " : "Main diagonal -- ";
+    return (MAIN_DIAG_END_IDS[v] || []).map((id) => ({ id, label: prefix + MAIN_DIAG_ROWS[id] }));
+  }
   const SECTION_3_MAIN_DIAGONALS = [
     {
       id: "backstay_distance_upper_laterals",
@@ -1257,7 +1288,7 @@
       hideNotes: true,
       requirement: "required",
       reference: "",
-      description: "Rear backstays must attach less than 100mm from the upper laterals.",
+      description: "Rear backstays must attach within 100mm of the upper laterals.",
       evaluationType: "table",
       rows: [
         { id: "left", label: "Left backstay -- to left lateral" },
@@ -1270,24 +1301,23 @@
     },
     {
       id: "main_diagonal_distances",
-      name: "253-7 main rollbar diagonal junction distances",
+      get name() { return (isMainHoopX() ? "253-7 main" : "Main") + " rollbar diagonal junction distances"; },
       category: "Bar junction distances",
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1.1(a)",
-      description: "Lower ends must join the main rollbar within 100mm of the mounting feet; upper ends must be within 100mm of the backstay junctions.",
-      showIf: { id: "main_hoop_diagonals", notEquals: "none" },
+      get description() {
+        return isMainHoopX()
+          ? "Lower ends must join the main rollbar within 100mm of the mounting feet; upper ends must be within 100mm of the backstay junctions."
+          : "The lower end must join the main rollbar within 100mm of the mounting foot; the upper end must be within 100mm of the backstay junction.";
+      },
+      showIf: { id: "main_hoop_diagonals", in: MAIN_DIAG_WITH_ENDS },
       evaluationType: "table",
-      rows: [
-        { id: "foot_left", label: "253-7 main diagonal -- foot left" },
-        { id: "foot_right", label: "253-7 main diagonal -- foot right" },
-        { id: "backstay_left", label: "253-7 main diagonal -- backstay left" },
-        { id: "backstay_right", label: "253-7 main diagonal -- backstay right" },
-      ],
+      rows: mainDiagEndRows,
       columns: DISTANCE_COLUMNS,
       distanceQuickCheck: true,
       visuallyVerifiable: true,
       hardFail: true,
-      hardFailMessage: "253-7 diagonal end(s) more than 100mm from the mounting foot or backstay junction.",
+      get hardFailMessage() { return (isMainHoopX() ? "253-7 diagonal" : "Main rollbar diagonal") + " end(s) more than 100mm from the mounting foot or backstay junction."; },
     },
     // Both diagonal legs' own far ends (at the mounting feet / backstay
     // junctions) plus the non-continuous leg's own 2 halves at the crossing
@@ -1296,18 +1326,21 @@
     // center" shape as the other X-braced bars (253-9/12/19/21).
     {
       id: "main_diagonal_welds",
-      name: "253-7 main rollbar diagonal welds",
+      get name() { return (isMainHoopX() ? "253-7 main" : "Main") + " rollbar diagonal welds"; },
       category: "Welds",
       requirement: "required",
       reference: "",
-      description: "The 4 far ends (at the mounting feet and backstay junctions) plus, where the diagonals aren't both one continuous piece, the 2 crossing points of whichever leg is cut into half-bars.",
-      showIf: { id: "main_hoop_diagonals", notEquals: "none" },
+      get description() {
+        return isMainHoopX()
+          ? "The 4 far ends (at the mounting feet and backstay junctions) plus, where the diagonals aren't both one continuous piece, the 2 crossing points of whichever leg is cut into half-bars."
+          : "The diagonal's 2 ends (at the mounting foot and the backstay junction).";
+      },
+      showIf: { id: "main_hoop_diagonals", in: MAIN_DIAG_WITH_ENDS },
       evaluationType: "table",
-      rows: [
-        { id: "foot_left", label: "253-7 main diagonal -- foot left" }, { id: "foot_right", label: "253-7 main diagonal -- foot right" },
-        { id: "backstay_left", label: "253-7 main diagonal -- backstay left" }, { id: "backstay_right", label: "253-7 main diagonal -- backstay right" },
+      // A single diagonal has just its 2 ends -- no crossing to weld.
+      rows: (getAnswer) => mainDiagEndRows(getAnswer).concat(/^253-7-/.test(getAnswer("main_hoop_diagonals").value) ? [
         { id: "top_left", label: "253-7 main diagonal -- crossing top/left" }, { id: "bottom_right", label: "253-7 main diagonal -- crossing bottom/right" },
-      ],
+      ] : []),
       columns: WELD_COLUMNS,
       visuallyVerifiable: true,
       hardFail: true,
@@ -1364,10 +1397,28 @@
     { id: "roof_crossing_front", label: "253-12 roof bar -- crossing front" }, { id: "roof_crossing_rear", label: "253-12 roof bar -- crossing rear" },
   ];
   const REAR_DIAG_253_21_WELD_ROWS = [
-    { id: "top_rear_diag_left", label: "253-21 rear diagonal -- top left" }, { id: "bottom_rear_diag_left", label: "253-21 rear diagonal -- bottom left" },
-    { id: "top_rear_diag_right", label: "253-21 rear diagonal -- top right" }, { id: "bottom_rear_diag_right", label: "253-21 rear diagonal -- bottom right" },
+    { id: "top_rear_diag_left", label: "253-20/21 rear diagonal -- top left" }, { id: "bottom_rear_diag_left", label: "253-20/21 rear diagonal -- bottom left" },
+    { id: "top_rear_diag_right", label: "253-20/21 rear diagonal -- top right" }, { id: "bottom_rear_diag_right", label: "253-20/21 rear diagonal -- bottom right" },
     { id: "diag_crossing_top", label: "253-21 rear diagonal -- crossing top" }, { id: "diag_crossing_bottom", label: "253-21 rear diagonal -- crossing bottom" },
   ];
+  // Which ends each backstay diagonal design has: 253-20 "top left" is one
+  // bar from the left backstay's top to the right backstay's foot (Rear
+  // diagonal 1), "top right" the mirror (Rear diagonal 2); only the 253-21
+  // X has all 4 ends (plus its crossing, for welds).
+  const BACKSTAY_DIAG_END_IDS = {
+    "253-20": ["top_rear_diag_left", "bottom_rear_diag_right"],
+    "253-20-right": ["bottom_rear_diag_left", "top_rear_diag_right"],
+    "253-21-1": ["top_rear_diag_left", "bottom_rear_diag_left", "top_rear_diag_right", "bottom_rear_diag_right"],
+    "253-21-2": ["top_rear_diag_left", "bottom_rear_diag_left", "top_rear_diag_right", "bottom_rear_diag_right"],
+  };
+  const BACKSTAY_DIAG_WITH_ENDS = Object.keys(BACKSTAY_DIAG_END_IDS);
+  function backstayDiagRowsFrom(allRows, withCrossing) {
+    return (getAnswer) => {
+      const v = getAnswer("backstay_diagonals").value;
+      const ids = (BACKSTAY_DIAG_END_IDS[v] || []).concat(withCrossing && /^253-21-/.test(v) ? ["diag_crossing_top", "diag_crossing_bottom"] : []);
+      return allRows.filter((r) => ids.includes(r.id));
+    };
+  }
   // 253-20/253-21's own junction distances -- "the respective backstay"'s
   // upper end (near the main rollbar) for the diagonal's own top corner,
   // its lower end (near the foot) for the bottom corner. Verified from real
@@ -1408,8 +1459,8 @@
     { id: "front_roof_right", label: "253-14 roof bar -- front right (to transverse member)" },
     { id: "top_rear_left", label: "253-14/253-22 -- left V junction" },
     { id: "top_rear_right", label: "253-14/253-22 -- right V junction" },
-    { id: "roof_peak", label: "253-14 roof bar -- rear left/right (peak)" },
-    { id: "rear_diag_peak", label: "253-22 rear diagonal -- top left/right (peak)" },
+    { id: "roof_peak", label: "253-14 roof bar -- rear left/right (distance between bars)" },
+    { id: "rear_diag_peak", label: "253-22 rear diagonal -- top left/right (distance between bars)" },
     { id: "bottom_rear_left", label: "253-22 rear diagonal -- lower left (to backstay)" },
     { id: "bottom_rear_right", label: "253-22 rear diagonal -- lower right (to backstay)" },
   ];
@@ -1458,19 +1509,30 @@
     },
     {
       id: "roof_4_1_distances",
-      name: "253-12 roof bar junction distances",
+      // "253-12" only names the X -- a single diagonal is just a roof bar.
+      get name() { return isRoof12() ? "253-12 roof bar junction distances" : "Roof bar junction distances"; },
       category: "Bar junction distances",
       requirement: "required",
       reference: "",
       description: "Front ends measure to the transverse member; rear ends measure to the backstay.",
-      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2"] },
+      // 253-12's X has all 4 ends; a single diagonal roof bar just its own
+      // 2 (front left runs from the front-left corner to the rear-right).
+      showIf: { id: "roof_bars", in: ["253-12-1", "253-12-2", "single-front-left", "single-front-right"] },
       evaluationType: "table",
-      rows: [
-        { id: "front_roof_left", label: "253-12 roof bar -- front left (to transverse member)" },
-        { id: "front_roof_right", label: "253-12 roof bar -- front right (to transverse member)" },
-        { id: "rear_roof_left", label: "253-12 roof bar -- rear left (to backstay)" },
-        { id: "rear_roof_right", label: "253-12 roof bar -- rear right (to backstay)" },
-      ],
+      rows: (getAnswer) => {
+        const ends = {
+          "253-12-1": ["front_roof_left", "front_roof_right", "rear_roof_left", "rear_roof_right"],
+          "253-12-2": ["front_roof_left", "front_roof_right", "rear_roof_left", "rear_roof_right"],
+          "single-front-left": ["front_roof_left", "rear_roof_right"],
+          "single-front-right": ["front_roof_right", "rear_roof_left"],
+        }[getAnswer("roof_bars").value] || [];
+        return [
+          { id: "front_roof_left", label: "Roof bar -- front left (to transverse member)" },
+          { id: "front_roof_right", label: "Roof bar -- front right (to transverse member)" },
+          { id: "rear_roof_left", label: "Roof bar -- rear left (to backstay)" },
+          { id: "rear_roof_right", label: "Roof bar -- rear right (to backstay)" },
+        ].filter((r) => ends.includes(r.id));
+      },
       columns: DISTANCE_COLUMNS,
       distanceQuickCheck: true,
       visuallyVerifiable: true,
@@ -1497,12 +1559,11 @@
       requirement: "required",
       reference: "",
       description: "Each end measures to the respective backstay's own upper or lower end.",
-      // 253-21 (X, both legs) always pairs with roof_bars=253-12; 253-20/
-      // 253-20-right (a single diagonal, either side) is independent of
-      // the roof bar choice -- shown for either.
-      showIf: { any: [{ id: "roof_bars", in: ["253-12-1", "253-12-2"] }, { id: "backstay_diagonals", in: ["253-20", "253-20-right"] }] },
+      // Only the ends the chosen backstay diagonal design actually has --
+      // a 253-20 single diagonal has 2, the 253-21 X all 4.
+      showIf: { id: "backstay_diagonals", in: BACKSTAY_DIAG_WITH_ENDS },
       evaluationType: "table",
-      rows: BACKSTAY_DIAGONAL_JUNCTION_ROWS,
+      rows: backstayDiagRowsFrom(BACKSTAY_DIAGONAL_JUNCTION_ROWS, false),
       columns: DISTANCE_COLUMNS,
       distanceQuickCheck: true,
       visuallyVerifiable: true,
@@ -1510,14 +1571,14 @@
     },
     {
       id: "rear_diag_4_1_welds",
-      name: "253-21 rear diagonal welds",
+      name: "253-20/21 rear diagonal welds",
       category: "Welds",
       requirement: "required",
       reference: "",
       description: "",
-      showIf: { any: [{ id: "roof_bars", in: ["253-12-1", "253-12-2"] }, { id: "backstay_diagonals", in: ["253-20", "253-20-right"] }] },
+      showIf: { id: "backstay_diagonals", in: BACKSTAY_DIAG_WITH_ENDS },
       evaluationType: "table",
-      rows: REAR_DIAG_253_21_WELD_ROWS,
+      rows: backstayDiagRowsFrom(REAR_DIAG_253_21_WELD_ROWS, true),
       columns: WELD_COLUMNS,
       visuallyVerifiable: true,
       hardFail: true,
@@ -1528,7 +1589,7 @@
       category: "Bar junction distances",
       requirement: "required",
       reference: "",
-      description: "253-14's front ends measure to the transverse member; the \"V\" where 253-14 and 253-22 meet (without joining) is a single shared measurement per side; 253-22's lower ends measure to the backstay; and each bar's own left/right halves have their own peak distance where they meet across the car.",
+      description: "253-14's front ends measure to the transverse member; the \"V\" where 253-14 and 253-22 meet (without joining) is a single shared measurement per side; 253-22's lower ends measure to the backstay; and each bar's own left/right halves have their own distance between bars where they meet across the car.",
       showIf: { id: "roof_bars", equals: "253-14" },
       evaluationType: "table",
       rows: ROOF_4_2_JUNCTION_ROWS,
@@ -1817,7 +1878,8 @@
       category: "Bar junction distances",
       requirement: "required",
       reference: "",
-      description: "",
+      description: "Measurement is between the bar and windshield transverse at the top and the bar and the foot plate at the bottom.",
+      diagram: "253-15-junctions",
       evaluationType: "table",
       rows: WINDSHIELD_JUNCTION_ROWS,
       columns: DISTANCE_COLUMNS,
@@ -3290,4 +3352,7 @@
       paths: { new_construction: { label: "New Construction", elements: AGNOSTIC_ELEMENTS } },
     };
   });
+  // Not an org -- kept out of RULES_DATA's own keys, which the app lists
+  // the sanctioning bodies from.
+  Object.defineProperty(window.RULES_DATA, "useAnswers", { value: (fn) => { answerSource = fn; }, enumerable: false });
 })();

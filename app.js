@@ -278,6 +278,9 @@
   function getAnswer(id) {
     return state.answers[id] || { value: "", note: "", photos: [], extra: {} };
   }
+  // Some rule names/descriptions follow the current answers (see
+  // rules-data.js's useAnswers).
+  if (window.RULES_DATA && window.RULES_DATA.useAnswers) window.RULES_DATA.useAnswers(getAnswer);
 
   function setAnswer(id, patch) {
     state.answers[id] = Object.assign({}, getAnswer(id), patch);
@@ -393,6 +396,7 @@
   function elementStatus(el, answer) {
     const status = elementStatusByRules(el, answer);
     if (status !== "fail" || complianceJudged(el)) return status;
+    if (failsSafetyLimit(el)) return "fail";
     return unsafeExplanationFor(el.id, null, answer && answer.value, el.id) ? "fail" : "pass";
   }
   function elementStatusByRules(el, answer) {
@@ -617,25 +621,25 @@
   // C/R1/R2 each have a different threshold), taking priority over the
   // column's -- most "number"/"length" columns only ever set compare on
   // the column since every row shares the same threshold (e.g.
-  // DISTANCE_COLUMNS' <100mm), but this lets a single shared row-table
+  // DISTANCE_COLUMNS' ≤100mm), but this lets a single shared row-table
   // definition mix rows with different (or no) thresholds instead of
   // needing a separate column/element per threshold.
-  // {op: "ltFractionOfRow", fraction, ofRow} is the one relative case
-  // (installation_constraints' "E (<0.5 H)") -- reads another row's OWN
+  // {op: "lteFractionOfRow", fraction, ofRow} is the one relative case
+  // (installation_constraints' "E (≤0.5 H)") -- reads another row's OWN
   // current value in the same table/column rather than a fixed number.
   // Returns true/false, or null when there's nothing to judge yet (the
   // dependency it needs isn't answered), which callers treat as "warn"
   // rather than guessing pass or fail.
   function resolveCompare(v, compare, elm, col) {
     if (!compare) return true;
-    if (compare.op === "ltFractionOfRow") {
+    if (compare.op === "lteFractionOfRow") {
       if (!elm) return null;
       const otherAnswer = getAnswer(tableCellId(elm, { id: compare.ofRow }, col));
       const otherV = otherAnswer.value;
       const otherMM = col.type === "length" ? toMM({ val: otherV && otherV.value, unit: (otherV && otherV.unit) || "mm" })
         : (otherV === "" || otherV == null ? null : parseFloat(otherV));
       if (otherMM === null || otherMM === undefined || isNaN(otherMM)) return null;
-      return v < compare.fraction * otherMM;
+      return v <= compare.fraction * otherMM;
     }
     return compareOk(v, compare);
   }
@@ -742,12 +746,20 @@
     failingGussetCache = result;
     return result;
   }
+  // A table whose safetyLimit column (junction distances) has a failing
+  // cell -- red on the card too, whether or not a rulebook is judged.
+  function failsSafetyLimit(elm) {
+    if (elm.evaluationType !== "table" || !elm.columns || !elm.columns.some((c) => c.safetyLimit)) return false;
+    if (quickCheckActive(elm)) return false;
+    return resolveRows(elm).some((row) => elm.columns.some((col) =>
+      col.safetyLimit && tableCellStatusByRules(col, getAnswer(tableCellId(elm, row, col)), row, elm) === "fail"));
+  }
   function tableCellStatus(col, answer, row, elm) {
     const explained = elm && row ? unsafeExplanationFor(elm.id, row.id, answer && answer.value, tableCellId(elm, row, col)) : null;
     if (explained && explained.level === "warn") return "warn";
     const status = tableCellStatusByRules(col, answer, row, elm);
     if (status !== "fail" || complianceJudged(elm)) return status;
-    const safetyFail = elm && row && ((elm.id === "gusset_design" && failingGussetRowIds().has(row.id))
+    const safetyFail = col.safetyLimit || elm && row && ((elm.id === "gusset_design" && failingGussetRowIds().has(row.id))
       || unsafeExplanationFor(elm.id, row.id, answer && answer.value, tableCellId(elm, row, col)));
     return safetyFail ? "fail" : "pass";
   }
@@ -824,11 +836,17 @@
   // A distance-from-junction table can carry a "quick check" shortcut (see
   // renderTableElement) -- confirming every row is under the standard
   // 100mm threshold at a glance, without recording each junction's own
-  // measurement. Answered "yes" there short-circuits the table to pass
-  // regardless of what (if anything) is filled in below it.
+  // measurement. Answered "yes" there short-circuits the table to pass --
+  // unless a row below has since been given a distance over the limit,
+  // which overrides the blanket confirmation (and unticks it on screen).
   function distanceQuickCheckId(elm) { return elm.id + "__quick"; }
+  function quickCheckActive(elm) {
+    if (!elm.distanceQuickCheck || getAnswer(distanceQuickCheckId(elm)).value !== "yes") return false;
+    return !resolveRows(elm).some((row) => elm.columns.some((col) =>
+      col.safetyLimit && tableCellStatusByRules(col, getAnswer(tableCellId(elm, row, col)), row, elm) === "fail"));
+  }
   function tableElementStatus(elm) {
-    if (elm.distanceQuickCheck && getAnswer(distanceQuickCheckId(elm)).value === "yes") return "pass";
+    if (quickCheckActive(elm)) return "pass";
     let worst = "pass";
     resolveRows(elm).forEach((row) => {
       elm.columns.forEach((col) => {
@@ -1312,8 +1330,8 @@
   function buildReportRow(elm) {
     const answer = getAnswer(elm.id);
     if (elm.evaluationType === "table") {
-      if (elm.distanceQuickCheck && getAnswer(distanceQuickCheckId(elm)).value === "yes") {
-        return { kind: "table", label: elm.name, subRows: [{ label: "All rows", value: "Confirmed under 100mm (quick-check)" }] };
+      if (quickCheckActive(elm)) {
+        return { kind: "table", label: elm.name, subRows: [{ label: "All rows", value: "Confirmed within 100mm (quick-check)" }] };
       }
       const subRows = [];
       resolveRows(elm).forEach((row) => {
@@ -1947,6 +1965,10 @@
         state.activeTab = 1;
         window.CageView.applyState(computeCageColors(), false);
         window.CageView.setMeshTransforms(computeCageTransforms());
+        if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value));
+        if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
+        if (window.CageView.setFrontRollbarAngle) window.CageView.setFrontRollbarAngle(parseFloat((getAnswer("front_rollbar_angle").value || {}).angle));
+        if (window.CageView.setJunctionOffsets) window.CageView.setJunctionOffsets(junctionOffsets());
         const shot = window.CageView.snapshot(360);
         if (shot) { templateThumbCache[t.templateId] = shot; made = true; }
       });
@@ -4163,7 +4185,7 @@
     } else if (state.activeTab === INSTALLATION_PHASE) {
       panel.appendChild(
         el("div", { class: "element-desc" }, [
-          "Junction distances (at the end of this part): bars below 100mm from their junction show green, over 100mm red, and not-yet-measured ghost. Door bars have no junction-distance data to show here.",
+          "Junction distances (at the end of this part): bars within 100mm of their junction show green, over 100mm red (and drawn off their junction, slid along the bar they meet), and not-yet-measured ghost. Door bars have no junction-distance data to show here.",
         ])
       );
     }
@@ -4210,7 +4232,7 @@
     // distance quick-check shortcut is on, same as tableElementStatus's own
     // pass/fail/warn logic.
     if (elm.evaluationType === "table") {
-      if (elm.distanceQuickCheck && getAnswer(distanceQuickCheckId(elm)).value === "yes") return true;
+      if (quickCheckActive(elm)) return true;
       return resolveRows(elm).every((row) =>
         elm.columns.every((col) => {
           if (col.optional) return true;
@@ -4260,7 +4282,7 @@
       return answer.value + (elm.unit ? " " + elm.unit : "");
     }
     if (elm.evaluationType === "table") {
-      if (elm.distanceQuickCheck && getAnswer(distanceQuickCheckId(elm)).value === "yes") return "All confirmed under 100mm";
+      if (quickCheckActive(elm)) return "All confirmed within 100mm";
       let pass = 0, total = 0;
       resolveRows(elm).forEach((row) => {
         elm.columns.forEach((col) => {
@@ -4421,6 +4443,10 @@
       card.appendChild(renderPlateSoloFields(elm.id, answer));
     } else if (elm.evaluationType === "numeric" && elm.fields) {
       const values = answer.value || {};
+      // A grid, so each input sits right after its label while the inputs
+      // of all the rows still line up in one column.
+      const grid = el("div", { class: "numeric-fields" });
+      card.appendChild(grid);
       elm.fields.forEach((f) => {
         const input = el("input", {
           type: "number",
@@ -4432,7 +4458,7 @@
             setAnswer(elm.id, { value: next });
           },
         });
-        card.appendChild(
+        grid.appendChild(
           el("div", { class: "numeric-row" }, [
             el("span", { class: "numeric-field-label" }, [f.label]),
             input,
@@ -4941,7 +4967,7 @@
     if (elm.distanceQuickCheck) {
       const quickId = distanceQuickCheckId(elm);
       const quickAnswer = getAnswer(quickId);
-      quickChecked = quickAnswer.value === "yes";
+      quickChecked = quickCheckActive(elm);
       card.appendChild(
         el("div", { class: "quick-check-row" }, [
           el("label", { class: "quick-check-label" }, [
@@ -4975,7 +5001,7 @@
                 setAnswer(quickId, { value: checked ? "yes" : "" });
               },
             }),
-            "All junctions below confirmed under 100mm (skip entering each one individually)",
+            "All junctions below confirmed within 100mm (skip entering each one individually)",
           ]),
         ])
       );
@@ -6457,12 +6483,100 @@
     return null;
   }
   // v is a "length" column's {value, unit} answer now (mm or in) -- convert
-  // to mm before comparing against the fixed 100mm threshold.
+  // to mm before comparing against the fixed 100mm threshold (100mm
+  // itself is compliant).
   function distanceValueColor(v) {
     if (!v || v.value === "" || v.value === undefined || v.value === null) return null;
     const mm = toMM({ val: v.value, unit: v.unit || "mm" });
     if (mm === null) return null;
-    return mm < 100 ? CAGE_COLOR.statusPass : CAGE_COLOR.statusFail;
+    return mm <= 100 ? CAGE_COLOR.statusPass : CAGE_COLOR.statusFail;
+  }
+  // Whether the chosen main rollbar diagonal design has this end (a
+  // main_diagonal_distances row id) -- see rules-data.js's MAIN_DIAG_END_IDS.
+  function mainDiagHasEnd(rowId) {
+    const v = getAnswer("main_hoop_diagonals").value;
+    if (v === "253-7-1" || v === "253-7-2") return true;
+    if (v === "diag-right") return rowId === "foot_left" || rowId === "backstay_right";
+    if (v === "diag-left") return rowId === "backstay_left" || rowId === "foot_right";
+    return false;
+  }
+  // Which roof_4_1_distances ends the chosen roof bar design has (253-12's
+  // X, or one single diagonal bar) -- mirrors that table's own rows.
+  function roofBarEnds() {
+    return {
+      "253-12-1": ["front_roof_left", "front_roof_right", "rear_roof_left", "rear_roof_right"],
+      "253-12-2": ["front_roof_left", "front_roof_right", "rear_roof_left", "rear_roof_right"],
+      "single-front-left": ["front_roof_left", "rear_roof_right"],
+      "single-front-right": ["front_roof_right", "rear_roof_left"],
+    }[getAnswer("roof_bars").value] || [];
+  }
+  // Every bar end entered as over 100mm from its junction, for the 3D model
+  // to draw that end visibly off the junction (CageView.setJunctionOffsets):
+  // each end stays on the tube it's welded to and slides along it, away
+  // from the junction -- a backstay's top inward along the main hoop's top,
+  // a 253-7 diagonal's ends along the main hoop, a 253-20/21 diagonal's
+  // ends along their backstay, a roof bar's ends inward along the
+  // transverse member (front) or the main hoop's top (rear); 253-14/253-22
+  // ends meeting at the hoop's top move apart along it; a 253-15 end slides
+  // along its front pillar.
+  function junctionOffsets() {
+    const over = (elementId, rowId) => distanceValueColor(getAnswer(elementId + "__" + rowId + "__distance").value) === CAGE_COLOR.statusFail;
+    const out = [];
+    ["left", "right"].forEach((side) => {
+      if (over("backstay_distance_upper_laterals", side)) out.push({ file: side === "left" ? "Left backstay.stl" : "Right backstay.stl", end: "top", move: "inward" });
+    });
+    // MAIN_DIAG_TOP_RIGHT_FILE runs from the right backstay junction to the
+    // left foot, MAIN_DIAG_TOP_LEFT_FILE from the left one to the right foot.
+    [["foot_left", MAIN_DIAG_TOP_RIGHT_FILE, "bottom"], ["backstay_right", MAIN_DIAG_TOP_RIGHT_FILE, "top"],
+      ["backstay_left", MAIN_DIAG_TOP_LEFT_FILE, "top"], ["foot_right", MAIN_DIAG_TOP_LEFT_FILE, "bottom"]].forEach(([rowId, file, end]) => {
+      if (mainDiagHasEnd(rowId) && over("main_diagonal_distances", rowId)) out.push({ file, end, move: "alongHoop" });
+    });
+    // 253-20/21 the same way: "Rear diagonal 1.stl" runs from the left
+    // backstay's top to the right one's foot, "Rear diagonal 2.stl" from
+    // the left foot to the right top. A 253-20 has just one of them.
+    const backstayDiagVal = getAnswer("backstay_diagonals").value;
+    const isX = backstayDiagVal === "253-21-1" || backstayDiagVal === "253-21-2";
+    [["top_rear_diag_left", "Rear diagonal 1.stl", "top", "253-20"], ["bottom_rear_diag_right", "Rear diagonal 1.stl", "bottom", "253-20"],
+      ["bottom_rear_diag_left", "Rear diagonal 2.stl", "bottom", "253-20-right"], ["top_rear_diag_right", "Rear diagonal 2.stl", "top", "253-20-right"]].forEach(([rowId, file, end, single]) => {
+      if ((isX || backstayDiagVal === single) && over("rear_diag_4_1_distances", rowId)) out.push({ file, end, move: "alongBackstay" });
+    });
+    // Roof bars (253-12 or a single diagonal): "Roof bar 1.stl" runs from
+    // the front-left corner to the rear-right one, "Roof bar 2.stl" from
+    // the rear-left to the front-right. A front end slides inward along the
+    // transverse member, a rear end inward along the main hoop's top.
+    const roofEnds = roofBarEnds();
+    [["front_roof_left", "Roof bar 1.stl", "front"], ["rear_roof_right", "Roof bar 1.stl", "rear"],
+      ["rear_roof_left", "Roof bar 2.stl", "rear"], ["front_roof_right", "Roof bar 2.stl", "front"]].forEach(([rowId, file, end]) => {
+      if (roofEnds.includes(rowId) && over("roof_4_1_distances", rowId)) out.push({ file, end, move: "inward", frac: 1 / 6 });
+    });
+    // 253-15 (either the one-piece bar or its 2 half bars -- only the
+    // chosen one is drawn): a top end off the transverse member slides
+    // down the pillar, a bottom end off the foot slides up the leg.
+    ["left", "right"].forEach((side) => {
+      const cap = side === "left" ? "Left" : "Right";
+      if (over(WINDSHIELD_DIST_ID, "top_" + side)) ["253-15 " + cap + ".stl", "253-15 " + side + " upper.stl"].forEach((file) => out.push({ file, end: "top", move: "alongPillar", side }));
+      if (over(WINDSHIELD_DIST_ID, "bottom_" + side)) ["253-15 " + cap + ".stl", "253-15 " + side + " lower.stl"].forEach((file) => out.push({ file, end: "bottom", move: "alongPillar", side }));
+    });
+    // 253-14 (front corners back to a peak on the main hoop's top) and
+    // 253-22 (backstays up to that same peak area).
+    if (getAnswer("roof_bars").value === "253-14") {
+      const has22 = backstayDiagVal === "253-22";
+      const roof14 = (side) => "Roof bar 253-14 " + side + ".stl";
+      const diag22 = (side) => "Rear diagonal 253-22 " + side + ".stl";
+      ["left", "right"].forEach((side) => {
+        // Front end off the transverse member: inward along it.
+        if (over(ROOF_4_2_DIST_ID, "front_roof_" + side)) out.push({ file: roof14(side), end: "front", move: "inward", frac: 1 / 6 });
+        // V junction (253-14's rear end vs 253-22's top end) too far
+        // apart: the 253-22 end slides outward along the hoop's top.
+        if (has22 && over(ROOF_4_2_DIST_ID, "top_rear_" + side)) out.push({ file: diag22(side), end: "top", move: "toward", toward: side, frac: 1 / 6 });
+        // 253-22's lower end off the backstay: up along it.
+        if (has22 && over(ROOF_4_2_DIST_ID, "bottom_rear_" + side)) out.push({ file: diag22(side), end: "bottom", move: "alongBackstay" });
+        // Left and right halves too far apart: each moves toward its side.
+        if (over(ROOF_4_2_DIST_ID, "roof_peak")) out.push({ file: roof14(side), end: "rear", move: "toward", toward: side, frac: 1 / 12 });
+        if (has22 && over(ROOF_4_2_DIST_ID, "rear_diag_peak")) out.push({ file: diag22(side), end: "top", move: "toward", toward: side, frac: 1 / 12 });
+      });
+    }
+    return out;
   }
   // Diagonal 1 (top-right to bottom-left, MAIN_DIAG_TOP_RIGHT_FILE) meets
   // the LEFT foot and the RIGHT backstay; diagonal 2 (top-left to bottom-
@@ -6530,6 +6644,13 @@
     // gets the 2 crossing points (same positions as its own gusset row)
     // in the middle, low-to-high axis order.
     const mainDiagVal = getAnswer("main_hoop_diagonals").value;
+    // A single diagonal is just one of the X's 2 bars, with only its 2 ends.
+    if (mainDiagVal === "diag-right" && file === MAIN_DIAG_TOP_RIGHT_FILE) {
+      return { rowIds: ["foot_left", "backstay_right"], weldElementId: "main_diagonal_welds", distElementId: "main_diagonal_distances", distRowIds: ["foot_left", "backstay_right"] };
+    }
+    if (mainDiagVal === "diag-left" && file === MAIN_DIAG_TOP_LEFT_FILE) {
+      return { rowIds: ["backstay_left", "foot_right"], weldElementId: "main_diagonal_welds", distElementId: "main_diagonal_distances", distRowIds: ["backstay_left", "foot_right"] };
+    }
     if (mainDiagVal === "253-7-1" || mainDiagVal === "253-7-2") {
       const continuous = continuousMainDiagFile();
       if (file === MAIN_DIAG_TOP_RIGHT_FILE) {
@@ -6582,8 +6703,10 @@
     // right) sits ~9mm from the RIGHT backstay's own bottom vertex -- the
     // cut leg's own crossing point has no distance-to-another-bar concept.
     const backstayDiagVal = getAnswer("backstay_diagonals").value;
-    if (roofVal === "253-12-1" || roofVal === "253-12-2") {
-      const diag1Continuous = roofVal === "253-12-1";
+    // Which rear diagonal rows apply follows the backstay diagonal design
+    // itself (253-21's X, or a 253-20 single bar), not the roof bars.
+    if (backstayDiagVal === "253-21-1" || backstayDiagVal === "253-21-2") {
+      const diag1Continuous = continuousBackstayDiagFile() === "Rear diagonal 1.stl";
       if (file === "Rear diagonal 1.stl") {
         return diag1Continuous
           ? { rowIds: ["top_rear_diag_left", "bottom_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["top_rear_diag_left", "bottom_rear_diag_right"] }
@@ -6594,6 +6717,16 @@
           ? { rowIds: ["bottom_rear_diag_left", "diag_crossing_bottom", "diag_crossing_top", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["bottom_rear_diag_left", "top_rear_diag_right"] }
           : { rowIds: ["bottom_rear_diag_left", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["bottom_rear_diag_left", "top_rear_diag_right"] };
       }
+    } else if (backstayDiagVal === "253-20" || backstayDiagVal === "253-20-right") {
+      // A single diagonal is never cut, and has just its own 2 ends.
+      if (backstayDiagVal === "253-20" && file === "Rear diagonal 1.stl") return { rowIds: ["top_rear_diag_left", "bottom_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["top_rear_diag_left", "bottom_rear_diag_right"] };
+      if (backstayDiagVal === "253-20-right" && file === "Rear diagonal 2.stl") return { rowIds: ["bottom_rear_diag_left", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["bottom_rear_diag_left", "top_rear_diag_right"] };
+    }
+    // A single diagonal roof bar has just its own 2 ends (no crossing, and
+    // no weld table of its own).
+    if (roofVal === "single-front-left" && file === "Roof bar 1.stl") return { rowIds: [], weldElementId: null, distElementId: ROOF_4_1_DIST_ID, distRowIds: ["front_roof_left", "rear_roof_right"] };
+    if (roofVal === "single-front-right" && file === "Roof bar 2.stl") return { rowIds: [], weldElementId: null, distElementId: ROOF_4_1_DIST_ID, distRowIds: ["rear_roof_left", "front_roof_right"] };
+    if (roofVal === "253-12-1" || roofVal === "253-12-2") {
       // Roof bar 1/2.stl -- verified from real vertex positions (dominant
       // axis is also Y): 1 runs front-left to rear-right, 2 runs rear-left
       // to front-right. Same continuous/cut split as the rear diagonals
@@ -6612,15 +6745,6 @@
           ? { rowIds: ["rear_roof_left", "roof_crossing_rear", "roof_crossing_front", "front_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID, distRowIds: ["rear_roof_left", "front_roof_right"] }
           : { rowIds: ["rear_roof_left", "front_roof_right"], weldElementId: ROOF_4_1_WELD_ID, distElementId: ROOF_4_1_DIST_ID, distRowIds: ["rear_roof_left", "front_roof_right"] };
       }
-    } else if (backstayDiagVal === "253-20" || backstayDiagVal === "253-20-right") {
-      // A single diagonal (either side) is never cut -- same shape as the
-      // continuous 253-21 leg above, just not paired with a roof_bars
-      // choice, so it's not covered by the branch above. rear_diag_4_1_
-      // welds' showIf now also covers this case, so it does have a weld
-      // table -- just only 2 of its 4 rows are physically relevant to a
-      // single diagonal (the other 2 belong to the other side's leg).
-      if (file === "Rear diagonal 1.stl") return { rowIds: ["top_rear_diag_left", "bottom_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["top_rear_diag_left", "bottom_rear_diag_right"] };
-      if (file === "Rear diagonal 2.stl") return { rowIds: ["bottom_rear_diag_left", "top_rear_diag_right"], weldElementId: "rear_diag_4_1_welds", distElementId: "rear_diag_4_1_distances", distRowIds: ["bottom_rear_diag_left", "top_rear_diag_right"] };
     }
     // 253-14/253-22's junction coloring/click target is handled separately,
     // in Junctions mode, by roof14JunctionGroups/rearDiag22JunctionGroups
@@ -6921,8 +7045,8 @@
       // hidden rather than showing a phantom ghost.
       Object.keys(PILLAR_TUBE_JUNCTION_POINTS).forEach((file) => setIfActive(file, pillarTubeJunctionSpec(file)));
       FOOT_LOCATIONS.forEach(({ row, plateFile }) => {
-        const color = row === "main_hoop_left" ? distanceValueColor(getAnswer("main_diagonal_distances__foot_left__distance").value)
-          : row === "main_hoop_right" ? distanceValueColor(getAnswer("main_diagonal_distances__foot_right__distance").value)
+        const color = row === "main_hoop_left" ? (mainDiagHasEnd("foot_left") ? distanceValueColor(getAnswer("main_diagonal_distances__foot_left__distance").value) : "hidden")
+          : row === "main_hoop_right" ? (mainDiagHasEnd("foot_right") ? distanceValueColor(getAnswer("main_diagonal_distances__foot_right__distance").value) : "hidden")
           : row === "front_left" ? distanceValueColor(getAnswer("windshield_distances__bottom_left__distance").value)
           : row === "front_right" ? distanceValueColor(getAnswer("windshield_distances__bottom_right__distance").value)
           : "hidden";
@@ -7494,10 +7618,10 @@
   function backstayJunctionPoints(side) {
     const points = [
       { elementId: "backstay_distance_upper_laterals", rowId: side },
-      { elementId: "main_diagonal_distances", rowId: "backstay_" + side },
     ];
+    if (mainDiagHasEnd("backstay_" + side)) points.push({ elementId: "main_diagonal_distances", rowId: "backstay_" + side });
     const roofVal = getAnswer("roof_bars").value;
-    if (roofVal === "253-12-1" || roofVal === "253-12-2") {
+    if (roofBarEnds().includes("rear_roof_" + side)) {
       points.push({ elementId: "roof_4_1_distances", rowId: "rear_roof_" + side });
     }
     // "Rear diagonal 1.stl" (253-20, or one leg of 253-21) contributes an
@@ -7529,13 +7653,12 @@
   // list its members separately.
   function transverseMemberJunctionGroups() {
     const roofVal = getAnswer("roof_bars").value;
-    const roofDistId = roofVal === "253-12-1" || roofVal === "253-12-2" ? ROOF_4_1_DIST_ID : roofVal === "253-14" ? ROOF_4_2_DIST_ID : null;
+    const roofDistId = roofBarEnds().length ? ROOF_4_1_DIST_ID : roofVal === "253-14" ? ROOF_4_2_DIST_ID : null;
     const left = [{ elementId: WINDSHIELD_DIST_ID, rowId: "top_left" }];
     const right = [{ elementId: WINDSHIELD_DIST_ID, rowId: "top_right" }];
-    if (roofDistId) {
-      left.push({ elementId: roofDistId, rowId: "front_roof_left" });
-      right.push({ elementId: roofDistId, rowId: "front_roof_right" });
-    }
+    const hasFront = (rowId) => roofDistId === ROOF_4_2_DIST_ID || roofBarEnds().includes(rowId);
+    if (roofDistId && hasFront("front_roof_left")) left.push({ elementId: roofDistId, rowId: "front_roof_left" });
+    if (roofDistId && hasFront("front_roof_right")) right.push({ elementId: roofDistId, rowId: "front_roof_right" });
     return [left, right];
   }
   // 253-14's own rear end is likewise now a group of 2 independent
@@ -8413,6 +8536,12 @@
       const colors = computeCageColors();
       window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) ? true : state.showGhostBars);
       window.CageView.setMeshTransforms(computeCageTransforms());
+      // Tilts the modeled main hoop / backstays to the entered angles (after
+      // the transforms -- the deformation works on each part's final placement).
+      if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value));
+      if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
+      if (window.CageView.setFrontRollbarAngle) window.CageView.setFrontRollbarAngle(parseFloat((getAnswer("front_rollbar_angle").value || {}).angle));
+      if (window.CageView.setJunctionOffsets) window.CageView.setJunctionOffsets(junctionOffsets());
       window.CageView.onPartClick(handleCagePartClick);
       window.CageView.onPartDoubleClick(handleCagePartDoubleClick);
       window.CageView.onPartHover(handleCagePartHover);
