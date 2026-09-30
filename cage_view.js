@@ -1232,6 +1232,9 @@
   // that hangs off the front legs (door bars, sill bars, 253-15's lower
   // run, the dash bar...) follows, fading to no shift at the main hoop.
   const LEAN_EXEMPT = new Set(DRIVER_MIRROR_FILES);
+  // Bars welded along the backstays -- when a backstay's top is drawn off
+  // its junction, their ends on it move with it.
+  const FOLLOWS_BACKSTAY = /^(Rear diagonal|253-18|253-19|Rear backstay gusset)/;
   let leanDeg = 0;
   let backstayDeg = null; // null = as modeled
   let frontDeg = null;    // null = as modeled
@@ -1253,8 +1256,9 @@
   // - "alongBackstay": along that side's backstay, by a sixth of its length
   //   -- down from its top, or up from its foot (a 253-20/21 diagonal);
   // - "alongPillar": along that `side`'s front pillar (the lateral's leg
-  //   and windscreen pillar) by an eighth of the main hoop's height -- down
-  //   from the top, or up from the foot (a 253-15 bar).
+  //   and windscreen pillar) -- a top end halfway down the windscreen
+  //   pillar, a foot end up the leg by an eighth of the main hoop's height
+  //   (a 253-15 bar).
   // The shift fades linearly to nothing at the bar's other end, so the bar
   // stays straight.
   let junctionOffsets = [];
@@ -1496,7 +1500,13 @@
       const c = a.pillarCurves[o.side];
       const near = c.reduce((best, pt) => (pt.p.distanceTo(here) < best.p.distanceTo(here) ? pt : best));
       const d = a.hoopHeight / 8;
-      const target = o.end === "top" ? Math.max(0, near.s - d) : Math.min(c[c.length - 1].s, near.s + d);
+      // A top end drops halfway down the windscreen pillar -- midway between
+      // its junction and the bend where the pillar stops following the
+      // windscreen; a bottom end rises a set distance up the leg.
+      const bend = a.legBendZ != null ? c.reduce((best, pt) => (Math.abs(pt.p.z - a.legBendZ) < Math.abs(best.p.z - a.legBendZ) ? pt : best)) : null;
+      const target = o.end === "top"
+        ? (bend && bend.s < near.s ? (near.s + bend.s) / 2 : Math.max(0, near.s - d))
+        : Math.min(c[c.length - 1].s, near.s + d);
       let pt = c[c.length - 1].p.clone();
       for (let i = 1; i < c.length; i++) {
         if (c[i].s >= target) { pt = c[i - 1].p.clone().lerp(c[i].p, (target - c[i - 1].s) / Math.max(1e-6, c[i].s - c[i - 1].s)); break; }
@@ -1513,10 +1523,15 @@
         const j = junctionOffsets.find((x) => x.file === line.file && x.move === "inward");
         top.y += (a.centerY - top.y >= 0 ? 1 : -1) * a.hoopTopWidth * (j.frac || 1 / 3);
       }
-      const along = deform(line.foot).sub(deform(top));
-      const len = along.length();
-      along.normalize().multiplyScalar(len / 6);
-      return o.end === "top" ? along : along.negate();
+      // Where this end meets the backstay (as a fraction foot -> top), then
+      // the same backstay as drawn, a sixth of its length further from the
+      // junction: the end lands exactly on it, moved backstay or not.
+      const ab = line.top.clone().sub(line.foot);
+      const tHere = Math.max(0, Math.min(1, here.clone().sub(line.foot).dot(ab) / ab.lengthSq()));
+      const onHost = line.foot.clone().addScaledVector(ab, tHere);
+      const tTarget = Math.max(0, Math.min(1, tHere + (o.end === "top" ? -1 : 1) / 6));
+      const footD = deform(line.foot), topD = deform(top);
+      return footD.lerp(topD, tTarget).sub(deform(onHost));
     }
     return null;
   }
@@ -1538,6 +1553,22 @@
       + (shift ? -a.dir * shift * backstayWeight(a, q.x, q.z) : 0)
       + (frontK ? a.dir * frontK * frontLegWeight(a, q.x, q.z) : 0);
     const deform = (q) => { const c = q.clone(); c.x += fieldDx(q); return c; };
+    // Backstays whose top is drawn pulled inward (off their junction), and
+    // how far each one has moved at a given point along it -- bars welded
+    // along a backstay (FOLLOWS_BACKSTAY) carry their ends with it.
+    const hostMoves = (a.stayLines || []).map((line) => {
+      const j = junctionOffsets.find((x) => x.file === line.file && x.move === "inward");
+      return j ? { line, sign: a.centerY - line.top.y >= 0 ? 1 : -1, amt: a.hoopTopWidth * (j.frac || 1 / 3) } : null;
+    }).filter(Boolean);
+    const hostKey = hostMoves.map((h) => h.line.file + ":" + h.amt.toFixed(2)).join(",");
+    const hostShiftAt = (q) => {
+      for (const h of hostMoves) {
+        const ab = h.line.top.clone().sub(h.line.foot);
+        const t = Math.max(0, Math.min(1, q.clone().sub(h.line.foot).dot(ab) / ab.lengthSq()));
+        if (q.distanceTo(h.line.foot.clone().addScaledVector(ab, t)) < 8) return h.sign * h.amt * t;
+      }
+      return 0;
+    };
     Object.keys(meshes).forEach((file) => {
       if (LEAN_EXEMPT.has(file)) return;
       const mesh = meshes[file];
@@ -1545,7 +1576,8 @@
       if (!base) return;
       if (mesh.matrixAutoUpdate) mesh.updateMatrix();
       const offs = a.hoopTopWidth ? junctionOffsets.filter((o) => o.file === file) : [];
-      const key = k === 0 && shift === 0 && frontK === 0 && !offs.length ? "0" : k.toFixed(6) + "|" + shift.toFixed(3) + "|" + frontK.toFixed(6) + "|" + JSON.stringify(offs) + "|" + mesh.matrix.elements.map((e) => e.toFixed(3)).join(",");
+      const follows = hostMoves.length && FOLLOWS_BACKSTAY.test(file);
+      const key = k === 0 && shift === 0 && frontK === 0 && !offs.length && !follows ? "0" : k.toFixed(6) + "|" + shift.toFixed(3) + "|" + frontK.toFixed(6) + "|" + JSON.stringify(offs) + "|" + (follows ? hostKey : "") + "|" + mesh.matrix.elements.map((e) => e.toFixed(3)).join(",");
       if ((mesh.userData.leanKey || "0") === key) return;
       mesh.userData.leanKey = key;
       const geometry = mesh.geometry;
@@ -1594,10 +1626,35 @@
             });
           });
         }
+        // A bar welded along a moved backstay: how far each of its ends
+        // (lowest / highest) moves with the backstay there.
+        let follow = null;
+        if (follows) {
+          let zLo = Infinity, zHi = -Infinity;
+          for (let i = 0; i < base.length; i += 3) {
+            v.set(base[i], base[i + 1], base[i + 2]).applyMatrix4(mesh.matrix);
+            zLo = Math.min(zLo, v.z); zHi = Math.max(zHi, v.z);
+          }
+          const lo = new THREE.Vector3(), hi = new THREE.Vector3();
+          let nl = 0, nh = 0;
+          for (let i = 0; i < base.length; i += 3) {
+            v.set(base[i], base[i + 1], base[i + 2]).applyMatrix4(mesh.matrix);
+            if (v.z < zLo + 3) { lo.add(v); nl++; }
+            if (v.z > zHi - 3) { hi.add(v); nh++; }
+          }
+          const slides = (end) => offs.some((o) => o.end === end && o.move === "alongBackstay");
+          const sLo = nl && !slides("bottom") ? hostShiftAt(lo.multiplyScalar(1 / nl)) : 0;
+          const sHi = nh && !slides("top") ? hostShiftAt(hi.multiplyScalar(1 / nh)) : 0;
+          if (sLo || sHi) follow = { zLo, span: Math.max(1, zHi - zLo), sLo, sHi };
+        }
         for (let i = 0; i < base.length; i += 3) {
           v.set(base[i], base[i + 1], base[i + 2]).applyMatrix4(mesh.matrix);
           // Both weights are read off the undeformed point.
           const dAngles = fieldDx(v);
+          if (follow) {
+            const t = Math.max(0, Math.min(1, (v.z - follow.zLo) / follow.span));
+            v.y += follow.sLo + (follow.sHi - follow.sLo) * t;
+          }
           ends.forEach(({ o, lo, span, inwardSign, slide }) => {
             const f = (along(o, v) - lo) / span; // 0 at the low end, 1 at the high one
             const t = Math.max(0, Math.min(1, hiEnd(o) ? f : 1 - f));

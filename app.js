@@ -396,7 +396,10 @@
   function elementStatus(el, answer) {
     const status = elementStatusByRules(el, answer);
     if (status !== "fail" || complianceJudged(el)) return status;
-    if (failsSafetyLimit(el)) return "fail";
+    // A safety limit (a physical requirement like the backstay angle or the
+    // cage staying within the suspension points) is red whatever the
+    // rulebook -- see isSafetyLimit.
+    if (isSafetyLimit(el) || failsSafetyLimit(el)) return "fail";
     return unsafeExplanationFor(el.id, null, answer && answer.value, el.id) ? "fail" : "pass";
   }
   function elementStatusByRules(el, answer) {
@@ -746,20 +749,30 @@
     failingGussetCache = result;
     return result;
   }
-  // A table whose safetyLimit column (junction distances) has a failing
-  // cell -- red on the card too, whether or not a rulebook is judged.
+  // A table with a failing safety-limit cell (a safetyLimit column, e.g.
+  // junction distances, or any column of a safetyLimit table, e.g. the
+  // installation constraints) -- red on the card too, whether or not a
+  // rulebook is judged.
+  // Every Part 3 measurement (installation constraints, angles, bends,
+  // junction distances...) is a physical safety limit: a violation shows
+  // red with or without a sanctioning body. Elsewhere, only elements
+  // flagged safetyLimit in rules-data.js.
+  function isSafetyLimit(elm) {
+    return !!elm && (!!elm.safetyLimit || elementPhase(elm) === INSTALLATION_PHASE);
+  }
   function failsSafetyLimit(elm) {
-    if (elm.evaluationType !== "table" || !elm.columns || !elm.columns.some((c) => c.safetyLimit)) return false;
+    const limited = (col) => col.safetyLimit || isSafetyLimit(elm);
+    if (elm.evaluationType !== "table" || !elm.columns || !elm.columns.some(limited)) return false;
     if (quickCheckActive(elm)) return false;
     return resolveRows(elm).some((row) => elm.columns.some((col) =>
-      col.safetyLimit && tableCellStatusByRules(col, getAnswer(tableCellId(elm, row, col)), row, elm) === "fail"));
+      limited(col) && tableCellStatusByRules(col, getAnswer(tableCellId(elm, row, col)), row, elm) === "fail"));
   }
   function tableCellStatus(col, answer, row, elm) {
     const explained = elm && row ? unsafeExplanationFor(elm.id, row.id, answer && answer.value, tableCellId(elm, row, col)) : null;
     if (explained && explained.level === "warn") return "warn";
     const status = tableCellStatusByRules(col, answer, row, elm);
     if (status !== "fail" || complianceJudged(elm)) return status;
-    const safetyFail = col.safetyLimit || elm && row && ((elm.id === "gusset_design" && failingGussetRowIds().has(row.id))
+    const safetyFail = col.safetyLimit || isSafetyLimit(elm) || elm && row && ((elm.id === "gusset_design" && failingGussetRowIds().has(row.id))
       || unsafeExplanationFor(elm.id, row.id, answer && answer.value, tableCellId(elm, row, col)));
     return safetyFail ? "fail" : "pass";
   }
@@ -1395,8 +1408,11 @@
     };
   }
   function buildReportSafetyScore(path) {
-    const { rows, totalPoints, ratedRows } = computeSafetyScoreRows(path);
-    return { rows: rows.map((r) => ({ label: r.label, valueText: r.valueText, tier: r.tier, points: r.points })), totalPoints, ratedRows };
+    const { rows, totalPoints, ratedRows, violations } = computeSafetyScoreRows(path);
+    return {
+      rows: rows.map((r) => ({ label: r.label, valueText: r.valueText, tier: r.tier, points: r.points })), totalPoints, ratedRows,
+      warning: violations ? VIOLATION_WARNING + " (" + violations + " violation" + (violations === 1 ? "" : "s") + ")." : null,
+    };
   }
   // Groups pictures by category (PICTURE_CATEGORIES, defined below) in that
   // same array's order, so the report's picture pages are organized the
@@ -2219,7 +2235,7 @@
         ])
       );
       vehiclePanel.appendChild(
-        el("div", { class: "field-row" }, [
+        el("div", { class: "field-row", id: "vehicle-occupants-fields" }, [
           answerRadioField("Drive configuration", "vehicle_drive_side", [
             ["lhd", "Left-hand drive"],
             ["rhd", "Right-hand drive"],
@@ -5229,6 +5245,7 @@
     const rows = [];
     let totalPoints = 0;
     let ratedRows = 0;
+    let violations = 0; // Part 3 limits broken (angles, compliance, junction distances) + known-unsafe designs
     // pointsOverride lets a known-bad design score below red's own flat 0
     // floor -- omitted, a row just uses its tier's own TIER_POINTS value.
     // target is where clicking the row jumps to (see jumpToSafetyTarget):
@@ -5237,6 +5254,10 @@
     function addRow(id, label, tier, valueText, pointsOverride, target) {
       if (!tier) return; // unrated (unanswered, or no rule yet) -- omit rather than show a meaningless row
       const points = pointsOverride !== undefined ? pointsOverride : TIER_POINTS[tier];
+      // A known-unsafe design (an unsafe roof bar configuration, door bars,
+      // a missing mandatory gusset...) raises the same red flag as a Part 3
+      // violation.
+      if (pointsOverride === UNSAFE_POINTS) violations += 1;
       totalPoints += points;
       ratedRows += 1;
       rows.push({ id, label: label + driverSideSuffix(id), tier, valueText, points, target: target || { elementId: id } });
@@ -5493,6 +5514,70 @@
       }
     });
 
+    // A bar joining further than the 100mm limit from its junction loses
+    // 5 points per mm over -- every junction-distance table (a safetyLimit
+    // column), one row per end that's over.
+    path.elements.forEach((elm) => {
+      if (elm.evaluationType !== "table" || !elm.columns || !elementVisible(elm)) return;
+      const col = elm.columns.find((c) => c.safetyLimit);
+      if (!col || quickCheckActive(elm)) return;
+      const limit = col.compare && col.compare.value;
+      resolveRows(elm).forEach((row) => {
+        const v = getAnswer(tableCellId(elm, row, col)).value;
+        const mm = v && v.value !== "" && v.value != null ? toMM({ val: v.value, unit: v.unit || "mm" }) : null;
+        if (mm === null || isNaN(mm) || !(mm > limit)) return;
+        const over = mm - limit;
+        violations += 1;
+        addRow(elm.id + "__" + row.id, row.label, "red",
+          Math.round(mm) + "mm from its junction -- " + Math.round(over) + "mm over the " + limit + "mm limit",
+          -Math.round(5 * over), { elementId: elm.id, rowId: row.id });
+      });
+    });
+
+    // Every other Part 3 angle/compliance violation (backstay angle, bends,
+    // installation constraints, 253-15 straightness...) costs 100 points --
+    // one per failing answer: each failing cell of a table, each failing
+    // field of a multi-field measurement.
+    const VIOLATION_POINTS = -100;
+    const cellText = (col, v) => {
+      if (v && typeof v === "object") return v.value + (v.unit || "");
+      if (v === "no") return col && col.type === "compliance" ? "Not compliant" : "No";
+      return String(v);
+    };
+    path.elements.forEach((elm) => {
+      if (elementPhase(elm) !== INSTALLATION_PHASE || !elementVisible(elm)) return;
+      if (elm.columns && elm.columns.some((c) => c.safetyLimit)) return; // junction distances: scored per mm above
+      const answer = getAnswer(elm.id);
+      const flag = (id, label, valueText, target) => {
+        violations += 1;
+        addRow(id, label, "red", valueText + " -- violation", VIOLATION_POINTS, target);
+      };
+      if (elm.evaluationType === "table") {
+        const rowsOf = resolveRows(elm);
+        rowsOf.forEach((row) => {
+          elm.columns.forEach((col) => {
+            const a = getAnswer(tableCellId(elm, row, col));
+            if (tableCellStatusByRules(col, a, row, elm) !== "fail") return;
+            const label = elm.name + " -- " + row.label + (elm.columns.length > 1 ? " (" + col.label + ")" : "");
+            flag(elm.id + "__" + row.id + "__" + col.key, label, cellText(col, a.value), { elementId: elm.id, rowId: row.id });
+          });
+        });
+        return;
+      }
+      if (elm.evaluationType === "numeric" && elm.fields) {
+        const values = answer.value || {};
+        elm.fields.forEach((f) => {
+          const v = values[f.key];
+          if (v === "" || v == null || isNaN(parseFloat(v)) || compareOk(parseFloat(v), f.compare)) return;
+          flag(elm.id + "__" + f.key, elm.name + " -- " + f.label, v + (f.unit ? " " + f.unit : ""), { elementId: elm.id });
+        });
+        return;
+      }
+      if (elementStatusByRules(elm, answer) === "fail") {
+        flag(elm.id + "__violation", elm.name, answer.value ? elementSummary(elm, answer) : "Not met", { elementId: elm.id });
+      }
+    });
+
     // Rows are built rule by rule above, not in page order -- list them in
     // the same order as the checklist itself: by the position of the
     // element each row links to, then (for a table like gussets or feet)
@@ -5517,7 +5602,21 @@
       .sort((a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1] || a.i - b.i)
       .map((x) => x.row);
 
-    return { rows: ordered, totalPoints, ratedRows, driveSide, driverSide };
+    return { rows: ordered, totalPoints, ratedRows, violations, driveSide, driverSide };
+  }
+  const VIOLATION_WARNING = "This cage has a design in violation of the minimum FIA recommended guidelines";
+  function hasCodriverAnswer() { return getAnswer("vehicle_codriver").value; }
+  // Opens wherever the vehicle's drive configuration / occupants fields
+  // live (the Vehicle description panel, or the logbook app's Logbook
+  // information) and scrolls to them.
+  function jumpToVehicleOccupants() {
+    if (CFG.logbook) state.activeTab = LOGBOOK_PHASE;
+    else state.vehicleExpanded = true;
+    render();
+    requestAnimationFrame(() => {
+      const target = document.getElementById("vehicle-occupants-fields");
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   }
 
   // asPart: shown as its own part (CFG.safetyScorePart) -- always expanded,
@@ -5526,14 +5625,14 @@
   function renderSafetyScore(root, path, opts) {
     const asPart = !!(opts && opts.asPart);
     const panel = el("div", { class: "panel", id: "safety-score-panel" });
-    const { rows, totalPoints, ratedRows, driveSide, driverSide, noLayout } = computeSafetyScoreRows(path);
-    if (opts && opts.summaryOnly) { lastSafetyScoreSummary = { totalPoints, ratedRows }; return; }
+    const { rows, totalPoints, ratedRows, violations, driveSide, driverSide, noLayout } = computeSafetyScoreRows(path);
+    if (opts && opts.summaryOnly) { lastSafetyScoreSummary = { totalPoints, ratedRows, violations }; return; }
     // Read by syncSafetyScoreBadge() to keep the sticky 3D-viewer badge in
     // sync -- module-level rather than threaded through a return value,
     // same convention CAGE_FILE_OWNER already uses for cross-cutting state
     // computed during a render pass. Set even while collapsed, since the
     // badge keeps showing the total either way.
-    lastSafetyScoreSummary = { totalPoints, ratedRows };
+    lastSafetyScoreSummary = { totalPoints, ratedRows, violations };
     const title = (asPart ? PHASE_LABELS[SAFETY_PHASE] : "Frog Safety score") + (ratedRows ? ": " + (totalPoints > 0 ? "+" : "") + totalPoints : "");
     if (asPart) {
       panel.appendChild(el("h2", {}, [title]));
@@ -5554,20 +5653,24 @@
       root.appendChild(panel);
       return;
     }
+    if (violations) {
+      panel.appendChild(el("div", { class: "safety-score-violation" }, [
+        VIOLATION_WARNING + " (" + violations + " violation" + (violations === 1 ? "" : "s") + " below).",
+      ]));
+    }
+    // The vehicle's drive configuration and occupants drive several ratings
+    // (driver side, codriver requirements) -- shown here as a link back to
+    // the fields, so they're easy to change.
+    const driveText = { lhd: "Left-hand drive", rhd: "Right-hand drive" }[driveSide] || "Not set";
+    const occupantsText = { no: "Driver only", yes: "Driver + Codriver" }[hasCodriverAnswer()] || "Not set";
     panel.appendChild(
       el("div", { class: "safety-score-placeholder" }, [
-        "First-pass, provisional ratings below (green/orange/red -- usually 5/2/0 points, more for the base structure and main bracing) per a set of safety rules of thumb, independent of any specific sanctioning body's requirements. Known-unsafe designs score negative points. Not every element is rated yet, and the point values are still early and subject to change. Click any row to jump to that item.",
+        el("button", { type: "button", class: "safety-score-vehicle-link", title: "Change in " + (CFG.logbook ? partName(LOGBOOK_PHASE) : "Vehicle description"), onclick: jumpToVehicleOccupants }, [
+          "Drive configuration: " + driveText + " · Occupants: " + occupantsText,
+        ]),
+        driverSide ? " -- items marked \"(driver side)\" matter most for driver protection." : "",
       ])
     );
-
-    if (driverSide) {
-      panel.appendChild(
-        el("div", { class: "safety-score-placeholder" }, [
-          "Running solo (no codriver) with " + (driveSide === "lhd" ? "left-hand drive" : "right-hand drive") +
-            " -- the driver sits on the " + driverSide + ", so items marked \"(driver side)\" below matter most for driver protection.",
-        ])
-      );
-    }
 
     const list = el("div", { class: "safety-tier-list" });
     rows.forEach((row) => {
@@ -8409,7 +8512,10 @@
     const totalPoints = lastSafetyScoreSummary.totalPoints;
     btn.hidden = false;
     btn.textContent = "Frog Safety score: " + (totalPoints > 0 ? "+" : "") + totalPoints;
-    btn.className = "cage-viewer-safety-score " + (totalPoints > 0 ? "tier-green" : totalPoints < 0 ? "tier-red" : "tier-orange");
+    // Any Part 3 violation turns the badge red, whatever the total.
+    const violated = lastSafetyScoreSummary.violations > 0;
+    btn.className = "cage-viewer-safety-score " + (violated || totalPoints < 0 ? "tier-red" : totalPoints > 0 ? "tier-green" : "tier-orange");
+    btn.title = violated ? VIOLATION_WARNING : "";
     btn.onclick = () => {
       if (CFG.safetyScorePart) {
         state.activeTab = SAFETY_PHASE;

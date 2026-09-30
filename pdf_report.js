@@ -264,6 +264,10 @@
       { size: 8.5, italic: true, color: COLOR.muted }
     );
     w.spacer(2);
+    if (safetyScore.warning) {
+      w.text(safetyScore.warning, { size: 10, bold: true, color: TIER_COLOR.red || COLOR.text });
+      w.spacer(2);
+    }
     (safetyScore.rows || []).forEach((row) => {
       w.row(row.label, row.valueText + "  (" + (row.points > 0 ? "+" : "") + row.points + " pts)", { valueColor: TIER_COLOR[row.tier] || COLOR.text });
     });
@@ -326,7 +330,7 @@
   //   ]}]}],
   //   logbook: {verdictLabel, verdictDetail, verdictLevel, requiredTotal, requiredSatisfied, failures, unresolved, advisories} | null,
   //   pictures: [{ categoryLabel, pictures: [{photoDataUrl, screenshotDataUrl, tags}] }],
-  //   safetyScore: {rows:[{label,valueText,tier,points}], totalPoints, ratedRows} | null,
+  //   safetyScore: {rows:[{label,valueText,tier,points}], totalPoints, ratedRows, warning?} | null,
   //   logbookApplicationDetails: [{label,value}] | undefined,
   //   homologationPhotos: [dataUrl] | undefined,
   //   title: string | undefined (cover title -- the app's own report name),

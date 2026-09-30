@@ -226,6 +226,7 @@
     // everything else in Part 3, not just another measurement among them.
     {
       id: "cage_within_suspension_points",
+      safetyLimit: true, // red when violated, with or without a sanctioning body
       name: "Cage within suspension mounting points",
       category: "Installation constraints",
       hideNotes: true,
@@ -241,6 +242,7 @@
     },
     {
       id: "installation_constraints",
+      safetyLimit: true, // red when violated, with or without a sanctioning body
       name: "Installation constraints",
       category: "Installation constraints",
       requirement: "required",
@@ -280,6 +282,7 @@
     },
     {
       id: "windshield_measurements",
+      safetyLimit: true, // red when violated, with or without a sanctioning body
       name: "253-15 windscreen pillar reinforcement straightness and bend angle",
       category: "Installation constraints",
       requirement: "required",
@@ -320,6 +323,7 @@
     },
     {
       id: "main_hoop_lean_angle",
+      safetyLimit: true, // red when violated, with or without a sanctioning body
       name: "Main hoop leaning angle",
       category: "Main rollbar",
       hideNotes: true,
@@ -566,6 +570,7 @@
     },
     {
       id: "backstay_angle",
+      safetyLimit: true, // red when violated, with or without a sanctioning body
       name: "Backstay angle",
       category: "Backstay",
       hideNotes: true,
@@ -582,6 +587,7 @@
     },
     {
       id: "front_rollbar_angle",
+      safetyLimit: true, // red when violated, with or without a sanctioning body
       name: "Front rollbar angle",
       category: "Front rollbar",
       hideNotes: true,
