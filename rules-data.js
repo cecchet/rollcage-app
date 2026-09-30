@@ -2352,15 +2352,17 @@
         // share the SAME unit, taken from that row's own "length" cell
         // (its unit selector), so switching mm/in there updates every
         // hint in the row at once instead of each column tracking its own.
-        { key: "length", label: "Gusset length", type: "length", showDiameterHint: true, diameterMultiples: [2, 4] },
+        // diameterRange: the length must fall between 2D and 4D (D known
+        // once Part 2's tube sizes are in -- not judged before that).
+        { key: "length", label: "Gusset length", type: "length", showDiameterHint: true, diameterMultiples: [2, 4], diameterRange: [2, 4] },
         { key: "corner_cutout", label: "Corner cutout", type: "radio", showDiameterHint: true, diameterMultiples: [1.5], options: [
           { id: "under", label: "R<1.5D" },
-          { id: "over", label: "R>1.5D" },
+          { id: "over", label: "R>1.5D", outcome: "fail" },
           { id: "none", label: "None" },
         ] },
         { key: "hole_diameter", label: "Hole diameter (<D)", type: "radio", showDiameterHint: true, diameterMultiples: [1], options: [
           { id: "under", label: "H<D" },
-          { id: "over", label: "H>D" },
+          { id: "over", label: "H>D", outcome: "fail" },
           { id: "none", label: "None" },
         ] },
         { key: "weld", label: "Complete weld", type: "boolean" },
@@ -2721,6 +2723,7 @@
     // -- 11. Routing of lines --
     {
       id: "routing_of_lines",
+      safetyLimit: true, // red when violated, with or without a sanctioning body
       name: "Routing of lines",
       category: "Routing of lines",
       requirement: "required",

@@ -258,12 +258,16 @@
   function renderSafetyScore(w, safetyScore) {
     if (!safetyScore) return;
     w.newPage();
-    w.heading("Frog Safety Score");
+    w.heading("Frog Safety Score" + (safetyScore.provisional ? " (Provisional)" : ""));
     w.text(
       "First-pass, provisional ratings (green/orange/red, worth 5/2/0 points) per a set of safety rules of thumb -- independent of any specific sanctioning body's requirements.",
       { size: 8.5, italic: true, color: COLOR.muted }
     );
     w.spacer(2);
+    if (safetyScore.missing && safetyScore.missing.length) {
+      w.text("Missing information: " + safetyScore.missing.join("; "), { size: 9, color: COLOR.muted });
+      w.spacer(2);
+    }
     if (safetyScore.warning) {
       w.text(safetyScore.warning, { size: 10, bold: true, color: TIER_COLOR.red || COLOR.text });
       w.spacer(2);
@@ -330,7 +334,7 @@
   //   ]}]}],
   //   logbook: {verdictLabel, verdictDetail, verdictLevel, requiredTotal, requiredSatisfied, failures, unresolved, advisories} | null,
   //   pictures: [{ categoryLabel, pictures: [{photoDataUrl, screenshotDataUrl, tags}] }],
-  //   safetyScore: {rows:[{label,valueText,tier,points}], totalPoints, ratedRows, warning?} | null,
+  //   safetyScore: {rows:[{label,valueText,tier,points}], totalPoints, ratedRows, warning?, provisional?, missing?:[string]} | null,
   //   logbookApplicationDetails: [{label,value}] | undefined,
   //   homologationPhotos: [dataUrl] | undefined,
   //   title: string | undefined (cover title -- the app's own report name),

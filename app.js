@@ -754,11 +754,13 @@
   // installation constraints) -- red on the card too, whether or not a
   // rulebook is judged.
   // Every Part 3 measurement (installation constraints, angles, bends,
-  // junction distances...) is a physical safety limit: a violation shows
-  // red with or without a sanctioning body. Elsewhere, only elements
-  // flagged safetyLimit in rules-data.js.
+  // junction distances...) and every Part 4 weld/gusset check is a physical
+  // safety limit: a violation shows red with or without a sanctioning body.
+  // Elsewhere, only elements flagged safetyLimit in rules-data.js.
+  // (A function, not a constant: the phase numbers are declared further down.)
+  function inSafetyLimitPhase(elm) { const p = elementPhase(elm); return p === INSTALLATION_PHASE || p === WELDS_PHASE; }
   function isSafetyLimit(elm) {
-    return !!elm && (!!elm.safetyLimit || elementPhase(elm) === INSTALLATION_PHASE);
+    return !!elm && (!!elm.safetyLimit || inSafetyLimitPhase(elm));
   }
   function failsSafetyLimit(elm) {
     const limited = (col) => col.safetyLimit || isSafetyLimit(elm);
@@ -810,6 +812,15 @@
       const v = answer.value;
       const hasValue = v && v.value !== "" && v.value != null;
       if (!hasValue) return "warn";
+      // A gusset length must fall between [min, max] x D, D being the
+      // biggest tube joined (see gussetRowDiameterMM) -- only judged once D
+      // is known from Part 2's tube sizes.
+      if (col.type === "length" && col.diameterRange && row) {
+        const mm = toMM({ val: v.value, unit: v.unit || "mm" });
+        const dMM = gussetRowDiameterMM(row.id);
+        if (mm === null || dMM === null) return "pass";
+        return mm >= col.diameterRange[0] * dMM && mm <= col.diameterRange[1] * dMM ? "pass" : "fail";
+      }
       const compareSpec = row && row.compare !== undefined ? row.compare : col.compare;
       if (col.type === "length" && compareSpec) {
         const mm = toMM({ val: v.value, unit: v.unit || "mm" });
@@ -1408,8 +1419,11 @@
     };
   }
   function buildReportSafetyScore(path) {
-    const { rows, totalPoints, ratedRows, violations } = computeSafetyScoreRows(path);
+    const { rows, totalPoints, ratedRows, violations, noLayout } = computeSafetyScoreRows(path);
+    const missing = noLayout ? [] : scoreMissingInfo(path);
     return {
+      provisional: missing.length > 0,
+      missing: missing.map(({ phase, items }) => PHASE_LABELS[phase] + ": " + items.length + " item" + (items.length === 1 ? "" : "s") + " missing"),
       rows: rows.map((r) => ({ label: r.label, valueText: r.valueText, tier: r.tier, points: r.points })), totalPoints, ratedRows,
       warning: violations ? VIOLATION_WARNING + " (" + violations + " violation" + (violations === 1 ? "" : "s") + ")." : null,
     };
@@ -5535,17 +5549,20 @@
     });
 
     // Every other Part 3 angle/compliance violation (backstay angle, bends,
-    // installation constraints, 253-15 straightness...) costs 100 points --
-    // one per failing answer: each failing cell of a table, each failing
-    // field of a multi-field measurement.
+    // installation constraints, 253-15 straightness...) and every Part 4
+    // incomplete weld or gusset violation (dimension or weld) costs 100
+    // points -- one per failing answer: each failing cell of a table, each
+    // failing field of a multi-field measurement.
     const VIOLATION_POINTS = -100;
     const cellText = (col, v) => {
       if (v && typeof v === "object") return v.value + (v.unit || "");
+      const opt = col && col.options && col.options.find((o) => o.id === v);
+      if (opt) return opt.label;
       if (v === "no") return col && col.type === "compliance" ? "Not compliant" : "No";
       return String(v);
     };
     path.elements.forEach((elm) => {
-      if (elementPhase(elm) !== INSTALLATION_PHASE || !elementVisible(elm)) return;
+      if (!isSafetyLimit(elm) || !elementVisible(elm)) return; // Parts 3-4, plus any element flagged safetyLimit (e.g. routing of lines)
       if (elm.columns && elm.columns.some((c) => c.safetyLimit)) return; // junction distances: scored per mm above
       const answer = getAnswer(elm.id);
       const flag = (id, label, valueText, target) => {
@@ -5606,6 +5623,19 @@
   }
   const VIOLATION_WARNING = "This cage has a design in violation of the minimum FIA recommended guidelines";
   function hasCodriverAnswer() { return getAnswer("vehicle_codriver").value; }
+  // Unanswered items in the measured parts the score depends on (tubing,
+  // installation) -- [{ phase, items: [elm...] }] for each part with any.
+  // Free-text notes and informational items don't count. While any are
+  // missing the score is only provisional.
+  const SCORED_PHASES = [2, INSTALLATION_PHASE];
+  function scoreMissingInfo(path) {
+    const { phases } = computeUsedPhases(path);
+    return SCORED_PHASES.map((phase) => ({
+      phase,
+      items: (phases[phase] || []).filter((elm) => elm.evaluationType !== "text" && elm.evaluationType !== "longtext"
+        && elm.requirement !== "informational" && !isElementComplete(elm)),
+    })).filter((p) => p.items.length);
+  }
   // Opens wherever the vehicle's drive configuration / occupants fields
   // live (the Vehicle description panel, or the logbook app's Logbook
   // information) and scrolls to them.
@@ -5626,14 +5656,16 @@
     const asPart = !!(opts && opts.asPart);
     const panel = el("div", { class: "panel", id: "safety-score-panel" });
     const { rows, totalPoints, ratedRows, violations, driveSide, driverSide, noLayout } = computeSafetyScoreRows(path);
-    if (opts && opts.summaryOnly) { lastSafetyScoreSummary = { totalPoints, ratedRows, violations }; return; }
+    const missing = noLayout ? [] : scoreMissingInfo(path);
+    const provisional = missing.length > 0;
+    if (opts && opts.summaryOnly) { lastSafetyScoreSummary = { totalPoints, ratedRows, violations, provisional }; return; }
     // Read by syncSafetyScoreBadge() to keep the sticky 3D-viewer badge in
     // sync -- module-level rather than threaded through a return value,
     // same convention CAGE_FILE_OWNER already uses for cross-cutting state
     // computed during a render pass. Set even while collapsed, since the
     // badge keeps showing the total either way.
-    lastSafetyScoreSummary = { totalPoints, ratedRows, violations };
-    const title = (asPart ? PHASE_LABELS[SAFETY_PHASE] : "Frog Safety score") + (ratedRows ? ": " + (totalPoints > 0 ? "+" : "") + totalPoints : "");
+    lastSafetyScoreSummary = { totalPoints, ratedRows, violations, provisional };
+    const title = (asPart ? PHASE_LABELS[SAFETY_PHASE] : "Frog Safety score") + (ratedRows ? ": " + (totalPoints > 0 ? "+" : "") + totalPoints : "") + (ratedRows && provisional ? " (Provisional)" : "");
     if (asPart) {
       panel.appendChild(el("h2", {}, [title]));
     } else {
@@ -5663,14 +5695,26 @@
     // the fields, so they're easy to change.
     const driveText = { lhd: "Left-hand drive", rhd: "Right-hand drive" }[driveSide] || "Not set";
     const occupantsText = { no: "Driver only", yes: "Driver + Codriver" }[hasCodriverAnswer()] || "Not set";
-    panel.appendChild(
-      el("div", { class: "safety-score-placeholder" }, [
-        el("button", { type: "button", class: "safety-score-vehicle-link", title: "Change in " + (CFG.logbook ? partName(LOGBOOK_PHASE) : "Vehicle description"), onclick: jumpToVehicleOccupants }, [
-          "Drive configuration: " + driveText + " · Occupants: " + occupantsText,
-        ]),
-        driverSide ? " -- items marked \"(driver side)\" matter most for driver protection." : "",
-      ])
-    );
+    const changeTitle = "Change in " + (CFG.logbook ? partName(LOGBOOK_PHASE) : "Vehicle description");
+    const vehicleLine = (text) => el("div", { class: "safety-score-placeholder" }, [
+      el("button", { type: "button", class: "safety-score-vehicle-link", title: changeTitle, onclick: jumpToVehicleOccupants }, [text]),
+    ]);
+    panel.appendChild(vehicleLine("Drive configuration: " + driveText));
+    panel.appendChild(vehicleLine("Occupants: " + occupantsText));
+    if (driverSide) panel.appendChild(el("div", { class: "safety-score-placeholder" }, ["Driver side protection is based on the drive configuration"]));
+
+    // What's still unanswered, per part -- each links to that part's first
+    // missing item. The score stays provisional until this is empty.
+    if (missing.length) {
+      panel.appendChild(el("div", { class: "safety-score-missing" }, [
+        el("div", { class: "safety-score-missing-title" }, ["Missing information"]),
+        el("ul", {}, missing.map(({ phase, items }) => el("li", {}, [
+          el("button", { type: "button", class: "safety-score-vehicle-link", title: "Go to the first missing item", onclick: () => jumpToElementSection(items[0].id) }, [
+            PHASE_LABELS[phase] + ": " + items.length + " item" + (items.length === 1 ? "" : "s") + " missing",
+          ]),
+        ]))),
+      ]));
+    }
 
     const list = el("div", { class: "safety-tier-list" });
     rows.forEach((row) => {
@@ -8511,7 +8555,7 @@
     }
     const totalPoints = lastSafetyScoreSummary.totalPoints;
     btn.hidden = false;
-    btn.textContent = "Frog Safety score: " + (totalPoints > 0 ? "+" : "") + totalPoints;
+    btn.textContent = "Frog Safety score: " + (totalPoints > 0 ? "+" : "") + totalPoints + (lastSafetyScoreSummary.provisional ? " (Provisional)" : "");
     // Any Part 3 violation turns the badge red, whatever the total.
     const violated = lastSafetyScoreSummary.violations > 0;
     btn.className = "cage-viewer-safety-score " + (violated || totalPoints < 0 ? "tier-red" : totalPoints > 0 ? "tier-green" : "tier-orange");

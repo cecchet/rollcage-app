@@ -649,6 +649,10 @@ textarea { resize: vertical; min-height: 50px; }
 }
 .results-panel-collapsed .results-summary { color: var(--muted); font-size: 0.85rem; flex: 1; }
 .safety-score-vehicle-link { background: none; border: none; padding: 0; color: var(--accent, #6ea8fe); text-decoration: underline; cursor: pointer; font: inherit; text-align: left; }
+.safety-score-missing { background: color-mix(in srgb, var(--fail) 18%, transparent); border: 1px solid var(--fail); color: var(--fail); border-radius: 8px; padding: 8px 10px; margin: 8px 0 10px; font-size: 0.85rem; }
+.safety-score-missing-title { font-weight: 600; margin-bottom: 4px; }
+.safety-score-missing ul { margin: 0; padding-left: 18px; }
+.safety-score-missing .safety-score-vehicle-link { color: var(--fail); font-weight: 600; }
 .safety-score-violation { background: color-mix(in srgb, var(--fail) 18%, transparent); border: 1px solid var(--fail); color: var(--fail); font-weight: 600; border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px; font-size: 0.9rem; }
 .safety-score-placeholder { color: var(--muted); font-size: 0.9rem; }
 .safety-tier-list { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
