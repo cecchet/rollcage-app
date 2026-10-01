@@ -289,6 +289,9 @@
 
   function setAnswer(id, patch) {
     state.answers[id] = Object.assign({}, getAnswer(id), patch);
+    // No backstays: the (now hidden) backstay diagonal question goes too,
+    // so its tables and 3D bars don't linger from a stale answer.
+    if (id === "backstays" && state.answers[id].value === "no") delete state.answers.backstay_diagonals;
     failingGussetCache = null;
     normalizeUnavailableChoices();
     markDirty();
@@ -1800,7 +1803,7 @@
         { target: "tour-picture-move", fallback: "pictures-cat-overview", text: "Photo in the wrong spot? Use its \"Move to\" menu to put it in the right category." },
         { target: "tour-picture-edit", fallback: "pictures-cat-overview", text: "\"Edit rollcage elements\" lets you click parts of the 3D model to tag which design a photo shows. Clicking an area with more than one possible design cycles through its options, so you can pick the exact one before answering it in the checklist; double-click a door bar to add or remove a sill bar." },
         { target: "tour-picture-ai", fallback: "pictures-cat-overview", text: "\"AI analysis (beta)\" asks a vision model which designs a photo shows. It's far from reliable yet -- always check its suggestions." },
-        { target: "pictures-compare", fallback: "pictures-panel", text: "Once photos have been analyzed, \"Compare with current design\" lists where the AI's suggestions disagree with (or fill a gap in) the currently defined design -- pick which side to keep for each one." },
+        { target: "pictures-compare", fallback: "pictures-panel", text: "Once photos are tagged (by hand or by AI analysis), \"Differences between pictures and current design\" lists where the pictures disagree with (or fill a gap in) the currently defined design -- pick which side to keep for each one." },
       ],
     },
   };
@@ -3366,9 +3369,34 @@
   // Resolves a picture tag's elementId (a normal Part 1 element id, or a
   // synthetic gusset row id from buildAiElementCatalog above) to something
   // elementSummary() can read -- {name, evaluationType, options} -- shared
-  // by the picture-card chip label and the "Compare with current design" panel
+  // by the picture-card chip label and the "Differences between pictures and current design" panel
   // so both describe a tagged gusset row the same way as a tagged Part 1
   // element.
+  // The checklist's own label for a gusset row the current design doesn't
+  // create (e.g. 253-12's roof junction gussets while the roof is a single
+  // bar): the gusset rows are re-derived with each design choice switched,
+  // one at a time, to each of its options until one produces that row.
+  const absentGussetLabelCache = new Map();
+  function absentGussetRowLabel(path, gussetElm, rowId) {
+    if (absentGussetLabelCache.has(rowId)) return absentGussetLabelCache.get(rowId);
+    let label = null;
+    if (typeof gussetElm.rows === "function") {
+      for (const elm of path.elements) {
+        if (label) break;
+        const values = elm.evaluationType === "choice" ? (elm.options || []).map((o) => o.id) : elm.evaluationType === "boolean" ? ["yes"] : [];
+        for (const v of values) {
+          const probe = (id) => (id === elm.id ? Object.assign({}, getAnswer(id), { value: v, extra: { sill_bar: "yes" } }) : getAnswer(id));
+          let rows = [];
+          try { rows = gussetElm.rows(probe) || []; } catch (e) { rows = []; }
+          const row = rows.find((r) => r.id === rowId);
+          if (row) { label = row.label; break; }
+        }
+      }
+    }
+    if (!label) return "Gusset -- " + rowId.replace(/_/g, " ");
+    absentGussetLabelCache.set(rowId, label);
+    return label;
+  }
   function resolvePictureTagTarget(path, elementId) {
     if (elementId.indexOf(GUSSET_TAG_PREFIX) === 0 && elementId.endsWith(GUSSET_TAG_SUFFIX)) {
       const gussetElm = path.elements.find((e) => e.id === "gusset_design");
@@ -3379,7 +3407,7 @@
       // don't expect one (e.g. a 2-piece 253-15 gusset while 253-15 is
       // answered as 1 bar) still gets a readable name -- it may be exactly
       // the evidence that the design answer is wrong.
-      const name = row ? row.label : "Gusset -- " + rowId.replace(/_/g, " ");
+      const name = row ? row.label : absentGussetRowLabel(path, gussetElm, rowId);
       return { name, evaluationType: "choice", options: gussetElm.columns[0].options, unexpected: !row };
     }
     const elm = path.elements.find((e) => e.id === elementId);
@@ -3408,7 +3436,7 @@
   // -- a suggestion returned for a photo already means "visible in this
   // photo" (the prompt tells the model to omit anything it can't
   // determine), so this one call both tags the picture's elements and
-  // feeds "Compare with current design" below. Each tag now carries that
+  // feeds "Differences between pictures and current design" below. Each tag now carries that
   // specific value (elementId + value, not just a bare id) so the 3D
   // highlight and chip label can show exactly which option was identified,
   // not just the category -- e.g. "253-9", not just "Door bar design".
@@ -3440,7 +3468,7 @@
         suggestions.forEach((s) => {
           if (/__sill_bar$/.test(s.elementId)) { sillBarSuggestions.push(s); return; }
           // "No" / "None present" isn't something a photo shows -- kept as a
-          // suggestion (Compare with current design) but not tagged on the picture.
+          // suggestion (Differences between pictures and current design) but not tagged on the picture.
           if (s.value === "no" || s.value === "none") return;
           const prior = byId.get(s.elementId);
           // Keeps a prior manual extra (e.g. a sill-bar tag) when the AI
@@ -4275,7 +4303,7 @@
     return [...byElement.values()];
   }
 
-  // "Compare with current design": surfaces where the pictures' AI suggestions
+  // "Differences between pictures and current design": surfaces where the pictures' AI suggestions
   // disagree with (or fill a gap in) the checklist answered so far. Purely
   // a review step -- reuses state.aiAnalysis.accepted as the transient
   // checkbox state (same shape/behavior the old whole-checklist analysis
@@ -4411,7 +4439,7 @@
   }
   function renderPictureComparePanel(path) {
     const panel = el("div", { class: "picture-compare-panel", id: "pictures-compare" });
-    panel.appendChild(el("h3", {}, ["Compare with current design"]));
+    panel.appendChild(el("h3", {}, ["Differences between pictures and current design"]));
 
     // Every element tagged on the pictures (AI or manual). One the current
     // design doesn't have at all -- a gusset row its bar designs don't

@@ -553,6 +553,9 @@
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1.1(b) and 8.3.2.2.1",
       description: "253-20 is the compulsory baseline. 253-21 (X-config) pairs with a 253-12 roof bar; 253-22 pairs with a 253-14 roof bar.",
+      // No backstays, no backstay diagonal (its answer is cleared then --
+      // see setAnswer).
+      showIf: { id: "backstays", notEquals: "no" },
       evaluationType: "choice",
       // Like 253-7/253-9/253-12, which physical leg of the X is fabricated
       // continuous vs. cut into 2 half-bars isn't fixed by the rule, so
