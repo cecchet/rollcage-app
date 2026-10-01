@@ -871,11 +871,24 @@
   // measurement. Answered "yes" there short-circuits the table to pass --
   // unless a row below has since been given a distance over the limit,
   // which overrides the blanket confirmation (and unticks it on screen).
+  // Other tables can declare their own quick check (elm.quickCheck: label,
+  // summary, report wording) -- e.g. mounting plate sizes; any row entered
+  // as failing overrides it the same way.
   function distanceQuickCheckId(elm) { return elm.id + "__quick"; }
+  function quickCheckDef(elm) {
+    if (elm.quickCheck) return elm.quickCheck;
+    if (!elm.distanceQuickCheck) return null;
+    return {
+      label: "All junctions below confirmed within 100mm (skip entering each one individually)",
+      summary: "All confirmed within 100mm",
+      report: "Confirmed within 100mm (quick-check)",
+      fillZeroDistances: true,
+    };
+  }
   function quickCheckActive(elm) {
-    if (!elm.distanceQuickCheck || getAnswer(distanceQuickCheckId(elm)).value !== "yes") return false;
+    if (!quickCheckDef(elm) || getAnswer(distanceQuickCheckId(elm)).value !== "yes") return false;
     return !resolveRows(elm).some((row) => elm.columns.some((col) =>
-      col.safetyLimit && tableCellStatusByRules(col, getAnswer(tableCellId(elm, row, col)), row, elm) === "fail"));
+      (col.safetyLimit || !elm.distanceQuickCheck) && tableCellStatusByRules(col, getAnswer(tableCellId(elm, row, col)), row, elm) === "fail"));
   }
   function tableElementStatus(elm) {
     if (quickCheckActive(elm)) return "pass";
@@ -1364,7 +1377,7 @@
     const answer = getAnswer(elm.id);
     if (elm.evaluationType === "table") {
       if (quickCheckActive(elm)) {
-        return { kind: "table", label: elm.name, subRows: [{ label: "All rows", value: "Confirmed within 100mm (quick-check)" }] };
+        return { kind: "table", label: elm.name, subRows: [{ label: "All rows", value: quickCheckDef(elm).report }] };
       }
       const subRows = [];
       resolveRows(elm).forEach((row) => {
@@ -4477,6 +4490,8 @@
     const matchedCount = evaluated.length - rows.length;
 
     if (!rows.length) {
+      // Nothing to review: a green box, like a complete picture coverage.
+      panel.classList.add("agrees");
       panel.appendChild(el("div", { class: "ai-status" }, ["Pictures agree with the current design so far -- nothing to review."]));
       return panel;
     }
@@ -4681,7 +4696,7 @@
       return answer.value + (elm.unit ? " " + elm.unit : "");
     }
     if (elm.evaluationType === "table") {
-      if (quickCheckActive(elm)) return "All confirmed within 100mm";
+      if (quickCheckActive(elm)) return quickCheckDef(elm).summary;
       let pass = 0, total = 0;
       resolveRows(elm).forEach((row) => {
         elm.columns.forEach((col) => {
@@ -5363,7 +5378,8 @@
     }
 
     let quickChecked = false;
-    if (elm.distanceQuickCheck) {
+    const quickDef = quickCheckDef(elm);
+    if (quickDef) {
       const quickId = distanceQuickCheckId(elm);
       const quickAnswer = getAnswer(quickId);
       quickChecked = quickCheckActive(elm);
@@ -5382,7 +5398,7 @@
               // (possibly a fail, e.g. over 100mm) is never silently wiped.
               onchange: (e) => {
                 const checked = e.target.checked;
-                if (checked) {
+                if (checked && quickDef.fillZeroDistances) {
                   const distCol = elm.columns.find((c) => c.type === "length");
                   const rows = resolveRows(elm);
                   if (distCol && rows.length) {
@@ -5400,7 +5416,7 @@
                 setAnswer(quickId, { value: checked ? "yes" : "" });
               },
             }),
-            "All junctions below confirmed within 100mm (skip entering each one individually)",
+            quickDef.label,
           ]),
         ])
       );
@@ -6956,6 +6972,9 @@
   // unclassified tubes.
   function footSizeColor(row) {
     const v = getAnswer("mounting_feet_size__" + row + "__size").value;
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    const elm = path && path.elements.find((e) => e.id === "mounting_feet_size");
+    if (elm && quickCheckActive(elm)) return CAGE_COLOR.foot;
     return v && v.value !== "" && v.value != null ? CAGE_COLOR.foot : CAGE_COLOR.tubingUnclassified;
   }
   // Recolors an already-computed "presence" colors map for the Part 2 view:
@@ -8846,6 +8865,32 @@
     else if (sillEligible) label += " (double-click to add a sill bar)";
     return label;
   }
+  // Tubing hover: names the tube classification row(s) -- or mounting
+  // plate size row -- a click on this bar jumps to (same resolution as
+  // jumpToTubeRow / footRowForFile), with its current spec.
+  function tubingHoverLabel(file) {
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    if (!path) return null;
+    const rowLabel = (elmId, rowId) => {
+      const elm = path.elements.find((e) => e.id === elmId);
+      const row = elm && resolveRows(elm).find((r) => r.id === rowId);
+      return row ? row.label : null;
+    };
+    const footRow = footRowForFile(file);
+    if (footRow) {
+      const name = rowLabel("mounting_feet_size", footRow);
+      return name ? "Mounting plate -- " + name : null;
+    }
+    const band = tubeRowSplitBand(file);
+    const rowIds = band ? [band.insideRow, band.outsideRow] : [fileTubeRow(file)].filter(Boolean);
+    const parts = rowIds.map((rowId) => {
+      const name = rowLabel("tubing_bar_classification", rowId);
+      if (!name) return null;
+      const spec = getAnswer("tubing_bar_classification__" + rowId + "__spec").value;
+      return name + (spec === "primary" ? " — Primary" : spec === "secondary" ? " — Secondary" : " — not classified yet");
+    }).filter(Boolean);
+    return parts.length ? parts.join(" / ") : null;
+  }
   function handleCagePartHover(file, frac, clientX, clientY) {
     const tooltip = document.getElementById("cageViewerTooltip");
     if (!tooltip) return;
@@ -8859,6 +8904,8 @@
       label = target ? target.label : null;
     } else if (file && state.activeTab === 1) {
       label = designChoiceHoverLabel(file);
+    } else if (file && state.activeTab === 2) {
+      label = tubingHoverLabel(file);
     }
     if (!label) { tooltip.hidden = true; return; }
     const container = document.getElementById("cageViewerContainer");

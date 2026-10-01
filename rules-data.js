@@ -788,6 +788,12 @@
         { id: "backstay_diag_other", label: "253-21: Backstay diagonal -- Other (2 half bars, same spec)" },
       ];
     }
+    // 253-20 is a single diagonal: its one tube keeps the row id of the
+    // mesh it uses ("Rear diagonal 1" = left, "2" = right), so a tube spec
+    // entered before stays put.
+    if (value === "253-20") return [{ id: "backstay_diagonals_left", label: "253-20: Backstay diagonal" }];
+    if (value === "253-20-right") return [{ id: "backstay_diagonals_right", label: "253-20: Backstay diagonal" }];
+    if (value === "none") return [];
     return [
       { id: "backstay_diagonals_left", label: "Backstay diagonal -- Left" },
       { id: "backstay_diagonals_right", label: "Backstay diagonal -- Right" },
@@ -1263,6 +1269,12 @@
       evaluationType: "table",
       rows: (getAnswer) => mountingFeetDesignRows(getAnswer),
       columns: [{ key: "size", label: "Plate size", type: "area" }],
+      // One tick instead of measuring every plate (see quickCheckDef).
+      quickCheck: {
+        label: "All mounting plates compliant to minimum requirements (skip entering each plate size)",
+        summary: "All plates confirmed compliant",
+        report: "Confirmed compliant to minimum requirements (quick-check)",
+      },
       visuallyVerifiable: false,
       hardFail: true,
     },

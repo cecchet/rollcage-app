@@ -614,6 +614,9 @@ textarea { resize: vertical; min-height: 50px; }
 }
 .picture-compare-panel { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
 .picture-compare-panel h3 { margin: 0 0 6px; font-size: 1rem; }
+.picture-compare-panel.agrees { margin: 16px 0 8px; padding: 10px 12px; border: 1px solid var(--pass); border-radius: var(--radius); background: var(--pass-bg); }
+.picture-compare-panel.agrees h3 { margin: 0 0 4px; font-size: 0.95rem; }
+.picture-compare-panel.agrees .ai-status { margin: 0; }
 
 .note-input { width: 100%; margin-top: 6px; }
 
