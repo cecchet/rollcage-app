@@ -1931,20 +1931,33 @@
             referrerpolicy: "strict-origin-when-cross-origin",
           }),
         ])
-      : el("img", { src: v.image, alt: v.caption });
+      : el("img", {
+          src: v.image, alt: v.caption,
+          title: v.zoomed ? "Click to fit to the screen" : "Click to zoom in to full size",
+          // Toggles full resolution (scroll around it) vs fit-to-screen.
+          onclick: (e) => { e.stopPropagation(); v.zoomed = !v.zoomed; render(); },
+        });
     const actions = [closeBtn];
     if (v.video) actions.unshift(el("a", { class: "btn small secondary", href: "https://youtu.be/" + encodeURIComponent(v.video), target: "_blank", rel: "noopener" }, ["Open on YouTube"]));
-    const overlay = el("div", { class: "modal-overlay image-viewer" + (v.video ? " video-viewer" : ""), role: "dialog", "aria-modal": "true", "aria-label": v.caption }, [
+    const overlay = el("div", { class: "modal-overlay image-viewer" + (v.video ? " video-viewer" : "") + (v.zoomed ? " zoomed" : ""), role: "dialog", "aria-modal": "true", "aria-label": v.caption }, [
       el("figure", { class: "image-viewer-figure" }, [
         media,
-        el("figcaption", {}, [v.caption]),
+        el("figcaption", {}, [v.caption + (v.video ? "" : " · click the image to " + (v.zoomed ? "fit it to the screen" : "zoom in"))]),
         el("div", { class: "toolbar" }, actions),
       ]),
     ]);
     overlay.addEventListener("click", (e) => { if (e.target === overlay || !v.video) close(); });
     overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
     holder.appendChild(overlay);
-    closeBtn.focus();
+    closeBtn.focus({ preventScroll: true }); // (a zoomed photo stays at its top-left)
+  }
+
+  // A photo in the full-screen viewer (renderMediaViewer), opened fitted to
+  // the screen -- click it there to zoom to full resolution.
+  function openImageViewer(src, caption) {
+    if (!src) return;
+    state.mediaViewer = { image: src, caption: caption || "Photo", zoomed: false };
+    render();
   }
 
   function renderSaveAsDialog(holder) {
@@ -2362,7 +2375,7 @@
       const cached = pictureImageCache[photo.id] || {};
       wrap.appendChild(
         cached.photo
-          ? el("img", { class: "vehicle-photo-thumb", src: cached.photo, alt: label })
+          ? el("img", { class: "vehicle-photo-thumb zoomable", src: cached.photo, alt: label, title: "Click to view full screen", onclick: () => openImageViewer(cached.photo, label) })
           : el("div", { class: "vehicle-photo-thumb picture-card-loading" }, ["Loading..."])
       );
       wrap.appendChild(
@@ -3958,7 +3971,7 @@
     if (pic.videoFrame) card.appendChild(el("div", { class: "picture-video-frame", title: pic.videoFrame.name }, ["Video frame " + formatVideoTime(pic.videoFrame.t)]));
     card.appendChild(
       cached.photo
-        ? el("img", { class: "picture-card-photo", src: cached.photo, alt: "" })
+        ? el("img", { class: "picture-card-photo zoomable", src: cached.photo, alt: "", title: "Click to view full screen", onclick: () => openImageViewer(cached.photo, pictureCategoryDef(pic.category).label + " photo") })
         : el("div", { class: "picture-card-photo picture-card-loading" }, ["Loading..."])
     );
     card.appendChild(
@@ -9016,6 +9029,13 @@
     }
     // The viewer banner's Done/Cancel serve both picture tagging and
     // marking an event's damaged parts.
+    // While tagging a picture's elements, its photo above the model opens
+    // full screen too, to check details against the model.
+    const pmThumb = document.getElementById("cageViewerPictureModeThumb");
+    if (pmThumb) {
+      pmThumb.title = "Click to view full screen";
+      pmThumb.addEventListener("click", () => openImageViewer(pmThumb.src, "Picture being tagged"));
+    }
     const pmDone = document.getElementById("cageViewerPictureModeDone");
     if (pmDone) pmDone.addEventListener("click", () => (state.damageSelectMode ? finishDamageSelectMode() : finishPictureSelectMode()));
     const pmCancel = document.getElementById("cageViewerPictureModeCancel");
