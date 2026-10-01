@@ -814,7 +814,7 @@ textarea { resize: vertical; min-height: 50px; }
 .video-frame-role-btn.active { border-color: var(--accent); background: var(--accent); color: #fff; }
 .video-frame-role-btn:disabled { opacity: 0.5; cursor: default; }
 .library-current { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; margin-top: 6px; }
-.library-current-card { display: flex; flex-direction: column; gap: 4px; padding: 8px; width: 240px; max-width: 100%; border: 2px solid var(--accent); border-radius: var(--radius); background: var(--info-bg); }
+.library-current-card { display: flex; flex-direction: column; gap: 4px; padding: 8px; width: 280px; max-width: 100%; border: 2px solid var(--accent); border-radius: var(--radius); background: var(--info-bg); }
 .library-current-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .library-current-unsaved { color: var(--warn); }
 .session-bar-unsaved { font: inherit; font-size: 0.75rem; color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn); border-radius: 999px; padding: 1px 8px; white-space: nowrap; cursor: pointer; }
@@ -828,6 +828,15 @@ textarea { resize: vertical; min-height: 50px; }
 .library-section-saved { --section: var(--pass); }
 .library-section-templates { --section: var(--template); }
 .library-section-current .library-current-card { border-color: var(--section); }
+.picture-coverage { margin: 16px 0 8px; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); }
+.picture-coverage.incomplete { border-color: var(--warn); background: var(--warn-bg); }
+.picture-coverage.complete { border-color: var(--pass); background: var(--pass-bg); }
+.picture-coverage h3 { margin: 0 0 4px; font-size: 0.95rem; }
+.picture-coverage-label { font-size: 0.8rem; color: var(--muted); margin: 8px 0 4px; }
+.picture-coverage-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.picture-coverage-chip { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); }
+.picture-coverage-chip.missing { border-color: var(--warn); color: var(--warn); }
+.picture-coverage-chip.covered { border-color: var(--pass); color: var(--pass); }
 .load-dialog-item { display: flex; flex-direction: column; }
 .load-dialog-item.selected .load-dialog-card { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .library-card-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border: 2px solid var(--accent); border-top: none; border-radius: 0 0 var(--radius) var(--radius); background: var(--info-bg); }

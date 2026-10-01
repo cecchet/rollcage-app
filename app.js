@@ -1739,7 +1739,7 @@
     onEnd: () => { if (!state.libraryOpen) state.activeTab = state.tourReturnTab || 1; },
     steps: TOUR_LIBRARY_STEPS.concat([
       { target: "sessionBarHolder", onEnter: tourLeaveLibrary, text: "Name your rollcage here. The Rollcage library (where you just were) is where you save it in this browser, make a copy (Save as), print a PDF report, and find your saved cages and the templates." },
-      { target: "cageViewerPartDropdown", text: () => "The checklist is split into parts: the vehicle and its pictures, design choices, tubing, installation constraints, welds, seats and belts, sanctioning body compliance (" + partName(LOGBOOK_PHASE) + "), and the Frog Safety score (" + partName(SAFETY_PHASE) + "). Switch parts here -- it stays at hand while you scroll." },
+      { target: "cageViewerPartDropdown", text: () => "The checklist is split into parts: the vehicle and its pictures, rollcage design (bars and gussets), tubing, installation constraints (angles, distances...), welds, seats and belts, sanctioning body compliance (" + partName(LOGBOOK_PHASE) + "), and the Frog Safety score (" + partName(SAFETY_PHASE) + "). Switch parts here -- it stays at hand while you scroll." },
       TOUR_STEP_3D,
       TOUR_STEP_LAYOUT,
       TOUR_STEP_SCORE,
@@ -2191,11 +2191,18 @@
     const saved = loadAll()[state.sessionId];
     const status = state.dirty ? (saved ? "Unsaved changes -- last saved " + new Date(saved.updatedAt).toLocaleString() : "Not saved yet")
       : saved ? "Saved " + new Date(saved.updatedAt).toLocaleString() : "Not saved yet";
+    // Its 3/4 front photo beside the model, same as a saved card.
+    const frontId = state.vehiclePhotos && state.vehiclePhotos.front && state.vehiclePhotos.front.id;
+    if (frontId) loadPictureImage(frontId);
+    const front = frontId && (pictureImageCache[frontId] || {}).photo;
     return el("div", { class: "library-current", id: "library-current" }, [
       el("div", { class: "library-current-card" }, [
-        libraryCurrentShot
-          ? el("img", { class: "load-dialog-model", src: libraryCurrentShot, alt: "3D model" })
-          : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
+        el("div", { class: "load-dialog-images" }, [
+          libraryCurrentShot
+            ? el("img", { class: "load-dialog-model", src: libraryCurrentShot, alt: "3D model" })
+            : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
+          front ? el("img", { class: "load-dialog-photo", src: front, alt: "3/4 front photo" }) : null,
+        ]),
         el("div", { class: "load-dialog-name" }, [state.vehicle.name || "Unnamed " + NOUN]),
         el("div", { class: "load-dialog-date" + (state.dirty ? " library-current-unsaved" : "") }, [status]),
       ]),
@@ -3127,9 +3134,9 @@
   const PICTURES_PHASE = CFG.logbook ? LOGBOOK_PHASE : VEHICLE_PHASE;
   const PHASE_TITLES = {
     [VEHICLE_PHASE]: "Vehicle & pictures",
-    1: "Structure & design choices",
+    1: "Rollcage design (bars & gussets)",
     2: "Tubing sizes & materials",
-    [INSTALLATION_PHASE]: "Installation constraints",
+    [INSTALLATION_PHASE]: "Installation constraints (angles, distances...)",
     [WELDS_PHASE]: "Welds",
     [SEATS_PHASE]: "Seats, belts & routing",
     [LOGBOOK_PHASE]: CFG.logbook ? "Logbook information" : "Sanctioning body compliance",
@@ -3262,6 +3269,17 @@
       sillBar: "right",
     },
   ];
+  // Which picture category a gusset junction belongs to -- the photo of
+  // that area is where it shows (and where the vision model is asked
+  // about it).
+  function gussetRowCategory(rowId) {
+    if (/^(main_hoop_diag_|b_pillar_)/.test(rowId)) return "main_rollbar";
+    if (/^(backstay_diag_|rear_lower_x_)/.test(rowId)) return "backstay_diagonals";
+    if (/^roof_/.test(rowId)) return "roof_bars";
+    const side = /_left(_|$)/.test(rowId) ? "left" : /_right(_|$)/.test(rowId) ? "right" : null;
+    if (side && /^(door_|a_pillar|windshield_)/.test(rowId)) return "door_bars_" + side;
+    return null;
+  }
   function pictureCategoryDef(categoryId) {
     return PICTURE_CATEGORIES.find((c) => c.id === categoryId) || PICTURE_CATEGORIES[0];
   }
@@ -3299,16 +3317,15 @@
       });
     }
 
-    // Junction gussets are a mounting/weld detail, not a design-choice
-    // element, so they're only offered in the broad "overview" category
-    // (preserving today's original whole-checklist behavior there) --
-    // the narrower per-category buckets stay focused on the bars
-    // themselves.
-    if (isOverview) {
+    // Junction gussets: every one in "overview", and in a close-up
+    // category the ones at its own junctions (see gussetRowCategory) --
+    // a gusset is also evidence of the bar design around it (an X's
+    // crossing, a 2-bar 253-15's split; see the prompt in analyze-cage.js).
+    {
       const gussetElm = path.elements.find((e) => e.id === "gusset_design");
       if (gussetElm) {
         const options = gussetElm.columns[0].options;
-        resolveRows(gussetElm).forEach((row) => {
+        resolveRows(gussetElm).filter((row) => isOverview || gussetRowCategory(row.id) === categoryId).forEach((row) => {
           let description = "Gusset (bracing plate or wrap-around sleeve) at this specific tube junction.";
           if (row.restrictOptionIds && row.restrictOptionIds.length === 1) {
             description += ' This junction only ever uses a "' + row.restrictOptionIds[0] + '" gusset by design -- default to that if a gusset is visible there at all, unless the photo clearly shows otherwise.';
@@ -3340,8 +3357,12 @@
       if (!gussetElm) return null;
       const rowId = elementId.slice(GUSSET_TAG_PREFIX.length, -GUSSET_TAG_SUFFIX.length);
       const row = resolveRows(gussetElm).find((r) => r.id === rowId);
-      if (!row) return null;
-      return { name: row.label, evaluationType: "choice", options: gussetElm.columns[0].options };
+      // A gusset tagged on a photo where the checklist's current designs
+      // don't expect one (e.g. a 2-piece 253-15 gusset while 253-15 is
+      // answered as 1 bar) still gets a readable name -- it may be exactly
+      // the evidence that the design answer is wrong.
+      const name = row ? row.label : "Gusset -- " + rowId.replace(/_/g, " ");
+      return { name, evaluationType: "choice", options: gussetElm.columns[0].options, unexpected: !row };
     }
     const elm = path.elements.find((e) => e.id === elementId);
     return elm ? { name: elm.name, evaluationType: elm.evaluationType, options: elm.options } : null;
@@ -4187,6 +4208,7 @@
       panel.appendChild(section);
     });
 
+    if (CFG.logbook) panel.appendChild(renderPictureCoverage(path));
     if (state.pictures.some((p) => picturesSuggestions(p).length)) {
       panel.appendChild(renderPictureComparePanel(path));
     }
@@ -4222,13 +4244,59 @@
   // checkbox state (same shape/behavior the old whole-checklist analysis
   // used, including the 3D-model preview highlight in computeCageColors),
   // sourced from the aggregated per-picture suggestions instead.
+  // The logbook's picture coverage: every bar design and gusset this cage
+  // has (per the checklist) and whether at least one rollcage picture is
+  // tagged as showing it -- a logbook should document each of them.
+  function pictureCoverageItems(path) {
+    const tagged = new Set();
+    state.pictures.forEach((p) => (p.elements || []).forEach((t) => tagged.add(t.elementId)));
+    const items = [];
+    path.elements.forEach((elm) => {
+      if (!PHASE_1_DESIGN_CHOICE_IDS.has(elm.id) || AI_SKIP_TABLE_IDS.has(elm.id) || !elementVisible(elm) || !ITEM_PART_RULES[elm.id]) return;
+      if (elm.evaluationType !== "choice" && elm.evaluationType !== "boolean") return;
+      const v = getAnswer(elm.id).value;
+      if (!v || v === "none" || v === "no") return; // not on this cage (or not answered yet)
+      items.push({ id: elm.id, name: elm.name, covered: tagged.has(elm.id) });
+    });
+    const gussetElm = path.elements.find((e) => e.id === "gusset_design");
+    if (gussetElm && elementVisible(gussetElm)) {
+      resolveRows(gussetElm).forEach((row) => {
+        const id = GUSSET_TAG_PREFIX + row.id + GUSSET_TAG_SUFFIX;
+        if (!getAnswer(id).value) return; // no gusset there
+        items.push({ id, name: row.label, covered: tagged.has(id) });
+      });
+    }
+    return items;
+  }
+  function renderPictureCoverage(path) {
+    const items = pictureCoverageItems(path);
+    const missing = items.filter((i) => !i.covered);
+    const section = el("div", { class: "picture-coverage" + (missing.length ? " incomplete" : " complete"), id: "pictures-coverage" }, [
+      el("h3", {}, ["Picture coverage"]),
+      el("div", { class: "picture-autosort-label" }, [
+        items.length
+          ? items.length - missing.length + " of " + items.length + " of this cage's bar designs and gussets are shown in at least one rollcage picture (tag a picture's elements, or let AI analysis do it)."
+          : "Answer the design choices first -- coverage lists each bar design and gusset the cage has.",
+      ]),
+    ]);
+    if (missing.length) {
+      section.appendChild(el("div", { class: "picture-coverage-label" }, ["Not shown in any picture yet:"]));
+      section.appendChild(el("div", { class: "picture-coverage-chips" }, missing.map((i) => el("span", { class: "picture-coverage-chip missing" }, [i.name]))));
+    }
+    const covered = items.filter((i) => i.covered);
+    if (covered.length) {
+      section.appendChild(el("div", { class: "picture-coverage-label" }, ["Shown:"]));
+      section.appendChild(el("div", { class: "picture-coverage-chips" }, covered.map((i) => el("span", { class: "picture-coverage-chip covered" }, ["✓ " + i.name]))));
+    }
+    return section;
+  }
   function renderPictureComparePanel(path) {
     const panel = el("div", { class: "picture-compare-panel", id: "pictures-compare" });
     panel.appendChild(el("h3", {}, ["Compare with checklist"]));
 
     const evaluated = aggregatePictureSuggestions()
       .map((s) => ({ s, target: resolvePictureTagTarget(path, s.elementId) }))
-      .filter((r) => r.target)
+      .filter((r) => r.target && !r.target.unexpected) // a gusset with no checklist row stays evidence on the picture only
       .map(({ s, target }) => {
         const current = getAnswer(s.elementId).value;
         return {
@@ -7657,6 +7725,9 @@
         if (colors[f] === "hidden" || DRIVER_FILES.indexOf(f) !== -1 || CODRIVER_FILES.indexOf(f) !== -1) return;
         delete colors[f];
       });
+      // Every gusset is clickable while tagging, even one the checklist's
+      // current designs leave out -- a photo showing it is the evidence.
+      GUSSET_FILE_TO_ROW.forEach((row, f) => { if (colors[f] === "hidden") delete colors[f]; });
       state.pictureSelectMode.selected.forEach((tag, elementId) => {
         filesForElementValue(elementId, tag.value, tag.extra).forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
       });
@@ -8820,7 +8891,7 @@
     syncPictureModeUi();
     if (window.CageView) {
       const colors = computeCageColors();
-      window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE) ? true : state.showGhostBars);
+      window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE || state.pictureSelectMode) ? true : state.showGhostBars);
       window.CageView.setMeshTransforms(computeCageTransforms());
       // Tilts the modeled main hoop / backstays to the entered angles (after
       // the transforms -- the deformation works on each part's final placement).
