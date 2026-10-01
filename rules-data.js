@@ -148,9 +148,11 @@
   // id (optionOverrides), append new options (addOptions), patch table
   // columns by key (columnOverrides), or fully replace the tubing
   // sub-fields (tubing is always org-specific, never shared).
-  // "Part N" as the app numbers it: the logbook app (window.APP_CONFIG.
-  // logbook) puts its Logbook information first, so the cage's own parts
-  // shift up by one there -- same order as app.js's PHASE_ORDER.
+  // "Part N" as the app numbers it -- same order as app.js's PHASE_ORDER:
+  // both apps open with a part ahead of the cage's own (the rollcage app's
+  // Vehicle & pictures, the logbook app's Logbook information), so the
+  // cage's parts are numbered one up; the logbook app's Logbook information
+  // (internal phase 6) is its Part 1.
   const LOGBOOK_APP = !!(window.APP_CONFIG && window.APP_CONFIG.logbook);
   // The app's own getAnswer, handed over at startup (RULES_DATA.useAnswers)
   // -- lets an element's name/description follow the design picked (e.g.
@@ -160,7 +162,7 @@
   const answerOf = (id) => answerSource(id) || { value: "" };
   function isMainHoopX() { return /^253-7-/.test(answerOf("main_hoop_diagonals").value); }
   function isRoof12() { return /^253-12-/.test(answerOf("roof_bars").value); }
-  function PART(n) { return "Part " + (LOGBOOK_APP ? (n === 6 ? 1 : n + 1) : n); }
+  function PART(n) { return "Part " + (LOGBOOK_APP && n === 6 ? 1 : n + 1); }
 
   function patchElements(base, patches) {
     return base.map((el) => {

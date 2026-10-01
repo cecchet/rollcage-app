@@ -1715,6 +1715,19 @@
     if (!leanAnchors) leanAnchors = computeLeanAnchors();
     return leanAnchors ? leanAnchors.modeledBackstayDeg : null;
   }
+  // Shows/hides the model (the session bar's "3D Model" toggle in app.js),
+  // resizing the renderer on the way back in.
+  function setVisible(show) {
+    const container = document.getElementById("cageViewerContainer");
+    if (!container) return;
+    const wasHidden = container.style.display === "none";
+    container.style.display = show ? "" : "none";
+    if (show && wasHidden && camera && renderer) {
+      camera.aspect = container.clientWidth / Math.max(1, container.clientHeight);
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+  }
   function getMeshAxisBounds(file) {
     const mesh = meshes[file];
     return mesh ? meshAxisBounds(mesh) : null;
@@ -1806,25 +1819,12 @@
     renderer.render(scene, camera);
     return out.toDataURL("image/jpeg", 0.85);
   }
-  window.CageView = { init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot };
+  window.CageView = { setVisible, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
     if (!container) return;
     init(container);
-    const toggleBtn = document.getElementById("cageViewerToggle");
-    if (toggleBtn) {
-      toggleBtn.addEventListener("click", () => {
-        const hidden = container.style.display === "none";
-        container.style.display = hidden ? "block" : "none";
-        toggleBtn.textContent = hidden ? "Hide" : "Show";
-        if (hidden) {
-          camera.aspect = container.clientWidth / Math.max(1, container.clientHeight);
-          camera.updateProjectionMatrix();
-          renderer.setSize(container.clientWidth, container.clientHeight);
-        }
-      });
-    }
     const resetBtn = document.getElementById("cageViewerReset");
     if (resetBtn) resetBtn.addEventListener("click", resetView);
   }

@@ -56,8 +56,9 @@
     librarySelectedId: null, // UI-only: sessionId of the card selected in that window, if any
     mediaViewer: null, // UI-only: { image } or { video } (+ caption) while a photo/video is open full-size (renderMediaViewer)
     safetyScoreExpanded: false, // UI-only: Safety score panel starts collapsed (the sticky viewer's badge still shows the total, and clicking it expands this)
-    picturesExpanded: false, // UI-only: Pictures panel starts collapsed, like Vehicle description/Results -- same collapsiblePanelHeader toggle
+    picturesExpanded: true, // UI-only: Pictures panel (its own part now) starts open -- collapsiblePanelHeader toggle
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
+    showModel: true, // UI-only: the session bar's "3D Model" toggle
     activeTab: CFG.logbook ? 6 : 1, // UI-only: which phase tab is shown (6 = LOGBOOK_PHASE, first in the logbook app) -- see PHASE_ORDER
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
     dirty: false, // UI-only: true once something has changed since the last explicit Save -- see markDirty/confirmDiscardIfDirty. Nothing auto-persists anymore; this is what gates switching/starting a rollcage with unsaved work.
@@ -1653,6 +1654,12 @@
             [state.pdfReportStatus === "generating" ? "Generating report…" : "PDF report"]
           ),
           el("button", { class: "btn small secondary", onclick: () => { state.libraryOpen = true; state.librarySelectedId = null; render(); } }, [CFG.libraryName]),
+          // A toggle: filled while the model shows, outlined while hidden.
+          el("button", {
+            class: "btn small" + (state.showModel ? "" : " secondary"), "aria-pressed": state.showModel ? "true" : "false",
+            title: state.showModel ? "Hide the 3D model" : "Show the 3D model",
+            onclick: () => { state.showModel = !state.showModel; if (window.CageView && window.CageView.setVisible) window.CageView.setVisible(state.showModel); render(); },
+          }, ["3D Model"]),
         ]),
       ])
     );
@@ -1693,20 +1700,47 @@
   // points at its fallback instead, or is skipped if that's missing too.
   // A step's text may be a function -- evaluated when shown, for text that
   // names a Part (partName is defined further down this file).
-  const TOUR_STEP_3D = { target: "cageViewerContainer", text: "The live 3D model shows the cage as you answer. Click a bar to jump to its question; double-click it to cycle through its designs. Drag to rotate, scroll to zoom, shift+drag to pan." };
+  const TOUR_STEP_3D = { target: "cageViewerContainer", text: "The live 3D model shows the cage as you answer, in the view of the part you're on (design, tube size, constraints or welds). Click a bar to jump to its question; double-click it to cycle through its designs. Drag to rotate, scroll to zoom, shift+drag to pan. Reset, Ghost bars and Occupants sit on the model (filled = on); \"3D Model\" above hides it." };
   const TOUR_STEP_LAYOUT = { target: "section-main_structure_layout", onEnter: () => { state.activeTab = 1; }, text: () => "Start " + partName(1) + " with the base structure layout, then work down the design choices -- each answer lights up on the model." };
   const TOUR_STEP_SCORE = { target: "cageViewerSafetyScore", fallback: "cageViewerContainer", text: "Once a layout is picked, the Frog Safety score appears on the model. It rates the design itself, independent of any rulebook -- click it for the details. Each row links to its question, and unsafe designs explain why, some with a photo or video." };
-  const TOUR_STEP_PICTURES = { target: "pictures-panel", text: "Add photos of the cage in Pictures: tag which designs each one shows on the 3D model, or let AI analysis (beta) suggest them. Pictures has its own \"How it works\" tour." };
+  const TOUR_STEP_PICTURES = { target: "pictures-panel", onEnter: () => { state.activeTab = PICTURES_PHASE; state.picturesExpanded = true; }, text: () => "Add photos of the cage in Pictures (" + partName(PICTURES_PHASE) + "): tag which designs each one shows on the 3D model, or let AI analysis (beta) suggest them. Pictures has its own \"How it works\" tour." };
+  // Every tour starts in the library -- where a first-time user picks a
+  // template to play with (see boot) -- then carries on over the open cage.
+  const firstTemplate = () => (window.ROLLCAGE_TEMPLATES || [])[0];
+  const TOUR_LIBRARY_STEPS = [
+    {
+      target: "library-templates", fallback: "library-dialog",
+      onEnter: () => { state.libraryOpen = true; state.librarySelectedId = null; },
+      text: () => "Start here, in the " + CFG.libraryName + ": the design templates below are complete example cages -- open one to explore the tool right away. Your own saved " + NOUN + "s appear above them.",
+    },
+    {
+      target: "library-selected", fallback: "library-dialog",
+      onEnter: () => { state.libraryOpen = true; const t = firstTemplate(); state.librarySelectedId = t ? TEMPLATE_SELECTION_PREFIX + t.templateId : null; },
+      text: "Select a card to see what you can do with it: start from a template, or load, export or delete one of your saved " + NOUN + "s.",
+    },
+    {
+      target: "library-top-actions", fallback: "library-dialog",
+      onEnter: () => { state.libraryOpen = true; },
+      text: "Or start a blank " + NOUN + " from scratch, or import one from a file.",
+    },
+  ];
+  // Leaving the library: on a first visit (nothing open yet), carry on over
+  // the first template so the rest of the tour has a real cage to show.
+  function tourLeaveLibrary() {
+    state.libraryOpen = false;
+    const t = firstTemplate();
+    if (t && !state.dirty && !getAnswer("main_structure_layout").value) startFromTemplate(t);
+  }
   const ROLLCAGE_APP_TOUR = {
     intro: {
       title: "How the Rollcage assessment tool works",
       text: "Describe a roll cage once -- its design, tubing, installation and welds -- and the tool builds a live 3D model of it, rates its safety with the Frog Safety score, and can check it against the rules of the sanctioning body you race with. Here's a quick tour of the main features.",
     },
     onStart: () => { state.tourReturnTab = state.activeTab; state.activeTab = 1; },
-    onEnd: () => { state.activeTab = state.tourReturnTab || 1; },
-    steps: [
-      { target: "sessionBarHolder", text: "Name your rollcage here. Save keeps it in this browser, Save as makes a copy, PDF report prints everything, and the Rollcage library holds your saved cages plus ready-made design templates to start from." },
-      { target: "cageViewerPartDropdown", text: "The checklist is split into 6 parts: design choices, tubing, installation, welds, seats and belts, and sanctioning body compliance. Switch parts here -- it stays at hand while you scroll." },
+    onEnd: () => { if (!state.libraryOpen) state.activeTab = state.tourReturnTab || 1; },
+    steps: TOUR_LIBRARY_STEPS.concat([
+      { target: "sessionBarHolder", onEnter: tourLeaveLibrary, text: "Name your rollcage here. Save keeps it in this browser, Save as makes a copy, PDF report prints everything, and the Rollcage library (where you just were) holds your saved cages and the templates." },
+      { target: "cageViewerPartDropdown", text: () => "The checklist is split into parts: the vehicle and its pictures, design choices, tubing, installation constraints, welds, seats and belts, and sanctioning body compliance (" + partName(LOGBOOK_PHASE) + "). Switch parts here -- it stays at hand while you scroll." },
       TOUR_STEP_3D,
       TOUR_STEP_LAYOUT,
       TOUR_STEP_SCORE,
@@ -1721,7 +1755,7 @@
         onEnter: () => { state.activeTab = 1; },
         text: "Take this quick tutorial again any time from here. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
       },
-    ],
+    ]),
   };
   const LOGBOOK_APP_TOUR = {
     intro: {
@@ -1729,9 +1763,9 @@
       text: "A digital logbook replaces a car's paper logbook: the car and its sanctioning body, the documented roll cage -- with a live 3D model -- and an entry for every event it enters, with its tech inspection result and any rollcage damage. Here's a quick tour of the main features.",
     },
     onStart: () => { state.tourReturnTab = state.activeTab; state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; },
-    onEnd: () => { state.activeTab = state.tourReturnTab || LOGBOOK_PHASE; },
-    steps: [
-      { target: "sessionBarHolder", text: "Name the logbook here. Save keeps it in this browser, Save as makes a copy, PDF report prints the whole logbook, and the Logbook library holds your saved logbooks plus ready-made cage templates to start from." },
+    onEnd: () => { if (!state.libraryOpen) state.activeTab = state.tourReturnTab || LOGBOOK_PHASE; },
+    steps: TOUR_LIBRARY_STEPS.concat([
+      { target: "sessionBarHolder", onEnter: tourLeaveLibrary, text: "Name the logbook here. Save keeps it in this browser, Save as makes a copy, PDF report prints the whole logbook, and the Logbook library (where you just were) holds your saved logbooks and the cage templates." },
       { target: "compliance-panel", onEnter: () => { state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; }, text: () => partName(LOGBOOK_PHASE) + " is the logbook itself: the vehicle, its sanctioning body (and whether the cage meets its rules), and the logbook details -- owner, builder, inspector, logbook number." },
       { target: "logbook-events", fallback: "compliance-panel", text: "Add an entry for every event the car enters: event name and date, driver, the tech inspection result with any notes, and the scrutineer and chief scrutineer. If the car crashed, note it -- and for rollcage damage, add photos and mark the damaged parts on the 3D model." },
       { target: "cageViewerPartDropdown", text: () => "The other parts document the roll cage itself, " + partName(1) + " through " + partName(SEATS_PHASE) + ": design choices, tubing, installation, welds, seats and belts. Switch parts here -- it stays at hand while you scroll." },
@@ -1744,18 +1778,19 @@
         onEnter: () => { state.activeTab = LOGBOOK_PHASE; },
         text: "Take this quick tutorial again any time from here. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
       },
-    ],
+    ]),
   };
   const TOURS = {
     // First-visit tour of the main features (auto-started once, see boot;
     // "Quick tutorial" in the header reruns it).
     app: CFG.logbook ? LOGBOOK_APP_TOUR : ROLLCAGE_APP_TOUR,
     pictures: {
-      onStart: () => { state.picturesExpanded = true; },
+      onStart: () => { state.activeTab = PICTURES_PHASE; state.picturesExpanded = true; },
       steps: [
         { target: "pictures-panel", text: "Photos help document the cage -- they're saved with this " + NOUN + " and included in the PDF report. Nothing here changes the checklist by itself." },
-        { target: "pictures-video", text: "Video walk-around (beta): record a slow walk-around of the cage and every clear frame is pulled out of it. Some are preselected, spread over the whole video -- discard frames outside the car and duplicate shots, then add the rest to be sorted like photos. A video shows how the bars connect and which side is which; close-up photos are still best for gussets, feet and welds." },
-        { target: "pictures-autosort", text: "Not sure where a photo belongs? Automatic AI sorting (beta) takes up to 20 photos at once. Each one waits here until a vision model places it in a category below; one it can't place stays here for you to move." },
+        { target: "pictures-video", text: "Video walk-around (beta): record a slow walk-around of the car and its cage, and every clear frame is pulled out of it. Some are preselected, spread over the whole video. Mark the best outside shots as the 3/4 front and 3/4 rear vehicle pictures, discard the other outside frames and duplicates, and the rest are added as rollcage pictures to be sorted. A video shows how the bars connect and which side is which; close-up photos are still best for gussets, feet and welds." },
+        { target: "pictures-vehicle", text: "Vehicle pictures: one 3/4 front and one 3/4 rear shot of the car itself -- from the walk-around, or uploaded here directly." },
+        { target: "pictures-autosort", text: "Rollcage pictures: not sure where a photo belongs? Automatic AI sorting (beta) takes up to 20 photos at once. Each one waits here until a vision model places it in a category below; one it can't place stays here for you to move." },
         { target: "pictures-cat-overview", text: "Overview is for whole-cage or blueprint shots -- front 3/4, rear 3/4, side, a diagram. It holds more photos than the close-up categories, since those are genuinely different views." },
         { target: "pictures-cat-main_rollbar", text: "Each close-up category holds a few photos of one specific area, so AI analysis only has to consider the designs possible there -- a smaller, more accurate list than the whole cage." },
         { target: "tour-picture-move", fallback: "pictures-cat-overview", text: "Photo in the wrong spot? Use its \"Move to\" menu to put it in the right category." },
@@ -1772,6 +1807,7 @@
     const tour = TOURS[id];
     if (!tour) return;
     if (tour.onStart) tour.onStart();
+    if (id === "app") { state.libraryOpen = true; state.librarySelectedId = null; }
     state.tour = { id, step: tour.intro ? -1 : 0 };
     if (!tour.intro && tour.steps[0].onEnter) tour.steps[0].onEnter();
     render();
@@ -2028,6 +2064,19 @@
     });
 
     const sessions = Object.values(loadAll()).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    // A library card: clicking it selects it, and only the selected card
+    // shows its own actions, right on it -- so it's clear what they apply to.
+    const libraryCard = ({ selected, onSelect, images, name, date, actions }) => el("div", {
+      class: "load-dialog-item" + (selected ? " selected" : ""), id: selected ? "library-selected" : null,
+    }, [
+      el("button", { type: "button", class: "load-dialog-card" + (selected ? " selected" : ""), "aria-pressed": selected ? "true" : "false", onclick: onSelect }, [
+        el("div", { class: "load-dialog-images" }, images),
+        el("div", { class: "load-dialog-name" }, [name]),
+        el("div", { class: "load-dialog-date" }, [date]),
+      ]),
+      selected ? el("div", { class: "library-card-actions" }, actions) : null,
+    ]);
+    const openSelected = (fn) => () => confirmDiscardIfDirty(() => { state.libraryOpen = false; fn(); });
     const list = el("div", { class: "load-dialog-list" });
     if (!sessions.length) list.appendChild(el("div", { class: "ai-status" }, ["No saved " + NOUN + "s yet."]));
     sessions.forEach((s) => {
@@ -2038,92 +2087,60 @@
       if (frontId) loadPictureImage(frontId);
       const front = frontId && (pictureImageCache[frontId] || {}).photo;
       const isOpen = s.sessionId === state.sessionId;
-      const isSelected = s.sessionId === state.librarySelectedId;
-      list.appendChild(
-        el(
-          "button",
-          {
-            type: "button",
-            class: "load-dialog-card" + (isSelected ? " selected" : ""),
-            "aria-pressed": isSelected ? "true" : "false",
-            onclick: () => { state.librarySelectedId = s.sessionId; render(); },
-          },
-          [
-            el("div", { class: "load-dialog-images" }, [
-              thumb
-                ? el("img", { class: "load-dialog-model", src: thumb, alt: "3D model" })
-                : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["No 3D snapshot yet -- open and Save it to create one"]),
-              front ? el("img", { class: "load-dialog-photo", src: front, alt: "3/4 front photo" }) : null,
-            ]),
-            el("div", { class: "load-dialog-name" }, [(s.vehicle.name || "Unnamed vehicle") + (isOpen ? " (open)" : "")]),
-            el("div", { class: "load-dialog-date" }, ["Saved " + new Date(s.updatedAt).toLocaleString()]),
-          ]
-        )
-      );
+      list.appendChild(libraryCard({
+        selected: s.sessionId === state.librarySelectedId,
+        onSelect: () => { state.librarySelectedId = s.sessionId; render(); },
+        images: [
+          thumb
+            ? el("img", { class: "load-dialog-model", src: thumb, alt: "3D model" })
+            : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["No 3D snapshot yet -- open and Save it to create one"]),
+          front ? el("img", { class: "load-dialog-photo", src: front, alt: "3/4 front photo" }) : null,
+        ],
+        name: (s.vehicle.name || "Unnamed vehicle") + (isOpen ? " (open)" : ""),
+        date: "Saved " + new Date(s.updatedAt).toLocaleString(),
+        actions: [
+          el("button", { class: "btn small", onclick: openSelected(() => loadSession(s.sessionId)) }, ["Load"]),
+          el("button", { class: "btn small secondary", onclick: () => exportSavedSessionToFile(s.sessionId) }, ["Export to file"]),
+          el("button", { class: "btn small secondary", onclick: () => deleteSavedRollcage(s.sessionId) }, ["Delete"]),
+        ],
+      }));
     });
 
     // Built-in design templates (templates.js) -- read-only, no photos, so
     // only a 3D snapshot rendered on the fly (see ensureTemplateThumbs).
     const templates = window.ROLLCAGE_TEMPLATES || [];
-    const templateList = el("div", { class: "load-dialog-list" });
+    const templateList = el("div", { class: "load-dialog-list", id: "library-templates" });
     templates.forEach((t) => {
       const selId = TEMPLATE_SELECTION_PREFIX + t.templateId;
-      const isSelected = state.librarySelectedId === selId;
       const thumb = templateThumbCache[t.templateId];
-      templateList.appendChild(
-        el("button", {
-          type: "button",
-          class: "load-dialog-card" + (isSelected ? " selected" : ""),
-          "aria-pressed": isSelected ? "true" : "false",
-          onclick: () => { state.librarySelectedId = selId; render(); },
-        }, [
-          el("div", { class: "load-dialog-images" }, [
-            thumb
-              ? el("img", { class: "load-dialog-model", src: thumb, alt: "3D model" })
-              : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
-          ]),
-          el("div", { class: "load-dialog-name" }, [t.vehicle.name]),
-          el("div", { class: "load-dialog-date" }, ["Design template"]),
-        ])
-      );
+      templateList.appendChild(libraryCard({
+        selected: state.librarySelectedId === selId,
+        onSelect: () => { state.librarySelectedId = selId; render(); },
+        images: [
+          thumb
+            ? el("img", { class: "load-dialog-model", src: thumb, alt: "3D model" })
+            : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
+        ],
+        name: t.vehicle.name,
+        date: "Design template",
+        actions: [el("button", { class: "btn small", onclick: openSelected(() => startFromTemplate(t)) }, ["Start from template"])],
+      }));
     });
     setTimeout(ensureTemplateThumbs, 0);
 
-    const selected = state.librarySelectedId && sessions.find((s) => s.sessionId === state.librarySelectedId);
-    const selectedId = selected ? selected.sessionId : null;
-    const selectedTemplate = !selected && state.librarySelectedId
-      ? templates.find((t) => TEMPLATE_SELECTION_PREFIX + t.templateId === state.librarySelectedId) : null;
-    const actions = el("div", { class: "toolbar library-actions" }, [
-      el("span", { class: "library-selection" }, [
-        selected ? "Selected: " + (selected.vehicle.name || "Unnamed vehicle")
-          : selectedTemplate ? "Selected template: " + selectedTemplate.vehicle.name
-          : sessions.length || templates.length ? "Select a " + NOUN + " below" : "",
-      ]),
-      el("button", {
-        class: "btn small", disabled: !selectedId && !selectedTemplate,
-        onclick: () => confirmDiscardIfDirty(() => {
-          state.libraryOpen = false;
-          if (selectedTemplate) startFromTemplate(selectedTemplate);
-          else loadSession(selectedId);
-        }),
-      }, [selectedTemplate ? "Start from template" : "Load"]),
-      el("button", { class: "btn small secondary", disabled: !selectedId, onclick: () => exportSavedSessionToFile(selectedId) }, ["Export to file"]),
-      el("button", { class: "btn small secondary", disabled: !selectedId, onclick: () => deleteSavedRollcage(selectedId) }, ["Delete"]),
-    ]);
-
-    const dialog = el("div", { class: "load-dialog", role: "dialog", "aria-modal": "true", "aria-label": CFG.libraryName }, [
+    const dialog = el("div", { class: "load-dialog", id: "library-dialog", role: "dialog", "aria-modal": "true", "aria-label": CFG.libraryName }, [
       el("div", { class: "load-dialog-header" }, [
         el("h2", {}, [CFG.libraryName]),
         el("button", { class: "btn small secondary", onclick: close }, ["Close"]),
       ]),
       el("div", { class: "element-desc" }, ["Saved in this browser only."]),
       state.libraryNotice ? el("div", { class: "library-notice" }, [state.libraryNotice]) : null,
-      el("div", { class: "toolbar" }, [
+      el("div", { class: "toolbar", id: "library-top-actions" }, [
         el("button", { class: "btn small secondary", onclick: () => confirmDiscardIfDirty(() => { state.libraryOpen = false; startNew(); }) }, ["Start a new " + NOUN]),
         el("button", { class: "btn small secondary", onclick: () => importInput.click() }, [CFG.logbook ? "Import a logbook or rollcage from file" : "Import a " + NOUN + " from file"]),
         importInput,
       ]),
-      actions,
+      el("div", { class: "element-desc" }, ["Select a " + NOUN + " or template to see what you can do with it."]),
       el("h3", { class: "library-section-heading" }, ["Saved " + NOUN + "s"]),
       list,
       templates.length ? el("h3", { class: "library-section-heading" }, ["Design templates"]) : null,
@@ -2200,17 +2217,16 @@
     ]);
   }
 
-  function renderVehicleDescription(root) {
-    const vehiclePanel = el("div", { class: "panel" });
-    vehiclePanel.appendChild(
-      collapsiblePanelHeader("Vehicle description", state.vehicleExpanded, () => {
-        state.vehicleExpanded = !state.vehicleExpanded;
-        render();
-      })
-    );
-
-    if (state.vehicleExpanded) appendVehicleFields(vehiclePanel);
+  // The rollcage app's first part: the vehicle's own description, then its
+  // pictures.
+  function renderVehiclePart(root, path) {
+    const vehiclePanel = el("div", { class: "panel", id: "vehicle-panel" }, [
+      el("h2", {}, [PHASE_LABELS[VEHICLE_PHASE]]),
+      el("h3", { class: "vehicle-part-heading" }, ["Vehicle description"]),
+    ]);
+    appendVehicleFields(vehiclePanel);
     root.appendChild(vehiclePanel);
+    renderPictures(root, path);
   }
   // The vehicle's own fields -- the rollcage app's Vehicle description
   // panel, and the top of the logbook app's Logbook information.
@@ -2264,19 +2280,14 @@
           ]),
         ])
       );
-      vehiclePanel.appendChild(
-        el("div", { class: "field-row" }, [
-          renderVehiclePhotoSlot("front", "3/4 Front photo"),
-          renderVehiclePhotoSlot("rear", "3/4 Rear photo"),
-        ])
-      );
     }
   }
 
-  // One of the 2 fixed vehicle-photo slots (3/4 front, 3/4 rear) on the
-  // Vehicle description panel -- deliberately simpler than the cage
-  // Pictures feature (renderPictures): exactly one photo per named slot,
-  // no tagging, no AI analysis. Reuses the same IndexedDB-backed picture
+  // One of the 2 fixed vehicle-photo slots (3/4 front, 3/4 rear) -- the
+  // "Vehicle pictures" section of Pictures (renderPictures), deliberately
+  // simpler than its rollcage pictures: exactly one photo per named slot,
+  // no tagging, no AI analysis (a video walk-around can fill them too --
+  // see VIDEO_FRAME_ROLES). Reuses the same IndexedDB-backed picture
   // storage as renderPictures/renderHomologationPhotosField.
   function renderVehiclePhotoSlot(slotKey, label) {
     const photo = state.vehiclePhotos[slotKey];
@@ -3052,7 +3063,13 @@
   const SEATS_PHASE = 5;
   const LOGBOOK_PHASE = 6;
   const SAFETY_PHASE = 7; // only with CFG.safetyScorePart
+  // The rollcage app's first part: the vehicle description and its pictures
+  // (the logbook app keeps the vehicle inside its Logbook information, and
+  // puts Pictures there too -- see PICTURES_PHASE).
+  const VEHICLE_PHASE = 8;
+  const PICTURES_PHASE = CFG.logbook ? LOGBOOK_PHASE : VEHICLE_PHASE;
   const PHASE_TITLES = {
+    [VEHICLE_PHASE]: "Vehicle & pictures",
     1: "Structure & design choices",
     2: "Tubing sizes & materials",
     [INSTALLATION_PHASE]: "Installation constraints",
@@ -3061,14 +3078,13 @@
     [LOGBOOK_PHASE]: CFG.logbook ? "Logbook information" : "Sanctioning body compliance",
     [SAFETY_PHASE]: "Frog Safety score",
   };
-  // Display order (and so each part's number): the logbook app puts its
-  // Logbook information first, ahead of the cage's own parts.
+  // Display order (and so each part's number): the rollcage app opens on
+  // the vehicle and its pictures, the logbook app on its Logbook
+  // information (which holds the vehicle), ahead of the cage's own parts.
   const PHASE_ORDER = (CFG.logbook
     ? [LOGBOOK_PHASE, 1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE]
-    : [1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE, LOGBOOK_PHASE]).concat(CFG.safetyScorePart ? [SAFETY_PHASE] : []);
+    : [VEHICLE_PHASE, 1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE, LOGBOOK_PHASE]).concat(CFG.safetyScorePart ? [SAFETY_PHASE] : []);
   function partName(phase) { return "Part " + (PHASE_ORDER.indexOf(phase) + 1); }
-  // "1.Design", "3.Constraints"... -- a 3D view labelled with its part number.
-  function viewLabel(phase, text) { return (PHASE_ORDER.indexOf(phase) + 1) + "." + text; }
   const PHASE_LABELS = {};
   PHASE_ORDER.forEach((p) => { PHASE_LABELS[p] = partName(p) + " — " + PHASE_TITLES[p]; });
   // Padding and sections 9-11 of the source document (seat mounting, belt
@@ -3534,6 +3550,28 @@
     }).catch(() => {}).then(() => { c.grabbing = false; if (videoFrameViewer) render(); });
   }
   function openVideoFrameViewer(index) { videoFrameViewer = { index, zoomed: false }; render(); }
+  // A kept walk-around frame is a rollcage picture (sorted into the
+  // categories) unless it's marked as one of the 2 vehicle photos -- at
+  // most one frame per vehicle role.
+  const VIDEO_FRAME_ROLES = [
+    { id: "rollcage", label: "Rollcage" },
+    { id: "front", label: "3/4 front" },
+    { id: "rear", label: "3/4 rear" },
+  ];
+  function frameRole(c) { return c.role === "front" || c.role === "rear" ? c.role : "rollcage"; }
+  function setFrameRole(cands, c, role) {
+    if (role === "front" || role === "rear") cands.forEach((x) => { if (x !== c && x.role === role) x.role = null; });
+    c.role = role === "rollcage" ? null : role;
+    c.selected = true;
+  }
+  function frameRoleControl(cands, c, disabled) {
+    return el("div", { class: "video-frame-role", role: "group", "aria-label": "Use this frame as" },
+      VIDEO_FRAME_ROLES.map((r) => el("button", {
+        type: "button", disabled,
+        class: "video-frame-role-btn" + (frameRole(c) === r.id ? " active" : ""),
+        onclick: () => { setFrameRole(cands, c, r.id); render(); },
+      }, [r.label])));
+  }
   function renderVideoFrameViewer(holder) {
     if (!videoFrameViewer || !videoReview) { videoFrameViewer = null; return; }
     const cands = videoReview.candidates;
@@ -3550,13 +3588,14 @@
       el("div", { class: "video-frame-viewer-box" }, [
         el("div", { class: "video-frame-viewer-head" }, [
           el("strong", {}, ["Frame " + (i + 1) + " of " + cands.length + " -- " + formatVideoTime(c.t)]),
-          el("span", { class: "video-frame-viewer-state" + (c.selected ? " kept" : "") }, [c.selected ? "✓ Kept" : "Discarded"]),
+          el("span", { class: "video-frame-viewer-state" + (c.selected ? " kept" : "") }, [c.selected ? "✓ Kept -- " + VIDEO_FRAME_ROLES.find((r) => r.id === frameRole(c)).label : "Discarded"]),
           el("span", { class: "picture-autosort-label" }, [selectedCount + " selected" + (c.full ? "" : " · loading full resolution…")]),
         ]),
         el("div", { class: "video-frame-viewer-image" + (videoFrameViewer.zoomed ? " zoomed" : ""), title: videoFrameViewer.zoomed ? "Click to fit" : "Click to zoom in" }, [img]),
         el("div", { class: "toolbar video-frame-viewer-actions" }, [
           el("button", { class: "btn small secondary", disabled: i === 0, onclick: () => go(-1) }, ["◀ Previous"]),
           keepBtn,
+          c.selected ? frameRoleControl(cands, c, false) : null,
           el("button", { class: "btn small secondary", disabled: i === cands.length - 1, onclick: () => go(1) }, ["Next ▶"]),
           el("button", { class: "btn small secondary", onclick: close }, ["Close"]),
         ]),
@@ -3588,7 +3627,7 @@
   // stretches of the video (a stretch with none gives its slot to the
   // sharpest frames left over).
   function preselectVideoFrames(candidates, duration, wanted) {
-    candidates.forEach((c) => { c.selected = false; });
+    candidates.forEach((c) => { c.selected = false; c.role = null; });
     const n = Math.min(wanted, candidates.length);
     const picked = new Set();
     for (let k = 0; k < n; k++) {
@@ -3689,8 +3728,9 @@
     if (!review) return;
     videoFrameViewer = null;
     await videoSeekQueue;
-    const picks = review.candidates.filter((c) => c.selected).slice(0, Math.max(0, PICTURE_LIMIT - state.pictures.length));
-    if (!picks.length) return;
+    const vehiclePicks = review.candidates.filter((c) => c.selected && frameRole(c) !== "rollcage");
+    const picks = review.candidates.filter((c) => c.selected && frameRole(c) === "rollcage").slice(0, Math.max(0, PICTURE_LIMIT - state.pictures.length));
+    if (!picks.length && !vehiclePicks.length) return;
     const video = review.video;
     const scale = Math.min(1, 2048 / Math.max(video.videoWidth, video.videoHeight));
     const full = document.createElement("canvas");
@@ -3699,6 +3739,22 @@
     const fctx = full.getContext("2d");
     const ids = [];
     try {
+      // Vehicle photos first: straight into their slot, replacing any photo
+      // already there.
+      for (const c of vehiclePicks) {
+        const slot = frameRole(c);
+        videoExtraction = { status: "saving", progress: 0, message: "Saving the 3/4 " + slot + " photo…" };
+        render();
+        await seekVideo(video, c.t);
+        fctx.drawImage(video, 0, 0, full.width, full.height);
+        const id = picUid();
+        const dataUrl = full.toDataURL("image/jpeg", 0.85);
+        const old = state.vehiclePhotos[slot];
+        if (old) { deletePictureRecord(old.id); delete pictureImageCache[old.id]; }
+        putPictureRecord(id, { photo: dataUrl, screenshot: null });
+        pictureImageCache[id] = { photo: dataUrl };
+        state.vehiclePhotos[slot] = { id };
+      }
       for (let i = 0; i < picks.length; i++) {
         videoExtraction = { status: "saving", progress: i / picks.length, message: "Saving frame " + (i + 1) + " of " + picks.length + "…" };
         render();
@@ -3711,12 +3767,16 @@
         state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false, category: UNSORTED_PICTURES, videoFrame: { name: review.file.name, t: picks[i].t } });
         ids.push(id);
       }
-      videoExtraction = { status: "done", progress: 1, message: ids.length + " frame" + (ids.length === 1 ? "" : "s") + " added from the video -- they're being sorted below." };
+      const vehicleText = vehiclePicks.map((c) => "3/4 " + frameRole(c)).join(" and ");
+      videoExtraction = { status: "done", progress: 1, message: [
+        vehicleText ? "Vehicle photo" + (vehiclePicks.length === 1 ? "" : "s") + " set: " + vehicleText + "." : "",
+        ids.length ? ids.length + " rollcage frame" + (ids.length === 1 ? "" : "s") + " added from the video -- they're being sorted below." : "",
+      ].filter(Boolean).join(" ") };
     } catch (e) {
       videoExtraction = { status: "error", progress: 0, message: "Couldn't save the frames (" + e.message + ")." };
     }
     releaseVideoReview();
-    if (ids.length) markDirty();
+    if (ids.length || vehiclePicks.length) markDirty();
     ids.forEach((id) => queuePictureTriage(id));
     render();
   }
@@ -3727,7 +3787,7 @@
     const children = [
       el("h3", { class: "picture-category-heading" }, ["Video walk-around (beta)"]),
       el("div", { class: "picture-autosort-label" }, [
-        "Record a slow walk-around of the cage (doors open, inside and out). Every clear frame is pulled out of it for you to pick from -- the video itself stays on this device.",
+        "Record a slow walk-around of the car and its cage (outside for the vehicle shots, then doors open, inside the cage). Every clear frame is pulled out of it for you to pick from: mark one 3/4 front and one 3/4 rear frame as the vehicle pictures, and the rest you keep become rollcage pictures, sorted into the categories below. The video itself stays on this device.",
       ]),
     ];
     if (!videoReview) {
@@ -3745,13 +3805,16 @@
     } else {
       // Phase 2: review.
       const cands = videoReview.candidates;
-      const selected = cands.filter((c) => c.selected).length;
-      const over = selected > max;
+      const kept = cands.filter((c) => c.selected);
+      const selected = kept.length;
+      const rollcageKept = kept.filter((c) => frameRole(c) === "rollcage").length;
+      const vehicleKept = kept.filter((c) => frameRole(c) !== "rollcage").map((c) => "3/4 " + frameRole(c));
+      const over = rollcageKept > max;
       children.push(el("div", { class: "video-review-head" }, [
-        el("strong", {}, [selected + " of " + cands.length + " frames selected"]),
-        el("span", { class: "picture-autosort-label" }, [" -- click a frame to keep or discard it; 🔍 (or double-click) opens it full size, where you can zoom in and step through the frames. Discard frames outside the car and duplicate shots of the same part."]),
+        el("strong", {}, [selected + " of " + cands.length + " frames kept" + (vehicleKept.length ? " (" + vehicleKept.join(", ") + " + " + rollcageKept + " rollcage)" : "")]),
+        el("span", { class: "picture-autosort-label" }, [" -- click a frame to keep or discard it, and pick what a kept frame is for under it (rollcage, or the 3/4 front / rear vehicle photo); 🔍 (or double-click) opens it full size, where you can zoom in and step through the frames. Discard the other outside shots and duplicate shots of the same part."]),
       ]));
-      if (over) children.push(el("div", { class: "ai-status ai-error" }, ["Only " + max + " more picture" + (max === 1 ? "" : "s") + " fit (limit " + PICTURE_LIMIT + ") -- discard " + (selected - max) + " more."]));
+      if (over) children.push(el("div", { class: "ai-status ai-error" }, ["Only " + max + " more rollcage picture" + (max === 1 ? "" : "s") + " fit (limit " + PICTURE_LIMIT + ") -- discard " + (rollcageKept - max) + " more."]));
       const grid = el("div", { class: "video-review-grid" });
       cands.forEach((c, index) => {
         grid.appendChild(el("div", { class: "video-review-cell" }, [
@@ -3766,11 +3829,14 @@
             c.selected ? el("span", { class: "video-review-check" }, ["✓"]) : null,
           ]),
           el("button", { type: "button", class: "video-review-zoom", title: "View full size", "aria-label": "View frame " + formatVideoTime(c.t) + " full size", disabled: busy, onclick: () => openVideoFrameViewer(index) }, ["🔍"]),
+          c.selected ? frameRoleControl(cands, c, busy) : null,
         ]));
       });
       children.push(grid);
       children.push(el("div", { class: "toolbar" }, [
-        el("button", { class: "btn small", disabled: busy || !selected || over, onclick: saveSelectedVideoFrames }, ["Add " + selected + " frame" + (selected === 1 ? "" : "s") + " and sort (beta)"]),
+        el("button", { class: "btn small", disabled: busy || !selected || over, onclick: saveSelectedVideoFrames }, [
+          (vehicleKept.length ? "Set " + vehicleKept.join(" + ") + (rollcageKept ? ", add " : "") : "Add ") + (rollcageKept ? rollcageKept + " rollcage frame" + (rollcageKept === 1 ? "" : "s") + " and sort (beta)" : ""),
+        ]),
         el("button", { class: "btn small secondary", disabled: busy, onclick: () => { cands.forEach((c) => { c.selected = true; }); render(); } }, ["Select all"]),
         el("button", { class: "btn small secondary", disabled: busy, onclick: () => { cands.forEach((c) => { c.selected = false; }); render(); } }, ["Select none"]),
         el("button", { class: "btn small secondary", disabled: busy, onclick: () => { preselectVideoFrames(cands, videoReview.duration, Math.min(videoFramesWanted, max)); render(); } }, ["Reset preselection"]),
@@ -4013,7 +4079,17 @@
       unsorted.forEach((pic) => grid.appendChild(card(pic)));
       sortSection.appendChild(grid);
     }
+    // The walk-around feeds both sections below.
     panel.appendChild(renderVideoWalkaround(totalRemaining));
+    panel.appendChild(el("h3", { class: "pictures-group-heading", id: "pictures-vehicle-heading" }, ["Vehicle pictures"]));
+    panel.appendChild(el("div", { class: "picture-category-section", id: "pictures-vehicle" }, [
+      el("div", { class: "picture-autosort-label" }, ["The car itself, for the " + NOUN + "'s card and the PDF report -- one 3/4 front and one 3/4 rear shot."]),
+      el("div", { class: "field-row" }, [
+        renderVehiclePhotoSlot("front", "3/4 Front photo"),
+        renderVehiclePhotoSlot("rear", "3/4 Rear photo"),
+      ]),
+    ]));
+    panel.appendChild(el("h3", { class: "pictures-group-heading", id: "pictures-rollcage-heading" }, ["Rollcage pictures"]));
     panel.appendChild(sortSection);
 
     PICTURE_CATEGORIES.forEach((cat) => {
@@ -4185,6 +4261,7 @@
     // directly, gated on this phase in render()) so nothing ever populates
     // phases[LOGBOOK_PHASE] -- it's still always offered as a destination.
     usedPhases.push(LOGBOOK_PHASE);
+    if (!CFG.logbook) usedPhases.push(VEHICLE_PHASE);
     if (CFG.safetyScorePart) usedPhases.push(SAFETY_PHASE);
     return { phases, usedPhases: PHASE_ORDER.filter((p) => usedPhases.includes(p)) };
   }
@@ -4201,8 +4278,6 @@
     // The current Part's own name, not a generic static title -- so the
     // heading always agrees with the Part dropdown/View switch above it.
     panel.appendChild(el("h2", {}, [PHASE_LABELS[shownPhases[0]] || "Rollcage design"]));
-
-    if (shownPhases.includes(1)) renderPictures(root, path);
 
     // Welds/Installation's own 3D view-mode switch lives in the sticky
     // viewer panel now (see syncPart3Controls) so it's reachable regardless
@@ -5642,8 +5717,7 @@
   // live (the Vehicle description panel, or the logbook app's Logbook
   // information) and scrolls to them.
   function jumpToVehicleOccupants() {
-    if (CFG.logbook) state.activeTab = LOGBOOK_PHASE;
-    else state.vehicleExpanded = true;
+    state.activeTab = CFG.logbook ? LOGBOOK_PHASE : VEHICLE_PHASE;
     render();
     requestAnimationFrame(() => {
       const target = document.getElementById("vehicle-occupants-fields");
@@ -5697,7 +5771,7 @@
     // the fields, so they're easy to change.
     const driveText = { lhd: "Left-hand drive", rhd: "Right-hand drive" }[driveSide] || "Not set";
     const occupantsText = { no: "Driver only", yes: "Driver + Codriver" }[hasCodriverAnswer()] || "Not set";
-    const changeTitle = "Change in " + (CFG.logbook ? partName(LOGBOOK_PHASE) : "Vehicle description");
+    const changeTitle = "Change in " + partName(CFG.logbook ? LOGBOOK_PHASE : VEHICLE_PHASE);
     const vehicleLine = (text) => el("div", { class: "safety-score-placeholder" }, [
       el("button", { type: "button", class: "safety-score-vehicle-link", title: changeTitle, onclick: jumpToVehicleOccupants }, [text]),
     ]);
@@ -8397,20 +8471,19 @@
     const onWeldOrJunction = state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE;
     const ghostBtn = document.getElementById("cageViewerGhostToggle");
     if (ghostBtn) ghostBtn.style.display = onWeldOrJunction ? "none" : "";
-    if (!el3) return;
-    el3.innerHTML = "";
-    const goToView = (tab) => { state.activeTab = tab; render(); };
-    el3.appendChild(
-      el("div", { class: "radio-group" }, [
-        el("strong", { class: "cage-view-switch-label" }, ["View"]),
-        // Each view is prefixed with the number of the part it belongs to
-        // (the logbook app numbers its parts differently -- see partName).
-        radioOption("cageViewSwitch", "design", viewLabel(1, "Design"), state.activeTab === 1, () => goToView(1)),
-        radioOption("cageViewSwitch", "tubing", viewLabel(2, "Tube size"), state.activeTab === 2, () => goToView(2)),
-        radioOption("cageViewSwitch", "junctions", viewLabel(INSTALLATION_PHASE, "Constraints"), state.activeTab === INSTALLATION_PHASE, () => goToView(INSTALLATION_PHASE)),
-        radioOption("cageViewSwitch", "welds", viewLabel(WELDS_PHASE, "Welds"), state.activeTab === WELDS_PHASE, () => goToView(WELDS_PHASE)),
-      ])
-    );
+    // (No separate view switch any more: the Part dropdown picks the
+    // model's view -- design, tube size, constraints or welds.)
+    if (el3) el3.innerHTML = "";
+    syncViewerToggles();
+  }
+  // Ghost bars / Occupants: filled while on, outlined while off.
+  function syncViewerToggles() {
+    [["cageViewerGhostToggle", state.showGhostBars], ["cageViewerDriverToggle", state.showDriver]].forEach(([id, on]) => {
+      const b = document.getElementById(id);
+      if (!b) return;
+      b.className = "btn small" + (on ? "" : " secondary");
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
   }
   // Names whichever weld point a double-click at this position would
   // target, so the several points on one bar can be told apart before
@@ -8590,6 +8663,7 @@
   function syncPictureModeUi() {
     const buttons = document.getElementById("cageViewerHeaderButtons");
     const banner = document.getElementById("cageViewerPictureModeBanner");
+    const header = document.getElementById("cageViewerHeader");
     const partDropdown = document.getElementById("cageViewerPartDropdown");
     const part3Controls = document.getElementById("cageViewerPart3Controls");
     const thumb = document.getElementById("cageViewerPictureModeThumb");
@@ -8598,6 +8672,7 @@
     const active = !!mode || !!state.damageSelectMode;
     buttons.hidden = active;
     banner.hidden = !active;
+    if (header) header.hidden = !active;
     const bannerText = banner.querySelector("span");
     if (bannerText) {
       bannerText.textContent = state.damageSelectMode
@@ -8723,9 +8798,6 @@
     renderSessionBar(document.getElementById("sessionBarHolder"));
     renderModals(document.getElementById("modalHolder"));
 
-    // (The logbook app shows the vehicle inside Logbook information.)
-    if (!CFG.logbook) renderVehicleDescription(root);
-
     const path = RULES[state.vehicle.org].paths[state.pathId];
     // Logbook (verdict for the selected sanctioning body, merged with its
     // paperwork fields) is its own part -- renderChecklist has no element
@@ -8734,8 +8806,12 @@
     // instead of sitting below an empty "Part 6" panel plus its own
     // separate "Logbook" heading. Safety score always trails everything
     // else, regardless of part.
-    if (state.activeTab === LOGBOOK_PHASE) {
+    if (state.activeTab === VEHICLE_PHASE && !CFG.logbook) {
+      renderVehiclePart(root, path);
+    } else if (state.activeTab === LOGBOOK_PHASE) {
       renderResults(root, path);
+      // (The logbook app's vehicle lives in Logbook information -- so do its pictures.)
+      if (CFG.logbook) renderPictures(root, path);
     } else if (state.activeTab === SAFETY_PHASE && CFG.safetyScorePart) {
       renderSafetyScore(root, path, { asPart: true });
     } else {
@@ -8788,13 +8864,17 @@
       const latest = Object.values(all).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0];
       loadSession(latest.sessionId);
     } else {
+      // Nothing saved yet (a first visit): open on the library, where the
+      // templates give a complete cage to start playing with.
+      state.libraryOpen = true;
+      state.librarySelectedId = null;
       startNew();
     }
     const ghostBtn = document.getElementById("cageViewerGhostToggle");
     if (ghostBtn) {
       ghostBtn.addEventListener("click", () => {
         state.showGhostBars = !state.showGhostBars;
-        ghostBtn.textContent = state.showGhostBars ? "Hide ghost bars" : "Show ghost bars";
+        syncViewerToggles();
         syncCageView();
       });
     }
@@ -8802,7 +8882,7 @@
     if (driverBtn) {
       driverBtn.addEventListener("click", () => {
         state.showDriver = !state.showDriver;
-        driverBtn.textContent = state.showDriver ? "Hide driver" : "Show driver";
+        syncViewerToggles();
         syncCageView();
       });
     }
