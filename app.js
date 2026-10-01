@@ -274,6 +274,10 @@
   // (see triagePictureCategory).
   let pictureImageCache = {};
   let pictureUiState = {};
+  // Picture cards whose (long) tagged-element list is expanded -- UI only.
+  const pictureTagsOpen = new Set();
+  // Above this many tags a card's element list starts collapsed.
+  const PICTURE_TAGS_COLLAPSE_AT = 3;
   let pictureTriageState = {};
 
   function getAnswer(id) {
@@ -1689,6 +1693,7 @@
     renderSaveAsDialog(holder);
     renderMediaViewer(holder);
     renderVideoFrameViewer(holder);
+    renderCoveragePictureDialog(holder);
     renderTour(holder);
   }
 
@@ -1795,7 +1800,7 @@
         { target: "tour-picture-move", fallback: "pictures-cat-overview", text: "Photo in the wrong spot? Use its \"Move to\" menu to put it in the right category." },
         { target: "tour-picture-edit", fallback: "pictures-cat-overview", text: "\"Edit rollcage elements\" lets you click parts of the 3D model to tag which design a photo shows. Clicking an area with more than one possible design cycles through its options, so you can pick the exact one before answering it in the checklist; double-click a door bar to add or remove a sill bar." },
         { target: "tour-picture-ai", fallback: "pictures-cat-overview", text: "\"AI analysis (beta)\" asks a vision model which designs a photo shows. It's far from reliable yet -- always check its suggestions." },
-        { target: "pictures-compare", fallback: "pictures-panel", text: "Once photos have been analyzed, \"Compare with checklist\" lists where the AI's suggestions disagree with (or fill a gap in) your checklist answers -- review and accept them one by one." },
+        { target: "pictures-compare", fallback: "pictures-panel", text: "Once photos have been analyzed, \"Compare with current design\" lists where the AI's suggestions disagree with (or fill a gap in) the currently defined design -- pick which side to keep for each one." },
       ],
     },
   };
@@ -3361,7 +3366,7 @@
   // Resolves a picture tag's elementId (a normal Part 1 element id, or a
   // synthetic gusset row id from buildAiElementCatalog above) to something
   // elementSummary() can read -- {name, evaluationType, options} -- shared
-  // by the picture-card chip label and the "Compare with checklist" panel
+  // by the picture-card chip label and the "Compare with current design" panel
   // so both describe a tagged gusset row the same way as a tagged Part 1
   // element.
   function resolvePictureTagTarget(path, elementId) {
@@ -3403,7 +3408,7 @@
   // -- a suggestion returned for a photo already means "visible in this
   // photo" (the prompt tells the model to omit anything it can't
   // determine), so this one call both tags the picture's elements and
-  // feeds "Compare with checklist" below. Each tag now carries that
+  // feeds "Compare with current design" below. Each tag now carries that
   // specific value (elementId + value, not just a bare id) so the 3D
   // highlight and chip label can show exactly which option was identified,
   // not just the category -- e.g. "253-9", not just "Door bar design".
@@ -3435,7 +3440,7 @@
         suggestions.forEach((s) => {
           if (/__sill_bar$/.test(s.elementId)) { sillBarSuggestions.push(s); return; }
           // "No" / "None present" isn't something a photo shows -- kept as a
-          // suggestion (Compare with checklist) but not tagged on the picture.
+          // suggestion (Compare with current design) but not tagged on the picture.
           if (s.value === "no" || s.value === "none") return;
           const prior = byId.get(s.elementId);
           // Keeps a prior manual extra (e.g. a sill-bar tag) when the AI
@@ -4036,7 +4041,11 @@
     const chips = el("div", { class: "picture-elements" });
     const editing = state.pictureSelectMode && state.pictureSelectMode.pictureId === pic.id;
     const tags = editing
-      ? [...state.pictureSelectMode.selected.entries()].map(([elementId, t]) => ({ elementId, value: t.value, extra: t.extra }))
+      ? [...state.pictureSelectMode.selected.entries()].map(([elementId, t]) => {
+          // Still an AI tag while its value hasn't been changed.
+          const before = (pic.elements || []).find((x) => x.elementId === elementId);
+          return { elementId, value: t.value, extra: t.extra, confidence: before && before.value === t.value ? before.confidence : undefined };
+        })
       : pic.elements;
     const removeTag = (elementId) => {
       if (editing) {
@@ -4048,8 +4057,18 @@
       }
       render();
     };
+    // A long list (overview shots tag most of the cage) starts collapsed
+    // behind a count -- always open while this picture is being edited.
+    const collapsible = !editing && tags.length > PICTURE_TAGS_COLLAPSE_AT;
+    const tagsOpen = !collapsible || pictureTagsOpen.has(pic.id);
+    if (collapsible) {
+      card.appendChild(el("button", {
+        type: "button", class: "picture-elements-toggle", "aria-expanded": tagsOpen ? "true" : "false",
+        onclick: () => { if (tagsOpen) pictureTagsOpen.delete(pic.id); else pictureTagsOpen.add(pic.id); render(); },
+      }, [(tagsOpen ? "▾ " : "▸ ") + tags.length + " rollcage elements tagged"]));
+    }
     if (tags.length) {
-      tags.forEach((tag) => {
+      if (tagsOpen) tags.forEach((tag) => {
         const target = resolvePictureTagTarget(path, tag.elementId);
         let label = target ? (tag.value ? target.name + ": " + elementSummary(target, { value: tag.value }) : target.name) : tag.elementId;
         if (tag.extra && tag.extra.sill_bar === "yes") label += " + sill bar";
@@ -4066,7 +4085,7 @@
     } else {
       chips.appendChild(el("span", { class: "picture-elements-empty" }, ["No elements tagged yet"]));
     }
-    card.appendChild(chips);
+    if (tagsOpen) card.appendChild(chips);
     // 253-14 roof and 253-22 backstay V always come together -- a picture
     // tagged with one and a different design for the other is worth a look.
     const tagValue = (id) => { const t = tags.find((x) => x.elementId === id); return t && t.value; };
@@ -4221,8 +4240,8 @@
       panel.appendChild(section);
     });
 
-    if (CFG.logbook) panel.appendChild(renderPictureCoverage(path));
-    if (state.pictures.some((p) => picturesSuggestions(p).length)) {
+    if (CFG.logbook || state.pictures.length) panel.appendChild(renderPictureCoverage(path));
+    if (state.pictures.some((p) => (p.elements || []).length)) {
       panel.appendChild(renderPictureComparePanel(path));
     }
 
@@ -4245,13 +4264,18 @@
         return tag.value && tag.value !== s.value ? Object.assign({}, s, { value: tag.value }) : s;
       });
   }
-  function aggregatePictureSuggestions() {
+  // Every element tagged on any picture -- the AI's suggestion for it when
+  // there is one (confidence, rationale), else the manual tag itself.
+  function aggregatePictureTags() {
     const byElement = new Map();
-    state.pictures.forEach((pic) => { picturesSuggestions(pic).forEach((s) => { byElement.set(s.elementId, s); }); });
+    state.pictures.forEach((pic) => {
+      const sugg = new Map(picturesSuggestions(pic).map((s) => [s.elementId, s]));
+      (pic.elements || []).forEach((t) => { byElement.set(t.elementId, sugg.get(t.elementId) || { elementId: t.elementId, value: t.value || null }); });
+    });
     return [...byElement.values()];
   }
 
-  // "Compare with checklist": surfaces where the pictures' AI suggestions
+  // "Compare with current design": surfaces where the pictures' AI suggestions
   // disagree with (or fill a gap in) the checklist answered so far. Purely
   // a review step -- reuses state.aiAnalysis.accepted as the transient
   // checkbox state (same shape/behavior the old whole-checklist analysis
@@ -4281,9 +4305,30 @@
     }
     return items;
   }
+  // Clicking an element opens renderCoveragePictureDialog to pick the
+  // pictures it can be seen in.
+  function coverageChip(item, cls, text) {
+    return el("button", {
+      type: "button", class: "picture-coverage-chip " + cls, disabled: !!state.pictureSelectMode,
+      title: "Pick the pictures showing this element",
+      onclick: () => { state.coveragePictureDialog = { elementId: item.id, name: item.name }; render(); },
+    }, [text]);
+  }
   function renderPictureCoverage(path) {
     const items = pictureCoverageItems(path);
     const missing = items.filter((i) => !i.covered);
+    if (!CFG.logbook) {
+      // The rollcage tool: just what's still missing.
+      return el("div", { class: "picture-coverage" + (missing.length ? " incomplete" : " complete"), id: "pictures-coverage" }, [
+        el("h3", {}, ["Current design elements not documented in pictures"]),
+        el("div", { class: "picture-autosort-label" }, [
+          !items.length ? "Answer the design choices first -- this lists each bar design and gusset the cage has."
+            : missing.length ? "Click an element to pick the rollcage pictures it can be seen in."
+            : "Every bar design and gusset of the current design is shown in at least one rollcage picture.",
+        ]),
+        missing.length ? el("div", { class: "picture-coverage-chips" }, missing.map((i) => coverageChip(i, "missing", i.name))) : null,
+      ]);
+    }
     const section = el("div", { class: "picture-coverage" + (missing.length ? " incomplete" : " complete"), id: "pictures-coverage" }, [
       el("h3", {}, ["Picture coverage"]),
       el("div", { class: "picture-autosort-label" }, [
@@ -4294,12 +4339,12 @@
     ]);
     if (missing.length) {
       section.appendChild(el("div", { class: "picture-coverage-label" }, ["Not shown in any picture yet:"]));
-      section.appendChild(el("div", { class: "picture-coverage-chips" }, missing.map((i) => el("span", { class: "picture-coverage-chip missing" }, [i.name]))));
+      section.appendChild(el("div", { class: "picture-coverage-chips" }, missing.map((i) => coverageChip(i, "missing", i.name))));
     }
     const covered = items.filter((i) => i.covered);
     if (covered.length) {
       section.appendChild(el("div", { class: "picture-coverage-label" }, ["Shown:"]));
-      section.appendChild(el("div", { class: "picture-coverage-chips" }, covered.map((i) => el("span", { class: "picture-coverage-chip covered" }, ["✓ " + i.name]))));
+      section.appendChild(el("div", { class: "picture-coverage-chips" }, covered.map((i) => coverageChip(i, "covered", "✓ " + i.name))));
     }
     return section;
   }
@@ -4307,8 +4352,54 @@
   // tagged with this element now shows the checklist's own answer for it
   // (its AI suggestion then agrees too -- see picturesSuggestions), or loses
   // the tag if the checklist has no answer for it.
-  function retagPicturesToChecklist(elementId) {
-    const current = getAnswer(elementId).value;
+  // Every rollcage picture, to toggle whether it shows one element: a
+  // picked picture gets the element tagged (with the current design's own
+  // answer for it, as manual tagging does); unpicking removes the tag (and
+  // the AI's suggestion for it from that photo).
+  function renderCoveragePictureDialog(holder) {
+    const dlg = state.coveragePictureDialog;
+    if (!dlg) return;
+    const close = () => { state.coveragePictureDialog = null; render(); };
+    const toggle = (pic) => {
+      const tags = pic.elements || [];
+      if (tags.some((t) => t.elementId === dlg.elementId)) {
+        pic.elements = tags.filter((t) => t.elementId !== dlg.elementId);
+        pic.aiSuggestions = (pic.aiSuggestions || []).filter((sg) => sg.elementId !== dlg.elementId);
+      } else {
+        pic.elements = tags.concat([{ elementId: dlg.elementId, value: getAnswer(dlg.elementId).value || null, extra: {} }]);
+      }
+      markDirty();
+      render();
+    };
+    const grid = el("div", { class: "coverage-picture-grid" });
+    state.pictures.forEach((pic) => {
+      loadPictureImage(pic.id);
+      const cached = pictureImageCache[pic.id] || {};
+      const on = (pic.elements || []).some((t) => t.elementId === dlg.elementId);
+      grid.appendChild(el("button", {
+        type: "button", class: "coverage-picture" + (on ? " selected" : ""), "aria-pressed": on ? "true" : "false",
+        onclick: () => toggle(pic),
+      }, [
+        cached.photo ? el("img", { src: cached.photo, alt: "" }) : el("div", { class: "coverage-picture-loading" }, ["Loading..."]),
+        el("span", { class: "coverage-picture-label" }, [(on ? "✓ " : "") + pictureCategoryDef(pic.category).label]),
+      ]));
+    });
+    const count = state.pictures.filter((p) => (p.elements || []).some((t) => t.elementId === dlg.elementId)).length;
+    const dialog = el("div", { class: "load-dialog coverage-picture-dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "coveragePictureDialogTitle" }, [
+      el("h2", { id: "coveragePictureDialogTitle" }, [dlg.name]),
+      el("p", {}, ["Select the rollcage pictures where this element can be seen (" + count + " selected) -- each picture's element list updates as you go."]),
+      state.pictures.length ? grid : el("p", {}, ["No rollcage pictures yet."]),
+      el("div", { class: "toolbar confirm-dialog-actions" }, [el("button", { class: "btn small", onclick: close }, ["Done"])]),
+    ]);
+    const overlay = el("div", { class: "modal-overlay" }, [dialog]);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    holder.appendChild(overlay);
+  }
+  // A "None"/"No" answer (or an element not in the design at all) can't be
+  // seen on a photo, so it removes the tag instead.
+  function retagPicturesToChecklist(elementId, notInDesign) {
+    let current = notInDesign ? null : getAnswer(elementId).value;
+    if (current === "none" || current === "no") current = null;
     state.pictures.forEach((pic) => {
       const tags = pic.elements || [];
       if (!tags.some((t) => t.elementId === elementId)) return;
@@ -4320,20 +4411,33 @@
   }
   function renderPictureComparePanel(path) {
     const panel = el("div", { class: "picture-compare-panel", id: "pictures-compare" });
-    panel.appendChild(el("h3", {}, ["Compare with checklist"]));
+    panel.appendChild(el("h3", {}, ["Compare with current design"]));
 
-    const evaluated = aggregatePictureSuggestions()
+    // Every element tagged on the pictures (AI or manual). One the current
+    // design doesn't have at all -- a gusset row its bar designs don't
+    // create, or an element hidden by another answer (e.g. a backstay
+    // diagonal with no backstays) -- can't just be applied: the design
+    // answer that brings it in has to change first.
+    const evaluated = aggregatePictureTags()
       .map((s) => ({ s, target: resolvePictureTagTarget(path, s.elementId) }))
-      .filter((r) => r.target && !r.target.unexpected) // a gusset with no checklist row stays evidence on the picture only
+      .filter((r) => r.target)
       .map(({ s, target }) => {
-        const current = getAnswer(s.elementId).value;
+        const elm = path.elements.find((e) => e.id === s.elementId);
+        const notInDesign = !!target.unexpected || (elm ? !elementVisible(elm) : false);
+        let current = notInDesign ? null : getAnswer(s.elementId).value;
+        const absent = notInDesign || !current || current === "none" || current === "no";
         return {
           s,
           target,
-          optLabel: elementSummary(target, { value: s.value }),
-          currentLabel: current ? elementSummary(target, { value: current }) : null,
+          notInDesign,
+          absent, // keeping the current design removes the tag
+          optLabel: s.value ? elementSummary(target, { value: s.value }) : "Tagged (design not specified)",
+          currentLabel: notInDesign ? "Not part of the current design" : current ? elementSummary(target, { value: current }) : null,
           blank: !current,
-          matches: current === s.value,
+          // A manual tag with no specific design agrees with any answer
+          // that has the element.
+          matches: s.value ? current === s.value : !absent,
+          canApply: !notInDesign && !!s.value,
         };
       });
     const rows = evaluated.filter((r) => !r.matches);
@@ -4345,7 +4449,7 @@
     const matchedCount = evaluated.length - rows.length;
 
     if (!rows.length) {
-      panel.appendChild(el("div", { class: "ai-status" }, ["Pictures agree with the checklist so far -- nothing to review."]));
+      panel.appendChild(el("div", { class: "ai-status" }, ["Pictures agree with the current design so far -- nothing to review."]));
       return panel;
     }
     if (matchedCount) {
@@ -4358,9 +4462,10 @@
     // right pick updates the pictures' tags to match the checklist instead.
     const picked = state.aiAnalysis.accepted;
     const pick = (id, side) => { if (picked[id] === side) delete picked[id]; else picked[id] = side; render(); };
-    const option = (r, side, heading, valueText, detail) => el("button", {
+    const option = (r, side, heading, valueText, detail, disabled) => el("button", {
       type: "button", class: "compare-option" + (picked[r.s.elementId] === side ? " selected" : ""),
       "aria-pressed": picked[r.s.elementId] === side ? "true" : "false",
+      disabled: !!disabled,
       onclick: () => pick(r.s.elementId, side),
     }, [
       el("div", { class: "compare-option-heading" }, [heading]),
@@ -4372,8 +4477,12 @@
       list.appendChild(el("div", { class: "compare-row" }, [
         el("div", { class: "compare-row-name" }, [r.target.name]),
         el("div", { class: "compare-options" }, [
-          option(r, "pictures", "Identified in the pictures", r.optLabel + " (" + r.s.confidence + " confidence)", r.s.rationale),
-          option(r, "checklist", "Currently defined design", r.blank ? "Not answered yet" : r.currentLabel, r.blank ? "Keeping this removes it from the pictures' tags." : "Keeping this updates the pictures' tags to it."),
+          option(r, "pictures", "Identified in the pictures", r.optLabel + (r.s.confidence ? " (" + r.s.confidence + " confidence)" : ""),
+            r.notInDesign ? "Not part of the current design -- change the design answer that brings it in first."
+              : !r.s.value ? "Edit the picture's elements to pick which design it shows."
+              : r.s.rationale, !r.canApply),
+          option(r, "checklist", "Currently defined design", r.currentLabel || "Not answered yet",
+            r.absent ?"Keeping this removes it from the pictures' tags." : "Keeping this updates the pictures' tags to it."),
         ]),
       ]));
     });
@@ -4381,14 +4490,14 @@
     const selectedCount = rows.filter((r) => picked[r.s.elementId]).length;
     panel.appendChild(
       el("div", { class: "toolbar" }, [
-        el("button", { class: "btn secondary", onclick: () => { rows.forEach((r) => { picked[r.s.elementId] = "pictures"; }); render(); } }, ["Select all from pictures"]),
+        el("button", { class: "btn secondary", onclick: () => { rows.forEach((r) => { if (r.canApply) picked[r.s.elementId] = "pictures"; }); render(); } }, ["Select all from pictures"]),
         el("button", {
           class: "btn", disabled: !selectedCount,
           onclick: () => {
             rows.forEach((r) => {
               const side = picked[r.s.elementId];
-              if (side === "pictures") setAnswer(r.s.elementId, { value: r.s.value });
-              else if (side === "checklist") retagPicturesToChecklist(r.s.elementId);
+              if (side === "pictures" && r.canApply) setAnswer(r.s.elementId, { value: r.s.value });
+              else if (side === "checklist") retagPicturesToChecklist(r.s.elementId, r.notInDesign);
             });
             state.aiAnalysis.accepted = {};
             render();
@@ -7715,7 +7824,7 @@
     // carried over even though pictureSelectMode.selected itself is empty.
     const acceptedIds = state.pictureSelectMode ? [] : Object.keys(state.aiAnalysis.accepted).filter((id) => state.aiAnalysis.accepted[id] === "pictures");
     if (acceptedIds.length) {
-      const suggestionsById = new Map(aggregatePictureSuggestions().map((s) => [s.elementId, s]));
+      const suggestionsById = new Map(aggregatePictureTags().filter((s) => s.value).map((s) => [s.elementId, s]));
       acceptedIds.forEach((elementId) => {
         const s = suggestionsById.get(elementId);
         if (!s) return;
@@ -8864,11 +8973,15 @@
     const pic = state.pictures.find((p) => p.id === mode.pictureId);
     state.pictureSelectMode = null;
     if (pic) {
-      pic.elements = [...mode.selected.entries()].map(([elementId, tag]) => ({
-        elementId,
-        value: tag.value,
-        extra: tag.extra && Object.keys(tag.extra).length ? tag.extra : undefined,
-      }));
+      // An AI tag left untouched keeps its AI confidence -- only a tag
+      // the user actually changed (or added) becomes a manual one.
+      const prior = new Map((pic.elements || []).map((t) => [t.elementId, t]));
+      pic.elements = [...mode.selected.entries()].map(([elementId, tag]) => {
+        const extra = tag.extra && Object.keys(tag.extra).length ? tag.extra : undefined;
+        const before = prior.get(elementId);
+        const unchanged = before && before.value === tag.value && JSON.stringify(before.extra || {}) === JSON.stringify(extra || {});
+        return { elementId, value: tag.value, extra, confidence: unchanged ? before.confidence : undefined };
+      });
       pic.hasScreenshot = !!screenshot;
       markDirty();
       if (screenshot) {
