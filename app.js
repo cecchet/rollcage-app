@@ -64,7 +64,7 @@
     dirty: false, // UI-only: true once something has changed since the last explicit Save -- see markDirty/confirmDiscardIfDirty. Nothing auto-persists anymore; this is what gates switching/starting a rollcage with unsaved work.
     showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
     showDriver: true, // UI-only: whether the driver/codriver mannequins show, or are hidden to see the cage behind them
-    aiAnalysis: { accepted: {} }, // UI-only, never persisted -- checked-but-not-yet-applied rows in renderPictureComparePanel()
+    aiAnalysis: { accepted: {} }, // UI-only, never persisted -- elementId -> "pictures" | "checklist", the side picked (not yet applied) in renderPictureComparePanel()
     pdfReportStatus: "idle", // UI-only: "idle" | "generating" -- see generatePdfReport()
   };
 
@@ -4303,6 +4303,21 @@
     }
     return section;
   }
+  // "Currently defined design" kept over a picture's tag: every picture
+  // tagged with this element now shows the checklist's own answer for it
+  // (its AI suggestion then agrees too -- see picturesSuggestions), or loses
+  // the tag if the checklist has no answer for it.
+  function retagPicturesToChecklist(elementId) {
+    const current = getAnswer(elementId).value;
+    state.pictures.forEach((pic) => {
+      const tags = pic.elements || [];
+      if (!tags.some((t) => t.elementId === elementId)) return;
+      pic.elements = current
+        ? tags.map((t) => (t.elementId === elementId ? Object.assign({}, t, { value: current }) : t))
+        : tags.filter((t) => t.elementId !== elementId);
+    });
+    markDirty();
+  }
   function renderPictureComparePanel(path) {
     const panel = el("div", { class: "picture-compare-panel", id: "pictures-compare" });
     panel.appendChild(el("h3", {}, ["Compare with checklist"]));
@@ -4337,46 +4352,48 @@
       panel.appendChild(el("div", { class: "ai-status" }, [matchedCount + " other item(s) already matched your answers -- not shown here."]));
     }
 
-    const list = el("div", { class: "ai-suggestion-list" });
+    // Each discrepancy: what the pictures show (left) vs the design defined
+    // in the checklist (right) -- pick one side (click again to unpick).
+    // Applying a left pick updates the checklist (and so the 3D model); a
+    // right pick updates the pictures' tags to match the checklist instead.
+    const picked = state.aiAnalysis.accepted;
+    const pick = (id, side) => { if (picked[id] === side) delete picked[id]; else picked[id] = side; render(); };
+    const option = (r, side, heading, valueText, detail) => el("button", {
+      type: "button", class: "compare-option" + (picked[r.s.elementId] === side ? " selected" : ""),
+      "aria-pressed": picked[r.s.elementId] === side ? "true" : "false",
+      onclick: () => pick(r.s.elementId, side),
+    }, [
+      el("div", { class: "compare-option-heading" }, [heading]),
+      el("div", { class: "compare-option-value" }, [valueText]),
+      detail ? el("div", { class: "compare-option-detail" }, [detail]) : null,
+    ]);
+    const list = el("div", { class: "compare-list" });
     rows.forEach((r) => {
-      const checkbox = el("input", {
-        type: "checkbox",
-        checked: !!state.aiAnalysis.accepted[r.s.elementId],
-        onchange: (e) => { state.aiAnalysis.accepted[r.s.elementId] = e.target.checked; render(); },
-      });
-      list.appendChild(
-        el("label", { class: "ai-suggestion-row" }, [
-          checkbox,
-          el("div", { class: "ai-suggestion-text" }, [
-            el("div", {}, [
-              el("strong", {}, [r.target.name]),
-              ": " + r.optLabel + " (" + r.s.confidence + " confidence)" + (r.blank ? "" : " -- current answer: " + r.currentLabel),
-            ]),
-            el("div", { class: "visual-flag" }, [r.s.rationale]),
-          ]),
-        ])
-      );
+      list.appendChild(el("div", { class: "compare-row" }, [
+        el("div", { class: "compare-row-name" }, [r.target.name]),
+        el("div", { class: "compare-options" }, [
+          option(r, "pictures", "Identified in the pictures", r.optLabel + " (" + r.s.confidence + " confidence)", r.s.rationale),
+          option(r, "checklist", "Currently defined design", r.blank ? "Not answered yet" : r.currentLabel, r.blank ? "Keeping this removes it from the pictures' tags." : "Keeping this updates the pictures' tags to it."),
+        ]),
+      ]));
     });
     panel.appendChild(list);
+    const selectedCount = rows.filter((r) => picked[r.s.elementId]).length;
     panel.appendChild(
       el("div", { class: "toolbar" }, [
-        el(
-          "button",
-          { class: "btn secondary", onclick: () => { rows.forEach((r) => { state.aiAnalysis.accepted[r.s.elementId] = true; }); render(); } },
-          ["Select all"]
-        ),
-        el(
-          "button",
-          {
-            class: "btn",
-            onclick: () => {
-              rows.forEach((r) => { if (state.aiAnalysis.accepted[r.s.elementId]) setAnswer(r.s.elementId, { value: r.s.value }); });
-              state.aiAnalysis.accepted = {};
-              render();
-            },
+        el("button", { class: "btn secondary", onclick: () => { rows.forEach((r) => { picked[r.s.elementId] = "pictures"; }); render(); } }, ["Select all from pictures"]),
+        el("button", {
+          class: "btn", disabled: !selectedCount,
+          onclick: () => {
+            rows.forEach((r) => {
+              const side = picked[r.s.elementId];
+              if (side === "pictures") setAnswer(r.s.elementId, { value: r.s.value });
+              else if (side === "checklist") retagPicturesToChecklist(r.s.elementId);
+            });
+            state.aiAnalysis.accepted = {};
+            render();
           },
-          ["Apply accepted"]
-        ),
+        }, ["Apply selected" + (selectedCount ? " (" + selectedCount + ")" : "")]),
       ])
     );
     return panel;
@@ -7696,7 +7713,7 @@
     // picture would otherwise keep highlighting that element's bars while
     // tagging a completely different picture, looking like its tags had
     // carried over even though pictureSelectMode.selected itself is empty.
-    const acceptedIds = state.pictureSelectMode ? [] : Object.keys(state.aiAnalysis.accepted).filter((id) => state.aiAnalysis.accepted[id]);
+    const acceptedIds = state.pictureSelectMode ? [] : Object.keys(state.aiAnalysis.accepted).filter((id) => state.aiAnalysis.accepted[id] === "pictures");
     if (acceptedIds.length) {
       const suggestionsById = new Map(aggregatePictureSuggestions().map((s) => [s.elementId, s]));
       acceptedIds.forEach((elementId) => {
