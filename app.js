@@ -8840,8 +8840,10 @@
   function finishPictureSelectMode() {
     const mode = state.pictureSelectMode;
     if (!mode) return;
-    const canvas = document.querySelector("#cageViewerContainer canvas");
-    const screenshot = canvas ? canvas.toDataURL("image/png") : null;
+    // Just the tagged parts -- no ghost bars, no occupants -- at the angle
+    // the model was turned to (a picture with no tags gets no snapshot).
+    const screenshot = mode.selected.size && window.CageView && window.CageView.snapshot
+      ? window.CageView.snapshot(640, { keepAngle: true }) : null;
     const pic = state.pictures.find((p) => p.id === mode.pictureId);
     state.pictureSelectMode = null;
     if (pic) {

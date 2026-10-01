@@ -1748,7 +1748,7 @@
   // and restored within the same call, so the live view (camera, visible
   // parts) never visibly changes. Returns a JPEG data URL at most maxWidth
   // wide, or null before the model has loaded.
-  function snapshot(maxWidth) {
+  function snapshot(maxWidth, opts) {
     if (!ready || !renderer) return null;
     const saved = { theta, phi, roll, radius, target: target.clone() };
     const hiddenForShot = [];
@@ -1759,7 +1759,10 @@
         hiddenForShot.push(m);
       }
     });
-    theta = Math.PI / 4; phi = Math.PI / 4; roll = 0;
+    // opts.keepAngle: keep the current camera angle (e.g. a picture's
+    // tagged parts, viewed the way the user turned the model to match the
+    // photo) -- only reframed around what's showing.
+    if (!(opts && opts.keepAngle)) { theta = Math.PI / 4; phi = Math.PI / 4; roll = 0; }
     // Frame just the bars actually showing (fitCamera frames every mesh,
     // hidden alternates and occupants included), far enough back that
     // their bounding sphere fits the narrower of the 2 fields of view --
