@@ -262,6 +262,12 @@
         { id: "r2", label: "R2 (side projection through windshield ≤70mm)", compare: { op: "lte", value: 70 } },
       ],
       columns: [{ key: "value", label: "Value", type: "length" }],
+      // One tick instead of measuring every dimension (see quickCheckDef).
+      quickCheck: {
+        label: "All dimensional limits below confirmed compliant (skip entering each dimension)",
+        summary: "All dimensional limits confirmed compliant",
+        report: "Confirmed compliant to all dimensional limits (quick-check)",
+      },
       visuallyVerifiable: false,
       hardFail: true,
     },
