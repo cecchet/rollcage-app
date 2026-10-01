@@ -21,7 +21,7 @@
     logbook: false,
     // The Frog Safety score as a part of its own (the last one) instead of a
     // panel trailing every part.
-    safetyScorePart: false,
+    safetyScorePart: true,
     // Sanctioning bodies offered, as RULES keys in display order; null = all
     // of them except documentation-only ones (see rules-data.js).
     orgs: null,
@@ -1077,6 +1077,7 @@
 
   let saveFlashTimeout = null;
   function saveWithFlash() {
+    libraryCurrentShot = null;
     saveCurrent();
     saveSessionThumbnail(state.sessionId);
     state.dirty = false;
@@ -1375,7 +1376,9 @@
   function buildReportParts(path) {
     const { phases, usedPhases } = computeUsedPhases(path);
     return usedPhases
-      .filter((p) => p !== LOGBOOK_PHASE) // Logbook has no element cards of its own -- see buildReportLogbook
+      // Only the checklist's own parts: Logbook (see buildReportLogbook),
+      // Vehicle & pictures and the Frog Safety score have no element cards.
+      .filter((p) => phases[p])
       .map((p) => {
         const byCategory = {};
         phases[p].forEach((elm) => { (byCategory[elm.category] = byCategory[elm.category] || []).push(elm); });
@@ -1644,16 +1647,12 @@
         el("div", { class: "session-bar-group" }, [
           el("label", { for: "rollcageNameInput" }, [NOUN_CAP + " name: "]),
           Object.assign(nameInput, { id: "rollcageNameInput" }),
+          // Saving happens in the library now -- this keeps unsaved work visible.
+          // A shortcut to where Save is now: the library's "Currently editing".
+          state.dirty ? el("button", { type: "button", class: "session-bar-unsaved", title: "Open the " + CFG.libraryName + " to save it", onclick: () => { state.libraryOpen = true; state.librarySelectedId = null; render(); } }, ["Unsaved changes"]) : null,
         ]),
         el("div", { class: "session-bar-group" }, [
-          el("button", { class: "btn small secondary", onclick: saveWithFlash }, [state.justSaved ? "Saved ✓" : "Save"]),
-          el("button", { class: "btn small secondary", title: "Save as a new " + NOUN + ", leaving the original as it was last saved", onclick: startSaveAs }, ["Save as…"]),
-          el(
-            "button",
-            { class: "btn small secondary", disabled: state.pdfReportStatus === "generating" || !state.pathId, onclick: generatePdfReport },
-            [state.pdfReportStatus === "generating" ? "Generating report…" : "PDF report"]
-          ),
-          el("button", { class: "btn small secondary", onclick: () => { state.libraryOpen = true; state.librarySelectedId = null; render(); } }, [CFG.libraryName]),
+          el("button", { class: "btn small secondary", title: "Save, Save as, PDF report and your saved " + NOUN + "s", onclick: () => { state.libraryOpen = true; state.librarySelectedId = null; render(); } }, [CFG.libraryName]),
           // A toggle: filled while the model shows, outlined while hidden.
           el("button", {
             class: "btn small" + (state.showModel ? "" : " secondary"), "aria-pressed": state.showModel ? "true" : "false",
@@ -1739,8 +1738,8 @@
     onStart: () => { state.tourReturnTab = state.activeTab; state.activeTab = 1; },
     onEnd: () => { if (!state.libraryOpen) state.activeTab = state.tourReturnTab || 1; },
     steps: TOUR_LIBRARY_STEPS.concat([
-      { target: "sessionBarHolder", onEnter: tourLeaveLibrary, text: "Name your rollcage here. Save keeps it in this browser, Save as makes a copy, PDF report prints everything, and the Rollcage library (where you just were) holds your saved cages and the templates." },
-      { target: "cageViewerPartDropdown", text: () => "The checklist is split into parts: the vehicle and its pictures, design choices, tubing, installation constraints, welds, seats and belts, and sanctioning body compliance (" + partName(LOGBOOK_PHASE) + "). Switch parts here -- it stays at hand while you scroll." },
+      { target: "sessionBarHolder", onEnter: tourLeaveLibrary, text: "Name your rollcage here. The Rollcage library (where you just were) is where you save it in this browser, make a copy (Save as), print a PDF report, and find your saved cages and the templates." },
+      { target: "cageViewerPartDropdown", text: () => "The checklist is split into parts: the vehicle and its pictures, design choices, tubing, installation constraints, welds, seats and belts, sanctioning body compliance (" + partName(LOGBOOK_PHASE) + "), and the Frog Safety score (" + partName(SAFETY_PHASE) + "). Switch parts here -- it stays at hand while you scroll." },
       TOUR_STEP_3D,
       TOUR_STEP_LAYOUT,
       TOUR_STEP_SCORE,
@@ -1765,7 +1764,7 @@
     onStart: () => { state.tourReturnTab = state.activeTab; state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; },
     onEnd: () => { if (!state.libraryOpen) state.activeTab = state.tourReturnTab || LOGBOOK_PHASE; },
     steps: TOUR_LIBRARY_STEPS.concat([
-      { target: "sessionBarHolder", onEnter: tourLeaveLibrary, text: "Name the logbook here. Save keeps it in this browser, Save as makes a copy, PDF report prints the whole logbook, and the Logbook library (where you just were) holds your saved logbooks and the cage templates." },
+      { target: "sessionBarHolder", onEnter: tourLeaveLibrary, text: "Name the logbook here. The Logbook library (where you just were) is where you save it in this browser, make a copy (Save as), print the whole logbook as a PDF, and find your saved logbooks and the cage templates." },
       { target: "compliance-panel", onEnter: () => { state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; }, text: () => partName(LOGBOOK_PHASE) + " is the logbook itself: the vehicle, its sanctioning body (and whether the cage meets its rules), and the logbook details -- owner, builder, inspector, logbook number." },
       { target: "logbook-events", fallback: "compliance-panel", text: "Add an entry for every event the car enters: event name and date, driver, the tech inspection result with any notes, and the scrutineer and chief scrutineer. If the car crashed, note it -- and for rollcage damage, add photos and mark the damaged parts on the 3D model." },
       { target: "cageViewerPartDropdown", text: () => "The other parts document the roll cage itself, " + partName(1) + " through " + partName(SEATS_PHASE) + ": design choices, tubing, installation, welds, seats and belts. Switch parts here -- it stays at hand while you scroll." },
@@ -2051,7 +2050,7 @@
   // that selection. Also the home of "new" and "import from file".
   function renderLibrary(holder) {
     if (!state.libraryOpen) return;
-    const close = () => { state.libraryOpen = false; state.libraryNotice = null; render(); };
+    const close = () => { state.libraryOpen = false; state.libraryNotice = null; libraryCurrentShot = null; render(); };
     const importInput = el("input", {
       type: "file",
       accept: "application/json",
@@ -2100,6 +2099,7 @@
         date: "Saved " + new Date(s.updatedAt).toLocaleString(),
         actions: [
           el("button", { class: "btn small", onclick: openSelected(() => loadSession(s.sessionId)) }, ["Load"]),
+          el("button", { class: "btn small secondary", disabled: state.pdfReportStatus === "generating", onclick: () => pdfReportForSaved(s.sessionId) }, [state.pdfReportStatus === "generating" ? "Generating…" : "PDF report"]),
           el("button", { class: "btn small secondary", onclick: () => exportSavedSessionToFile(s.sessionId) }, ["Export to file"]),
           el("button", { class: "btn small secondary", onclick: () => deleteSavedRollcage(s.sessionId) }, ["Delete"]),
         ],
@@ -2140,15 +2140,72 @@
         el("button", { class: "btn small secondary", onclick: () => importInput.click() }, [CFG.logbook ? "Import a logbook or rollcage from file" : "Import a " + NOUN + " from file"]),
         importInput,
       ]),
-      el("div", { class: "element-desc" }, ["Select a " + NOUN + " or template to see what you can do with it."]),
-      el("h3", { class: "library-section-heading" }, ["Saved " + NOUN + "s"]),
-      list,
-      templates.length ? el("h3", { class: "library-section-heading" }, ["Design templates"]) : null,
-      templates.length ? templateList : null,
+      // The open one only counts once it's something: saved before, changed,
+      // or started (a blank new one on a first visit isn't).
+      // Each section has its own color (see .library-section-*) so they're
+      // easy to tell apart.
+      editingSomething()
+        ? el("div", { class: "library-section library-section-current" }, [el("h3", { class: "library-section-heading" }, ["Currently editing"]), renderLibraryCurrent()])
+        : el("div", { class: "element-desc" }, ["Select a saved " + NOUN + " or template below to see what you can do with it."]),
+      el("div", { class: "library-section library-section-saved" }, [el("h3", { class: "library-section-heading" }, ["Saved " + NOUN + "s"]), list]),
+      templates.length ? el("div", { class: "library-section library-section-templates" }, [el("h3", { class: "library-section-heading" }, ["Design templates"]), templateList]) : null,
     ]);
     const overlay = el("div", { class: "modal-overlay" }, [dialog]);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
     holder.appendChild(overlay);
+  }
+
+  // A saved card's PDF report, as last saved: the report is built from the
+  // open session, so the saved one is opened for it and the one being
+  // edited is reopened afterwards (any unsaved changes get the usual
+  // save/discard prompt first, as for Load).
+  function pdfReportForSaved(sessionId) {
+    confirmDiscardIfDirty(async () => {
+      const back = state.sessionId !== sessionId && loadAll()[state.sessionId] ? state.sessionId : null;
+      const tab = state.activeTab;
+      loadSession(sessionId);
+      try {
+        await generatePdfReport();
+      } finally {
+        if (back) { loadSession(back); state.activeTab = tab; }
+        libraryCurrentShot = null;
+        render();
+      }
+    });
+  }
+  // The library's "Currently editing" section: the open rollcage/logbook (a live 3D
+  // snapshot, taken once per library opening -- see libraryCurrentShot) and
+  // the actions that apply to it, Save / Save as / PDF report.
+  let libraryCurrentShot = null;
+  function editingSomething() {
+    return !!loadAll()[state.sessionId] || state.dirty || !!getAnswer("main_structure_layout").value;
+  }
+  function renderLibraryCurrent() {
+    if (!libraryCurrentShot && window.CageView && window.CageView.snapshot) {
+      setTimeout(() => {
+        if (!state.libraryOpen || libraryCurrentShot) return;
+        libraryCurrentShot = window.CageView.snapshot(360) || null;
+        if (libraryCurrentShot) render();
+      }, 0);
+    }
+    const saved = loadAll()[state.sessionId];
+    const status = state.dirty ? (saved ? "Unsaved changes -- last saved " + new Date(saved.updatedAt).toLocaleString() : "Not saved yet")
+      : saved ? "Saved " + new Date(saved.updatedAt).toLocaleString() : "Not saved yet";
+    return el("div", { class: "library-current", id: "library-current" }, [
+      el("div", { class: "library-current-card" }, [
+        libraryCurrentShot
+          ? el("img", { class: "load-dialog-model", src: libraryCurrentShot, alt: "3D model" })
+          : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
+        el("div", { class: "load-dialog-name" }, [state.vehicle.name || "Unnamed " + NOUN]),
+        el("div", { class: "load-dialog-date" + (state.dirty ? " library-current-unsaved" : "") }, [status]),
+      ]),
+      el("div", { class: "library-current-actions" }, [
+        el("button", { class: "btn small", onclick: saveWithFlash }, [state.justSaved ? "Saved ✓" : "Save"]),
+        el("button", { class: "btn small secondary", title: "Save as a new " + NOUN + ", leaving the original as it was last saved", onclick: startSaveAs }, ["Save as…"]),
+        el("button", { class: "btn small secondary", disabled: state.pdfReportStatus === "generating" || !state.pathId, onclick: generatePdfReport },
+          [state.pdfReportStatus === "generating" ? "Generating report…" : "PDF report"]),
+      ]),
+    ]);
   }
 
   // extraButtons (optional) sit just left of the Show/Hide toggle.

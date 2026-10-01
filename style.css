@@ -12,6 +12,7 @@
   --warn: #8a5a00;
   --warn-bg: #fff4dd;
   --info-bg: #eef2f9;
+  --template: #6b3fb3;
   --radius: 10px;
 }
 
@@ -30,6 +31,7 @@
     --warn: #f0c05a;
     --warn-bg: #3a2f10;
     --info-bg: #202634;
+    --template: #b794f6;
   }
 }
 
@@ -811,6 +813,21 @@ textarea { resize: vertical; min-height: 50px; }
 .video-frame-role-btn { font: inherit; font-size: 0.72rem; padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--ink); cursor: pointer; }
 .video-frame-role-btn.active { border-color: var(--accent); background: var(--accent); color: #fff; }
 .video-frame-role-btn:disabled { opacity: 0.5; cursor: default; }
+.library-current { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; margin-top: 6px; }
+.library-current-card { display: flex; flex-direction: column; gap: 4px; padding: 8px; width: 240px; max-width: 100%; border: 2px solid var(--accent); border-radius: var(--radius); background: var(--info-bg); }
+.library-current-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.library-current-unsaved { color: var(--warn); }
+.session-bar-unsaved { font: inherit; font-size: 0.75rem; color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn); border-radius: 999px; padding: 1px 8px; white-space: nowrap; cursor: pointer; }
+.session-bar-unsaved:hover { filter: brightness(1.15); }
+/* Library sections, each in its own color: currently editing (blue), saved
+   (green), design templates (purple). */
+.library-section { --section: var(--accent); margin-top: 14px; padding: 4px 12px 12px; border-left: 4px solid var(--section); border-radius: var(--radius); background: color-mix(in srgb, var(--section) 7%, transparent); }
+.library-section .library-section-heading { color: var(--section); margin-top: 8px; }
+.library-section .load-dialog-list { margin-top: 8px; }
+.library-section-current { --section: var(--accent); }
+.library-section-saved { --section: var(--pass); }
+.library-section-templates { --section: var(--template); }
+.library-section-current .library-current-card { border-color: var(--section); }
 .load-dialog-item { display: flex; flex-direction: column; }
 .load-dialog-item.selected .load-dialog-card { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .library-card-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border: 2px solid var(--accent); border-top: none; border-radius: 0 0 var(--radius) var(--radius); background: var(--info-bg); }
