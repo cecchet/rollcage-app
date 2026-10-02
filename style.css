@@ -614,6 +614,11 @@ textarea { resize: vertical; min-height: 50px; }
   text-overflow: ellipsis;
 }
 .picture-category-section { margin-top: 18px; }
+.picture-video-overview { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9rem; }
+.picture-video-overview.empty { color: var(--muted); }
+.picture-video-title { flex: 1; min-width: 160px; }
+.picture-video-input { flex: 1; min-width: 200px; }
+.picture-video-error { flex-basis: 100%; }
 .picture-category-heading { margin: 0 0 4px; font-size: 1rem; }
 .picture-autosort-field { margin-top: 10px; }
 .picture-autosort-label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
@@ -905,7 +910,17 @@ button.picture-coverage-chip:hover:not(:disabled) { box-shadow: inset 0 0 0 1px 
   border-top: 1px solid var(--border);
 }
 .library-selection { flex: 1 1 auto; font-size: 0.85rem; color: var(--muted); }
-.load-dialog-images { display: flex; gap: 6px; }
+.load-dialog-images { display: flex; gap: 6px; position: relative; }
+/* A card's Frog Safety score, just the number, over its top-left corner. */
+.library-card-score {
+  position: absolute; top: 6px; left: 6px; z-index: 1;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border);
+  background: rgba(20, 22, 26, 0.85); color: var(--ink);
+  font-size: 0.75rem; font-weight: 600; font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.library-card-score.tier-green { color: var(--pass); border-color: var(--pass); }
+.library-card-score.tier-orange { color: var(--warn); border-color: var(--warn); }
+.library-card-score.tier-red { color: var(--fail); border-color: var(--fail); }
 .load-dialog-model {
   flex: 1 1 auto;
   min-width: 0;

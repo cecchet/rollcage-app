@@ -2098,6 +2098,9 @@
   function startFromTemplate(t) {
     startNew();
     state.vehicle = Object.assign(JSON.parse(JSON.stringify(t.vehicle)), { org: knownOrg(t.vehicle.org) });
+    // The template's walk-around video stays with the rollcage (saved with
+    // its vehicle) -- shown at the top of its Pictures (renderPictures).
+    if (t.video) state.vehicle.video = Object.assign({}, t.video);
     state.pathId = t.pathId || "new_construction";
     state.answers = JSON.parse(JSON.stringify(t.answers));
     normalizeUnavailableChoices();
@@ -2179,6 +2182,43 @@
   // snapshot from its last Save, plus its 3/4 front photo if it has one).
   // Clicking a card selects it; Load / Export to file / Delete then act on
   // that selection. Also the home of "new" and "import from file".
+  // The Frog Safety score of a saved rollcage or template (its own answers
+  // swapped in briefly, same as ensureTemplateThumbs does for the model),
+  // cached by key -- a saved one's key includes its save time, so a re-save
+  // recomputes. null when there's nothing to rate yet.
+  const libraryScoreCache = new Map();
+  function libraryScoreFor(key, record) {
+    if (libraryScoreCache.has(key)) return libraryScoreCache.get(key);
+    const rules = RULES[knownOrg((record.vehicle || {}).org)] || RULES[state.vehicle.org];
+    const path = rules && rules.paths[record.pathId || "new_construction"];
+    let result = null;
+    if (path) {
+      const saved = { vehicle: state.vehicle, pathId: state.pathId, answers: state.answers };
+      try {
+        state.vehicle = Object.assign({}, record.vehicle || {}, { org: knownOrg((record.vehicle || {}).org) });
+        state.pathId = record.pathId || "new_construction";
+        state.answers = record.answers || {};
+        failingGussetCache = null;
+        const s = computeSafetyScoreRows(path);
+        if (s.ratedRows) result = { total: s.totalPoints, violations: s.violations };
+      } catch (e) {
+        result = null;
+      } finally {
+        state.vehicle = saved.vehicle; state.pathId = saved.pathId; state.answers = saved.answers;
+        failingGussetCache = null;
+      }
+    }
+    libraryScoreCache.set(key, result);
+    return result;
+  }
+  // Just the number, top left of a library card -- coloured like the 3D
+  // view's badge (red for any violation or a negative total).
+  function libraryScoreBadge(score) {
+    if (!score) return null;
+    const tier = score.violations > 0 || score.total < 0 ? "tier-red" : score.total > 0 ? "tier-green" : "tier-orange";
+    return el("span", { class: "library-card-score " + tier, title: "Frog Safety score" }, [(score.total > 0 ? "+" : "") + score.total]);
+  }
+
   function renderLibrary(holder) {
     if (!state.libraryOpen) return;
     const close = () => { state.libraryOpen = false; state.libraryNotice = null; libraryCurrentShot = null; render(); };
@@ -2199,10 +2239,10 @@
     // dateLink ({ before, label, url }): a subtitle with a link in it -- a
     // link can't go inside the card's button, so it's laid over the
     // button's (space-keeping, invisible) subtitle line instead.
-    const libraryCard = ({ selected, onSelect, images, name, date, dateLink, actions }) => {
+    const libraryCard = ({ selected, onSelect, images, name, date, dateLink, actions, score }) => {
       const dateText = dateLink ? dateLink.before + dateLink.label : date;
       const button = el("button", { type: "button", class: "load-dialog-card" + (selected ? " selected" : ""), "aria-pressed": selected ? "true" : "false", onclick: onSelect }, [
-        el("div", { class: "load-dialog-images" }, images),
+        el("div", { class: "load-dialog-images" }, [libraryScoreBadge(score)].concat(images)),
         el("div", { class: "load-dialog-name" }, [name]),
         el("div", { class: "load-dialog-date" + (dateLink ? " load-dialog-date-placeholder" : "") }, [dateText]),
       ]);
@@ -2239,6 +2279,7 @@
             : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["No 3D snapshot yet -- open and Save it to create one"]),
           front ? el("img", { class: "load-dialog-photo", src: front, alt: "3/4 front photo" }) : null,
         ],
+        score: libraryScoreFor("saved:" + s.sessionId + ":" + s.updatedAt, s),
         name: (s.vehicle.name || "Unnamed vehicle") + (isOpen ? " (open)" : ""),
         date: "Saved " + new Date(s.updatedAt).toLocaleString(),
         actions: [
@@ -2281,6 +2322,7 @@
             ? el("img", { class: "load-dialog-photo", src: t.cardPhoto || t.vehiclePhotos.front, alt: "3/4 front photo", loading: "lazy" })
             : t.source && t.source.thumbnail ? el("img", { class: "load-dialog-photo", src: t.source.thumbnail, alt: t.source.label + " product page", loading: "lazy" }) : null,
         ],
+        score: libraryScoreFor("template:" + t.templateId, t),
         name: t.vehicle.name,
         date: t.subtitle || groupOf(t).cardLabel(t),
         dateLink: t.subtitleLink,
@@ -2365,6 +2407,9 @@
     return el("div", { class: "library-current", id: "library-current" }, [
       el("div", { class: "library-current-card" }, [
         el("div", { class: "load-dialog-images" }, [
+          // The open rollcage's live score (unsaved changes included).
+          lastSafetyScoreSummary && lastSafetyScoreSummary.ratedRows
+            ? libraryScoreBadge({ total: lastSafetyScoreSummary.totalPoints, violations: lastSafetyScoreSummary.violations }) : null,
           libraryCurrentShot
             ? el("img", { class: "load-dialog-model", src: libraryCurrentShot, alt: "3D model" })
             : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
@@ -4302,6 +4347,70 @@
     return card;
   }
 
+  // The YouTube video id in a youtu.be / youtube.com (watch, shorts, embed,
+  // live) link, or a bare 11-character id; null if there isn't one.
+  function youTubeVideoId(text) {
+    const s = String(text || "").trim();
+    if (/^[\w-]{11}$/.test(s)) return s;
+    let url;
+    try { url = new URL(/^https?:\/\//i.test(s) ? s : "https://" + s); } catch (e) { return null; }
+    const host = url.hostname.replace(/^(www\.|m\.|music\.)/, "");
+    let id = null;
+    if (host === "youtu.be") id = url.pathname.slice(1).split("/")[0];
+    else if (host === "youtube.com" || host === "youtube-nocookie.com") {
+      id = url.searchParams.get("v") || (url.pathname.match(/^\/(?:shorts|embed|live|v)\/([\w-]{11})/) || [])[1];
+    }
+    return id && /^[\w-]{11}$/.test(id) ? id : null;
+  }
+  // A walk-around video of this cage (from its template, or a link the user
+  // entered), saved with the vehicle -- watch it in the app's video viewer,
+  // change it to the actual cage's own video, or remove it.
+  let videoOverviewEdit = null; // UI only: { text, error } while editing
+  function renderVideoOverview() {
+    const video = state.vehicle && state.vehicle.video;
+    const box = el("div", { class: "picture-video-overview" });
+    const startEdit = () => { videoOverviewEdit = { text: "", error: null }; render(); };
+    if (videoOverviewEdit) {
+      const input = el("input", {
+        type: "url", class: "picture-video-input", value: videoOverviewEdit.text, placeholder: "YouTube link, e.g. https://youtu.be/...",
+        "aria-label": "YouTube video link",
+        oninput: (e) => { videoOverviewEdit.text = e.target.value; },
+        onkeydown: (e) => { if (e.key === "Enter") save(); else if (e.key === "Escape") { videoOverviewEdit = null; render(); } },
+      });
+      const save = () => {
+        const id = youTubeVideoId(videoOverviewEdit.text);
+        if (!id) { videoOverviewEdit.error = "That doesn't look like a YouTube video link."; render(); return; }
+        state.vehicle.video = { id, title: "" };
+        videoOverviewEdit = null;
+        markDirty();
+        render();
+        // The video's own title, when YouTube shares it (best effort).
+        fetch("https://www.youtube.com/oembed?format=json&url=" + encodeURIComponent("https://youtu.be/" + id))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => { if (j && j.title && state.vehicle.video && state.vehicle.video.id === id) { state.vehicle.video.title = j.title; render(); } })
+          .catch(() => {});
+      };
+      box.appendChild(el("span", {}, [video ? "New video overview:" : "Video overview:"]));
+      box.appendChild(input);
+      box.appendChild(el("button", { class: "btn small", onclick: save }, ["Save"]));
+      box.appendChild(el("button", { class: "btn small secondary", onclick: () => { videoOverviewEdit = null; render(); } }, ["Cancel"]));
+      if (videoOverviewEdit.error) box.appendChild(el("div", { class: "save-as-error picture-video-error" }, [videoOverviewEdit.error]));
+      setTimeout(() => { if (document.activeElement !== input) input.focus(); }, 0);
+      return box;
+    }
+    if (!video || !video.id) {
+      box.classList.add("empty");
+      box.appendChild(el("button", { class: "btn small secondary", disabled: !!state.pictureSelectMode, onclick: startEdit }, ["Add a video overview"]));
+      box.appendChild(el("span", {}, ["Link a YouTube walk-around video of this cage."]));
+      return box;
+    }
+    box.appendChild(el("button", { class: "btn small", onclick: () => { state.mediaViewer = { video: video.id, caption: video.title || "Video overview" }; render(); } }, ["Watch video ▶"]));
+    box.appendChild(el("span", { class: "picture-video-title" }, ["Video overview of this cage" + (video.title ? ": " + video.title : "")]));
+    box.appendChild(el("button", { class: "btn small secondary", disabled: !!state.pictureSelectMode, onclick: startEdit }, ["Change video"]));
+    box.appendChild(el("button", { class: "btn small secondary", disabled: !!state.pictureSelectMode, onclick: () => { delete state.vehicle.video; markDirty(); render(); } }, ["Remove"]));
+    return box;
+  }
+
   function renderPictures(root, path) {
     const panel = el("div", { class: "panel pictures-panel", id: "pictures-panel" });
     const howItWorks = el("button", { class: "btn secondary", onclick: () => startTour("pictures") }, ["How it works"]);
@@ -4315,6 +4424,7 @@
       root.appendChild(panel);
       return;
     }
+    panel.appendChild(renderVideoOverview());
     // The first picture card rendered carries the tour's anchor ids.
     let tourCardPending = true;
     const card = (pic) => { const c = renderPictureCard(pic, path, tourCardPending); tourCardPending = false; return c; };
@@ -5959,7 +6069,8 @@
           addRow("a_pillar_2pc_gussets_" + side, label, "green", tag(up) + " + " + tag(low) + " (" + optionLabel(up) + ")", 0, target);
         } else {
           const missing = !hasUpper && !hasLower ? "upper and lower" : !hasUpper ? "upper" : "lower";
-          addRow("a_pillar_2pc_gussets_" + side, label, "red", "Missing " + missing + " gusset -- needs one above and one below the door bar", UNSAFE_POINTS, target);
+          // -10, like the single-bar build's missing side gusset.
+          addRow("a_pillar_2pc_gussets_" + side, label, "red", "Missing " + missing + " gusset -- needs one above and one below the door bar", -10, target);
         }
       });
       // 253-15 1-piece build's side gusset (only where a door bar crosses
@@ -5969,8 +6080,9 @@
         (id) => id === "a_pillar_left" || id === "a_pillar_right" || id.indexOf("a_pillar_side_") === 0,
       ];
       // A missing lateral-to-A-pillar gusset scores below red's own 0 floor;
-      // the 253-15 side gusset is mandatory (-50 without, 0 with).
-      const MISSING_GUSSET_POINTS = { a_pillar_left: -5, a_pillar_right: -5, a_pillar_side_left: UNSAFE_POINTS, a_pillar_side_right: UNSAFE_POINTS };
+      // the single-bar 253-15's side gusset is mandatory (-10 without, 0
+      // with -- the same as a missing 253-7 / 253-21 crossing gusset).
+      const MISSING_GUSSET_POINTS = { a_pillar_left: -5, a_pillar_right: -5, a_pillar_side_left: -10, a_pillar_side_right: -10 };
       const PRESENT_GUSSET_POINTS = { a_pillar_side_left: 0, a_pillar_side_right: 0 };
       const MISSING_GUSSET_NOTES = {
         a_pillar_side_left: "Missing -- side gusset mandatory even when bars don't intersect",
