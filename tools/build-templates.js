@@ -62,12 +62,45 @@ const TEMPLATES = [
   {
     group: "kit", id: "ford-fiesta-mk6-custom-cages", file: "Custom Cages Ford Fiesta Mk6.json",
     source: { label: "Custom Cages", url: "https://customcages.co.uk/products/ford-fiesta-mk-6-junior-international-multipoint-cds-roll-cage-kit-fia-msuk-certificated", thumbnail: "images/templates/ford-fiesta-mk6-custom-cages.jpg" },
+    // Each installation photo tagged with the elements it shows.
     pictures: pics("ford-fiesta-mk6-custom-cages", [
-      ["6.jpg", "overview"],
-      ["4.jpg", "main_rollbar"], ["7.jpg", "main_rollbar"],
-      ["8.jpg", "roof_bars"],
-      ["3.jpg", "door_bars_left"], ["5.jpg", "door_bars_left"],
-      ["2.jpg", "door_bars_right"],
+      // A-pillar / windscreen close-up.
+      ["6.jpg", "overview", [
+        ["a_pillar_reinforcement", "continuous"], ["windshield_reinforcement_present", "both"],
+        ["gusset_design__a_pillar_side_left__design", "taco"], ["gusset_design__a_pillar_side_right__design", "taco"],
+        ["gusset_design__a_pillar_left__design", "single_plate"], ["gusset_design__a_pillar_right__design", "single_plate"],
+      ]],
+      // Through the hatch: main hoop and the rear of the cage.
+      ["4.jpg", "main_rollbar", [
+        ["main_hoop_diagonals", "253-7-2"], ["harness_bar_present", "253-26-27"],
+        ["gusset_design__main_hoop_diag_upper__design", "taco"], ["gusset_design__main_hoop_diag_lower__design", "taco"],
+        ["backstays", "yes"], ["backstay_diagonals", "253-22"],
+        ["rear_lateral_reinforcement_present", "both"], ["rear_transversal_present", "yes"],
+      ]],
+      // Looking back at the main hoop.
+      ["7.jpg", "main_rollbar", [
+        ["main_hoop_diagonals", "253-7-2"], ["harness_bar_present", "253-26-27"],
+        ["gusset_design__main_hoop_diag_upper__design", "taco"], ["gusset_design__main_hoop_diag_lower__design", "taco"],
+      ]],
+      // Roof.
+      ["8.jpg", "roof_bars", [["roof_bars", "253-14"], ["main_hoop_diagonals", "253-7-2"]]],
+      // Left side, with the front end.
+      ["3.jpg", "door_bars_left", [
+        ["door_bars_left", "253-9-intersection-1"],
+        ["gusset_design__door_front_left__design", "taco"], ["gusset_design__door_rear_left__design", "taco"],
+        ["a_pillar_reinforcement", "continuous"], ["windshield_reinforcement_present", "both"], ["dash_bar_present", "yes"],
+      ]],
+      ["5.jpg", "door_bars_left", [
+        ["door_bars_left", "253-9-intersection-1"],
+        ["gusset_design__door_front_left__design", "taco"], ["gusset_design__door_rear_left__design", "taco"],
+        ["main_hoop_diagonals", "253-7-2"],
+      ]],
+      // Right door.
+      ["2.jpg", "door_bars_right", [
+        ["door_bars_right", "253-9-intersection-1"],
+        ["gusset_design__door_front_right__design", "taco"], ["gusset_design__door_rear_right__design", "taco"],
+        ["main_hoop_diagonals", "253-7-2"],
+      ]],
     ]),
   },
   {
