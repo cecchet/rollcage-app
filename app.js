@@ -681,30 +681,153 @@
   // applies (rowId is null for a plain choice element; value is "" for a
   // cell explicitly answered "None"). Add new entries here as more of them
   // get written; an explanation also marks that cell red -- or yellow for
-  // an entry with level: "warn" (a safety risk rather than an unsafe design).
+  // an entry with level: "warn" (a safety risk rather than an unsafe design;
+  // a function of the entry's own match arguments when it depends on them).
+  // images: [[src, caption]...] open as a gallery ("see photos"); url links
+  // to the Frog Racing rollcage page's own section on it ("learn more");
+  // scoreRow(row) also shows the entry under that Part 8 safety score row.
   const UNSAFE_VIDEO_A_PILLAR_SUPPORT = "UhJjsQ1gcKw";
+  const FROG_ROLLCAGE_PAGE = "https://www.frogracing.us/tech/rollcage";
+  const frogSection = (anchor) => FROG_ROLLCAGE_PAGE + "#" + anchor;
+  const unsafePics = (name, captions) => captions.map((c, i) => ["images/unsafe/" + name + "_" + (i + 1) + ".jpg", c]);
+  const SINGLE_MAIN_DIAGONALS = ["diag-left", "diag-right", "diag-horizontal", "diag-lower-half", "diag-v-center", "none"];
+  const SINGLE_ROOF_BARS = ["single-center", "single-front-left", "single-front-right", "none"];
+  const scoreRowShown = (row) => row.tier !== "green";
+  // The junction-distance tables (a safetyLimit column) and their limit.
+  function junctionLimitMM(elementId) {
+    const elm = currentPathElement(elementId);
+    const col = elm && elm.columns && elm.columns.find((c) => c.safetyLimit);
+    return col && col.compare ? col.compare.value : null;
+  }
+  function currentPathElement(elementId) {
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    return path ? path.elements.find((e) => e.id === elementId) || null : null;
+  }
   const UNSAFE_EXPLANATIONS = [
     {
       match: (elementId, rowId, value) => elementId === "mounting_feet_design" && value === "single_plane" && FRONT_FOOT_ROWS.has(rowId),
+      scoreRow: (row) => FRONT_FOOT_ROWS.has(row.id) && getAnswer("mounting_feet_design__" + row.id + "__design").value === "single_plane",
       text: "Unsafe: a single plane plate will go through the floor",
-      image: "images/unsafe_253-50_crash.jpg",
-      caption: "A single plane plate (253-50) pushed through the floor in a rollover -- the cage tubes ended up sticking out of the car.",
+      images: [
+        ["images/unsafe_253-50_crash.jpg", "A single plane plate (253-50) pushed through the floor in a rollover -- the cage tubes ended up sticking out of the car."],
+        ["images/unsafe/mounting_6.jpg", "Rollover: the cage's single plane mounting plates (circled) punched through the floor."],
+        ["images/unsafe/mounting_1.jpg", "What to use instead on the front and main rollbar feet: a plate over at least 2 planes (253-53/54/55), at least 120cm² at the front and 60cm² at the rear."],
+        ["images/unsafe/mounting_2.jpg", "A mounting plate spread over the floor and the sill."],
+        ["images/unsafe/mounting_3.jpg", "A mounting plate spread over the floor and the sill."],
+        ["images/unsafe/mounting_4.jpg", "A front rollbar foot spread over several planes."],
+        ["images/unsafe/mounting_5.jpg", "A front rollbar foot spread over several planes."],
+      ],
+      url: frogSection("h.yjar6bf3laqb"),
     },
     {
       match: (elementId, rowId, value) => elementId === "roof_bars" && value === "253-13",
+      scoreRow: (row) => row.id === "roof_bars" && getAnswer("roof_bars").value === "253-13",
       text: "Unsafe: 253-13 leaves a front roof corner unsupported -- it can collapse onto the occupants",
-      image: "images/unsafe_253-13_crash.jpg",
-      caption: "A 253-13 roof bar layout after a rollover: the front roof corner with no diagonal support collapsed into the cockpit. Photo © Shane Parker.",
+      images: [["images/unsafe_253-13_crash.jpg", "A 253-13 roof bar layout after a rollover: the front roof corner with no diagonal support collapsed into the cockpit. Photo © Shane Parker."]]
+        .concat(unsafePics("253-13", ["", "The unsupported front roof corner came down onto the occupant.", "The cockpit after the unsupported front roof corner collapsed.", "The car after a tree hit its unsupported front roof corner.", "The car after a tree hit its unsupported front roof corner."]).slice(1)),
       video: UNSAFE_VIDEO_A_PILLAR_SUPPORT,
+      url: frogSection("h.pd2pban2i55v"),
+    },
+    {
+      match: (elementId, rowId, value) => elementId === "main_hoop_diagonals" && SINGLE_MAIN_DIAGONALS.includes(value),
+      // A single corner-to-corner diagonal rates fine on its own -- its
+      // penalty is the driver side support row instead (once, not on both).
+      scoreRow: (row) => SINGLE_MAIN_DIAGONALS.includes(getAnswer("main_hoop_diagonals").value) && (
+        (row.id === "main_hoop_diagonals" && scoreRowShown(row))
+        || (row.id === "main_rollbar_driver_support" && ["diag-left", "diag-right"].includes(getAnswer("main_hoop_diagonals").value))),
+      text: "Unsafe: without an X (two diagonals) the main rollbar can fold sideways in a rollover",
+      images: unsafePics("main_diagonal", [
+        "A main rollbar without an X diagonal after a rollover.",
+        "A main rollbar without an X diagonal after a rollover.",
+        "A cage with no main rollbar diagonal at all.",
+      ]),
+      url: frogSection("h.7wg21ua6qvka"),
+    },
+    {
+      match: (elementId, rowId, value) => elementId === "roof_bars" && SINGLE_ROOF_BARS.includes(value),
+      scoreRow: (row) => row.id === "roof_bars" && scoreRowShown(row) && SINGLE_ROOF_BARS.includes(getAnswer("roof_bars").value),
+      text: "Unsafe: a single roof bar (or none) lets the roof collapse onto the occupants",
+      images: unsafePics("single_roof_bar", ["", "A WRC car with a single center roof bar after its rollover: the roof collapsed.", "A WRC car with a single center roof bar after its rollover: the roof collapsed.", "That car's cage: a single center roof bar.", "That car's cage: a single center roof bar.", "", "A cage with a single center roof bar (and other weaknesses)."])
+        .filter((p) => p[1]),
+      url: frogSection("h.y4fplsqoe6fj"),
+    },
+    {
+      match: (elementId, rowId, value) => elementId === "roof_bars" && value === "253-14" && !!getAnswer("backstay_diagonals").value && getAnswer("backstay_diagonals").value !== "253-22",
+      scoreRow: (row) => row.id === "roof_backstay_pairing" && getAnswer("roof_bars").value === "253-14",
+      text: "Unsafe: a 253-14 roof bar needs the 253-22 backstay diagonals -- without them the load goes into the main rollbar and its laterals",
+      images: unsafePics("253-14_no_253-22", [
+        "253-22 is compulsory when a 253-14 roof reinforcement is used.",
+        "Without the 253-22 rear bars, the forces go into the main rollbar, which pulls on the laterals toward the occupants.",
+        "A 253-14 roof bar without 253-22 backstay diagonals.",
+      ]),
+      url: frogSection("h.76mft1nas0kt"),
+    },
+    {
+      match: (elementId, rowId, value) => elementId === "backstay_diagonals" && value === "253-22" && !!getAnswer("roof_bars").value && getAnswer("roof_bars").value !== "253-14",
+      scoreRow: (row) => row.id === "roof_backstay_pairing" && getAnswer("backstay_diagonals").value === "253-22",
+      text: "Unsafe: 253-22 backstay diagonals are meant to support a 253-14 roof bar -- they don't brace this roof bar layout",
+      images: unsafePics("253-14_no_253-22", ["253-22 and 253-14 are designed to be used together."]),
+      url: frogSection("h.76mft1nas0kt"),
+    },
+    {
+      // The door bar card's own sill bar toggle, answered No.
+      match: (elementId) => (elementId === "door_bars_left" || elementId === "door_bars_right") && (getAnswer(elementId).extra || {}).sill_bar === "no",
+      text: "Safety risk: without a sill bar, a side impact can push the bottom of the cage into the cockpit",
+      images: unsafePics("sill_bar", ["A side impact on a car without a sill bar.", "A side impact on a car without a sill bar."]),
+      video: "pAc6lOSio9g",
+      url: frogSection("h.f6taodl3og5h"),
+      level: "warn",
+    },
+    {
+      match: (elementId, rowId, value) => elementId === "a_pillar_reinforcement" && value === "none",
+      scoreRow: (row) => row.id === "a_pillar_missing",
+      text: "Missing 253-15: the front rollbar can fold back in a frontal or rollover impact -- it's mandatory when dimension A exceeds 200mm",
+      images: unsafePics("253-15", ["", "",
+        "A front rollbar without 253-15 bent back in a crash.",
+        "A front rollbar without 253-15 bent back in a crash.",
+        "A front rollbar without 253-15 bent back in a crash.",
+      ]).filter((p) => p[1]),
+      url: frogSection("h.duf7fj1ues44"),
+      level: () => (parseFloat(getAnswer("a_pillar_dimension_a").value) > 200 ? "fail" : "warn"),
+    },
+    {
+      match: (elementId, rowId, value) => (elementId === "temple_bar_present" || elementId === "windshield_reinforcement_present") && value === "none",
+      scoreRow: (row) => (row.id === "temple_bar_present" || row.id === "windshield_reinforcement_present") && getAnswer(row.id).value === "none",
+      text: "Safety risk: without 253-31 reinforcements the top of the front rollbar and the windscreen bar are more vulnerable to a roof or pillar strike",
+      images: unsafePics("253-31", ["253-31 temple bar and windscreen bar reinforcements."]),
+      video: UNSAFE_VIDEO_A_PILLAR_SUPPORT,
+      url: frogSection("h.fcgcctcggzxx"),
+      level: "warn",
+    },
+    {
+      // A junction-distance cell over its limit (100mm).
+      match: (elementId, rowId, value) => {
+        if (!rowId || !value || typeof value !== "object" || value.value === "" || value.value == null) return false;
+        const limit = junctionLimitMM(elementId);
+        const mm = limit == null ? null : toMM({ val: value.value, unit: value.unit || "mm" });
+        return mm != null && !isNaN(mm) && mm > limit;
+      },
+      scoreRow: (row) => row.target && row.target.rowId && junctionLimitMM(row.target.elementId) != null && row.id === row.target.elementId + "__" + row.target.rowId,
+      text: "Unsafe: a bar joining too far from its junction bends the tube it lands on instead of passing the load through the junction",
+      images: unsafePics("junction", [
+        "Crash test: the loads applied to the cage.",
+        "Crash test: the cage after the impact.",
+        "A tube junction after a crash.",
+        "A tube junction after a crash.",
+        "Bars meeting at their junctions.",
+      ]),
+      url: frogSection("h.kfm0e78d64bs"),
     },
     {
       match: (elementId, rowId, value) => elementId === "gusset_design" && value === "" && rowId === firstUngussetedDoorRow(rowId),
+      scoreRow: (row) => /^door_gussets_(left|right)$/.test(row.id) && /^Missing/.test(row.valueText),
       text: "Unsafe: a 253-9 door bar crossing without gussets can tear apart at the weld",
       image: "images/unsafe_253-9_no_gusset.jpg",
       caption: "A 253-9 door bar X crossing with no gussets: the weld at the crossing tore apart and the bars separated.",
     },
     {
       match: (elementId, rowId, value) => elementId === "gusset_design" && (rowId === "a_pillar_left" || rowId === "a_pillar_right") && value === "",
+      scoreRow: (row) => (row.id === "a_pillar_left" || row.id === "a_pillar_right") && scoreRowShown(row),
       text: "Safety risk: Without a lateral to A-pillar gusset the car is much more vulnerable to A-pillar strikes",
       video: UNSAFE_VIDEO_A_PILLAR_SUPPORT,
       level: "warn", // a risk to flag, not a known-unsafe design -- shown yellow, not red
@@ -735,14 +858,26 @@
     if (!value && !(answerKey && Object.prototype.hasOwnProperty.call(state.answers, answerKey))) return null;
     return UNSAFE_EXPLANATIONS.find((x) => x.match(elementId, rowId, value || "")) || null;
   }
+  function unsafeLevel(x) { return typeof x.level === "function" ? x.level() : x.level; }
+  // The explanation shown under a Part 8 safety score row, if any.
+  function unsafeExplanationForScoreRow(row) {
+    return UNSAFE_EXPLANATIONS.find((x) => x.scoreRow && x.scoreRow(row)) || null;
+  }
   function renderUnsafeExplanation(x) {
-    const open = (media) => () => { state.mediaViewer = Object.assign({ caption: x.caption || x.text }, media); render(); };
+    const images = x.images || (x.image ? [[x.image, x.caption]] : []);
+    const learnMore = x.url ? { url: x.url, urlLabel: "Learn more on frogracing.us ↗" } : {};
+    const open = (media) => (e) => { e.stopPropagation(); state.mediaViewer = Object.assign({ zoomed: false }, learnMore, media); render(); };
     const links = [];
-    if (x.image) links.push(el("button", { type: "button", class: "unsafe-explanation-link", onclick: open({ image: x.image }) }, ["see photo"]));
+    if (images.length) {
+      const gallery = images.map(([image, caption]) => ({ image, caption: caption || x.text }));
+      links.push(el("button", { type: "button", class: "unsafe-explanation-link", onclick: open({ gallery, index: 0 }) },
+        [images.length === 1 ? "see photo" : "see " + images.length + " photos"]));
+    }
     if (x.video) links.push(el("button", { type: "button", class: "unsafe-explanation-link", onclick: open({ video: x.video, caption: x.text }) }, ["watch video"]));
+    if (x.url) links.push(el("a", { class: "unsafe-explanation-link", href: x.url, target: "_blank", rel: "noopener", onclick: (e) => e.stopPropagation() }, ["learn more ↗"]));
     const children = [x.text];
     links.forEach((l, i) => { children.push(i === 0 ? " — " : " · ", l); });
-    return el("div", { class: "unsafe-explanation" + (x.level === "warn" ? " unsafe-explanation-warn" : "") }, children);
+    return el("div", { class: "unsafe-explanation" + (unsafeLevel(x) === "warn" ? " unsafe-explanation-warn" : "") }, children);
   }
 
   // Gusset table rows covered by a NEGATIVE safety-score row (a missing
@@ -784,7 +919,7 @@
   }
   function tableCellStatus(col, answer, row, elm) {
     const explained = elm && row ? unsafeExplanationFor(elm.id, row.id, answer && answer.value, tableCellId(elm, row, col)) : null;
-    if (explained && explained.level === "warn") return "warn";
+    if (explained && unsafeLevel(explained) === "warn") return "warn";
     const status = tableCellStatusByRules(col, answer, row, elm);
     if (status !== "fail" || complianceJudged(elm)) return status;
     const safetyFail = col.safetyLimit || isSafetyLimit(elm) || elm && row && ((elm.id === "gusset_design" && failingGussetRowIds().has(row.id))
@@ -1971,12 +2106,14 @@
     const close = () => { state.mediaViewer = null; render(); };
     // A gallery (the rollcage pictures -- see openPictureGallery): the
     // current one's photo, with previous / next arrows (and the keyboard's
-    // left / right arrows), wrapping around.
+    // left / right arrows), wrapping around. An entry is either a rollcage
+    // picture ({picId}) or a plain image file ({image}, e.g. an unsafe
+    // design's examples -- see renderUnsafeExplanation).
     const gallery = v.gallery && v.gallery.length ? v.gallery : null;
     if (gallery) {
       const cur = gallery[v.index] || gallery[0];
-      loadPictureImage(cur.picId);
-      v.image = (pictureImageCache[cur.picId] || {}).photo || "";
+      if (cur.picId) loadPictureImage(cur.picId);
+      v.image = cur.image || (pictureImageCache[cur.picId] || {}).photo || "";
       v.caption = cur.caption + " (" + (v.index + 1) + " of " + gallery.length + ")";
     }
     const step = (d) => { v.index = (v.index + d + gallery.length) % gallery.length; v.zoomed = false; render(); };
@@ -1996,6 +2133,7 @@
           onclick: (e) => { e.stopPropagation(); v.zoomed = !v.zoomed; render(); },
         });
     const actions = [closeBtn];
+    if (v.url) actions.unshift(el("a", { class: "btn small secondary", href: v.url, target: "_blank", rel: "noopener" }, [v.urlLabel || "Learn more ↗"]));
     if (v.video) actions.unshift(el("a", { class: "btn small secondary", href: "https://youtu.be/" + encodeURIComponent(v.video), target: "_blank", rel: "noopener" }, ["Open on YouTube"]));
     const arrow = (d, label, text) => el("button", {
       type: "button", class: "image-viewer-arrow " + (d < 0 ? "prev" : "next"), title: label, "aria-label": label,
@@ -6143,7 +6281,7 @@
     // out of it, and only while anti-intrusion bars aren't already "yes".
     const yearMatch = /\b(19|20)\d{2}\b/.exec(getAnswer("vehicle_year").value || "");
     if (yearMatch && parseInt(yearMatch[0], 10) < 2002 && getAnswer("anti_intrusion_present").value !== "yes") {
-      addRow("anti_intrusion_pre_2002", "253-25 anti-intrusion bars (pre-2002 car)", "orange", "Recommended for cars built before " + yearMatch[0], undefined,
+      addRow("anti_intrusion_pre_2002", "253-25 anti-intrusion bars (pre-2002 car)", "orange", "Recommended for cars built before 2002 (built " + yearMatch[0] + ")", undefined,
         { elementId: "anti_intrusion_present" });
     }
 
@@ -6372,6 +6510,10 @@
           el("span", { class: "safety-tier-points" }, [(row.points > 0 ? "+" : "") + row.points + " pt" + (Math.abs(row.points) === 1 ? "" : "s")]),
         ])
       );
+      // Why that design is risky (photos, video, the Frog Racing page) --
+      // the same explanation as where it was picked.
+      const explained = row.tier !== "green" ? unsafeExplanationForScoreRow(row) : null;
+      if (explained) list.appendChild(el("div", { class: "safety-tier-explain" }, [renderUnsafeExplanation(explained)]));
     });
 
     panel.appendChild(list);

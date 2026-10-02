@@ -14,12 +14,16 @@ const CAGE_BASE = "Rally cage 2.json";
 const ROLLBAR_BASE = "Rollbar _ half rollcage.json";
 const PERSONAL = /^vehicle_(owner|builder_|inspector|inspection|logbook|description_notes)/;
 
-function make(file, name, overrides, baseFile) {
+// baseAnswer(key, answer), if given, rewrites each of the base's answers
+// (returning undefined drops it) before the overrides apply.
+function make(file, name, overrides, baseFile, baseAnswer) {
   const base = loadSample(baseFile || CAGE_BASE);
   const answers = {};
   Object.entries(base.answers).forEach(([k, v]) => {
     if (PERSONAL.test(k) || k === "vehicle_logbook_body") return;
-    answers[k] = JSON.parse(JSON.stringify(v));
+    const copy = JSON.parse(JSON.stringify(v));
+    const kept = baseAnswer ? baseAnswer(k, copy) : copy;
+    if (kept !== undefined) answers[k] = kept;
   });
   Object.entries(overrides).forEach(([k, v]) => {
     if (v === undefined) delete answers[k];
@@ -348,3 +352,84 @@ make("Broken Motorsports Subaru GC.json", "Subaru Impreza GC -- Broken Motorspor
   vehicle_weight: { value: { value: "2750", unit: "lb" } }, // Impreza GC, approx. stock curb weight
   vehicle_builder: { value: "Broken Motorsports (kit)" },
 }));
+
+// "Worst cage" design template: everything one should not do in a
+// rollcage, for the lowest possible Frog Safety score (and to review every
+// warning the app gives). The base sample's every check is failed --
+// welds incomplete, junctions 150mm away, bends non-compliant, lines
+// between the shell and the cage, no gussets -- and every design choice is
+// the worst one that still keeps the checklist's items shown: a single
+// main rollbar diagonal and a single roof bar (with no diagonal or no roof
+// bar at all, their junction tables would be hidden), a 253-9 without
+// gussets on one side and a single door bar on the other, no sill bars,
+// no 253-15 with dimension A over 200mm, single plane feet...
+make("Worst cage.json", "Worst cage -- what not to do", {
+  vehicle_codriver: { value: "no" }, // driver only: its side's unbraced main rollbar corner counts too
+  vehicle_drive_side: { value: "lhd" },
+  vehicle_year: { value: "1995" }, // pre-2002, without anti-intrusion bars
+  vehicle_manufacturer: undefined, vehicle_model: undefined, vehicle_builder: undefined, vehicle_weight: undefined,
+  // Part 2 -- design
+  main_hoop_diagonals: { value: "diag-right" }, // its top on the codriver side: the driver side corner unbraced
+  backstay_diagonals: { value: "none" },
+  roof_bars: { value: "single-front-right" }, // the driver side front roof corner unsupported
+  door_bars_left: { value: "253-9-intersection-1", extra: { sill_bar: "no" } },
+  door_bars_right: { value: "single-bar", extra: { sill_bar: "no" } },
+  a_pillar_reinforcement: { value: "none" },
+  harness_bar_present: { value: "none" },
+  lower_main_hoop_bar_present: { value: "no" },
+  rear_lateral_reinforcement_present: { value: "none" },
+  rear_transversal_present: { value: "no" },
+  rear_lower_x_present: { value: "none" },
+  anti_intrusion_present: { value: "no" },
+  dash_bar_present: { value: "no" },
+  temple_bar_present: { value: "none" },
+  windshield_reinforcement_present: { value: "none" },
+  ...Object.fromEntries(["front_left", "front_right", "main_hoop_left"].map((f) => ["mounting_feet_design__" + f + "__design", { value: "single_plane" }])),
+  ...Object.fromEntries(["main_hoop_right", "backstay_left", "backstay_right"].map((f) => ["mounting_feet_design__" + f + "__design", { value: "none" }])),
+  ...Object.fromEntries(["front_left", "front_right", "main_hoop_left", "main_hoop_right", "backstay_left", "backstay_right"].map((f) => ["mounting_feet_design__" + f + "__mount_type", { value: "bolted" }])),
+  // The lateral-to-A-pillar gussets and the 253-9 crossing (left), all None.
+  ...Object.fromEntries(["a_pillar_left", "a_pillar_right", "door_front_left", "door_rear_left", "door_upper_left", "door_lower_left"].map((r) => ["gusset_design__" + r + "__design", { value: "" }])),
+  // Part 3 -- tubing & plates: undersized DOM, thin plates
+  tubing_bar_classification__singlebar_right__spec: { value: "secondary" },
+  primary_tubing: { value: { material: "cds_dom", diameter: { val: 1.5, unit: "in" }, thickness: { val: 0.065, unit: "in" } } },
+  secondary_tubing: { value: { material: "cds_dom", diameter: { val: 1.25, unit: "in" }, thickness: { val: 0.049, unit: "in" } } },
+  mounting_feet_material: { value: { material: "Steel", thickness: { val: 1.5, unit: "mm" } } },
+  gusset_material: { value: { material: "steel", thickness: { val: 1, unit: "mm" } } },
+  // Part 4 -- installation constraints
+  cage_within_suspension_points: { value: "no" },
+  main_structure_construction: { value: "no" },
+  main_hoop_single_plane: { value: "no" },
+  main_hoop_lean_angle: { value: "25" },
+  main_hoop_bend_count: { value: "3" },
+  front_rollbar_angle: { value: { bend_count: "2", angle: "25" } },
+  front_feet_forward_of_rollbar: { value: "no" },
+  backstay_angle: { value: "20" },
+  a_pillar_dimension_a: { value: "350" },
+  ...Object.fromEntries(["driver", "codriver"].flatMap((r) => [["windshield_measurements__" + r + "__straight", { value: "no" }], ["windshield_measurements__" + r + "__bend_angle", { value: "35" }]])),
+  installation_constraints__a__value: { value: { value: "200", unit: "mm" } },
+  installation_constraints__b__value: { value: { value: "350", unit: "mm" } },
+  installation_constraints__c__value: { value: { value: "400", unit: "mm" } },
+  installation_constraints__h__value: { value: { value: "800", unit: "mm" } },
+  installation_constraints__e__value: { value: { value: "600", unit: "mm" } },
+  installation_constraints__r1__value: { value: { value: "150", unit: "mm" } },
+  installation_constraints__r2__value: { value: { value: "120", unit: "mm" } },
+  // Part 6 -- seats & belts
+  seat_angle_location__driver__backrest_distance: { value: { value: "40", unit: "mm" } },
+  belt_shoulder_distance_angle__driver__pivot_distance: { value: { value: "50", unit: "mm" } },
+  belt_shoulder_distance_angle__driver__horizontal_angle: { value: "35" },
+  belt_shoulder_strap_angle__driver__strap_angle: { value: "45" },
+  belt_lap_distance_angle__driver_left__belt_angle: { value: "85" },
+  belt_lap_distance_angle__driver_right__belt_angle: { value: "85" },
+  belt_six_point_angle__driver__spacing: { value: { value: "10", unit: "in" } },
+}, CAGE_BASE, (k, a) => {
+  if (/^gusset_dimensions__/.test(k) || (/^(seat|belt)_/.test(k) && /codriver/.test(k))) return undefined; // no gussets to measure; no codriver seat
+  if (/__welds?$/.test(k)) return Object.assign(a, { value: "no" });
+  if (/__distance$/.test(k)) return Object.assign(a, { value: { value: "150", unit: "mm" } });
+  if (/__quick$/.test(k)) return Object.assign(a, { value: "" });
+  if (/__compliant$/.test(k)) return Object.assign(a, { value: "no" });
+  if (/^gusset_design__/.test(k)) return Object.assign(a, { value: "" });
+  if (/^mounting_feet_size__/.test(k)) return Object.assign(a, { value: { value: "30" } });
+  if (/^routing_of_lines__/.test(k)) return Object.assign(a, { value: "between_shell_cage" });
+  if (/__plate_thickness$/.test(k)) return Object.assign(a, { value: { value: "1", unit: "mm" } });
+  return a;
+});

@@ -44,6 +44,9 @@ const TEMPLATES = [
     group: "design", id: "rally-cage-double-v", file: "Rally cage 1.json", name: "FIA Article 253 App J cage",
     dropAnswers: ["vehicle_manufacturer", "vehicle_model", "vehicle_year", "vehicle_builder", "vehicle_weight"],
   },
+  // Everything one should not do (see build-kit-samples.js) -- shows every
+  // warning the app gives, for the lowest Frog Safety score.
+  { group: "design", id: "worst-cage", file: "Worst cage.json", name: "Worst cage", subtitle: "Everything you should not do in a rollcage" },
   // The VAB's diagram (1.jpg) matches its installation photos; the
   // Fiesta's doesn't, so it only gets the photos.
   {
@@ -185,14 +188,42 @@ const TEMPLATES = [
   // 9hio cages: frames from 9hio's walk-around videos as pictures (and the
   // 3/4 front shot as the vehicle photo); the card links to 9hio.
   ...[
-    ["brz-rally-9hio", "9hio Subaru BRZ rally.json", [["1.jpg", "door_bars_left"], ["2.jpg", "main_rollbar"], ["3.jpg", "backstay_diagonals"], ["4.jpg", "overview"], ["5.jpg", "door_bars_right"],
+    // Each frame tagged with the elements it shows.
+    ["brz-rally-9hio", "9hio Subaru BRZ rally.json", [
+      // Left door: both X door bars, the 253-15, the dash bar.
+      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1"], ["door_bars_right", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"], ["dash_bar_present", "yes"]]],
+      // Behind the seats: main hoop X, harness bar, backstays.
+      ["2.jpg", "main_rollbar", [["main_hoop_diagonals", "253-7-2"], ["harness_bar_present", "253-26-27"], ["backstays", "yes"]]],
+      // From the trunk: main hoop X, 253-14 roof, backstays and their 253-22 V.
+      ["3.jpg", "backstay_diagonals", [["main_hoop_diagonals", "253-7-2"], ["roof_bars", "253-14"], ["backstays", "yes"], ["backstay_diagonals", "253-22"], ["harness_bar_present", "253-26-27"]]],
+      // From the rear seat forward: main hoop X with its gussets, harness bar, dash bar.
+      ["4.jpg", "overview", [["main_hoop_diagonals", "253-7-2"], ["gusset_design__main_hoop_diag_upper__design", "taco"], ["gusset_design__main_hoop_diag_lower__design", "taco"],
+        ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"]]],
+      // Right side: right X door bars, main hoop X, 253-15.
+      ["5.jpg", "door_bars_right", [["door_bars_right", "253-9-intersection-1"], ["main_hoop_diagonals", "253-7-2"], ["a_pillar_reinforcement", "continuous"]]],
       // Looking up at the 253-14 roof, the 253-22 backstay V and the main hoop X.
       ["6.jpg", "roof_bars", [["roof_bars", "253-14"], ["backstay_diagonals", "253-22"], ["main_hoop_diagonals", "253-7-2"]]]]],
-    ["subaru-sti-hillclimb-9hio", "9hio Subaru STI hillclimb.json", [["1.jpg", "overview"], ["2.jpg", "door_bars_left"],
+    ["subaru-sti-hillclimb-9hio", "9hio Subaru STI hillclimb.json", [
+      // Driver's area: dash bar, 2-piece 253-15, left door bars.
+      ["1.jpg", "overview", [["dash_bar_present", "yes"], ["a_pillar_reinforcement", "two_bars"], ["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }]]],
+      // Left door: X door bars, 2-piece 253-15 with its upper front gusset, dash bar.
+      ["2.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }], ["a_pillar_reinforcement", "two_bars"],
+        ["gusset_design__a_pillar_2pc_left_upper_front__design", "taco"], ["dash_bar_present", "yes"]]],
       // From the rear: the 253-14 roof, the 253-22 backstay V and the main hoop X.
-      ["3.jpg", "main_rollbar", [["roof_bars", "253-14"], ["backstay_diagonals", "253-22"], ["main_hoop_diagonals", "253-7-2"]]],
-      ["4.jpg", "door_bars_right"]]],
-    ["bmw-road-racing-9hio", "9hio BMW road racing.json", [["1.jpg", "door_bars_left"], ["2.jpg", "overview"], ["3.jpg", "main_rollbar"], ["4.jpg", "overview"],
+      ["3.jpg", "main_rollbar", [["roof_bars", "253-14"], ["backstays", "yes"], ["backstay_diagonals", "253-22"], ["main_hoop_diagonals", "253-7-2"]]],
+      // Right side: X door bars, main hoop X, harness bar, 253-17 lower bar.
+      ["4.jpg", "door_bars_right", [["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }], ["main_hoop_diagonals", "253-7-2"],
+        ["harness_bar_present", "253-26-27"], ["rear_lateral_reinforcement_present", "lower"]]]]],
+    ["bmw-road-racing-9hio", "9hio BMW road racing.json", [
+      // Left door: both X door bars (with sill bars), 2-piece 253-15, 253-31 windshield plates.
+      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }], ["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }],
+        ["a_pillar_reinforcement", "two_bars"], ["windshield_reinforcement_present", "both"]]],
+      // Through the rear door: the right X door bars.
+      ["2.jpg", "overview", [["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }]]],
+      // Through the rear window: backstays and the 253-21 X, harness bar.
+      ["3.jpg", "backstay_diagonals", [["backstays", "yes"], ["backstay_diagonals", "253-21-1"], ["harness_bar_present", "253-26-27"]]],
+      // Rear of the cabin: backstays, 253-21 X, 253-17 lower bar.
+      ["4.jpg", "overview", [["backstays", "yes"], ["backstay_diagonals", "253-21-1"], ["rear_lateral_reinforcement_present", "lower"]]],
       // Across the cabin: the 253-31 temple bars and windshield reinforcements.
       ["5.jpg", "overview", [["temple_bar_present", "both"], ["windshield_reinforcement_present", "both"]]]]],
     // 9hio's own photos (not video frames).

@@ -396,13 +396,15 @@
       description: "Cage tubing can only be bent using a cold process. The diameter of the thinner part of the bend must be at least 90% of the tubing size, and the bend radius must be at least 3x the tube diameter. Shown per bar that's actually permitted to have a bend (see each bar's own bend-count/angle question above/below).",
       evaluationType: "table",
       diagram: "bend-radius",
-      // No front rollbar or A-pillar bars on a half rollcage.
+      // No front rollbar or A-pillar bars on a half rollcage, and no
+      // A-pillar bars without a 253-15.
       rows: (getAnswer) => [
         { id: "main_rollbar", label: "Main rollbar" },
         { id: "front_rollbar", label: "Front rollbar" },
         { id: "a_pillar_left", label: "A-pillar (253-15) — left" },
         { id: "a_pillar_right", label: "A-pillar (253-15) — right" },
-      ].filter((r) => r.id === "main_rollbar" || !isHalfRollcage(getAnswer)),
+      ].filter((r) => r.id === "main_rollbar" || (!isHalfRollcage(getAnswer)
+        && !(r.id.indexOf("a_pillar_") === 0 && getAnswer("a_pillar_reinforcement").value === "none"))),
       columns: [{ key: "compliant", label: "Bend radius/stretch", type: "compliance" }],
       visuallyVerifiable: false,
       hardFail: true,
@@ -2826,6 +2828,12 @@
   FIA_253_DOCUMENT_BASE.forEach((el) => {
     if (!FRONT_STRUCTURE_ONLY.has(el.id)) return;
     el.showIf = [NOT_HALF_ROLLCAGE].concat(el.showIf ? (Array.isArray(el.showIf) ? el.showIf : [el.showIf]) : []);
+  });
+  // The 253-15 bar's own measurements, junctions and welds -- hidden when
+  // the cage has none (dimension A stays: it says whether one is needed).
+  const WINDSCREEN_PILLAR_BAR_ONLY = new Set(["windshield_measurements", "windshield_distances", "windshield_welds"]);
+  FIA_253_DOCUMENT_BASE.forEach((el) => {
+    if (WINDSCREEN_PILLAR_BAR_ONLY.has(el.id)) el.showIf = el.showIf.concat([{ id: "a_pillar_reinforcement", notEquals: "none" }]);
   });
 
   // ---- NASA Rally Sport variances on the FIA base ----
