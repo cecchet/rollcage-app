@@ -2253,7 +2253,7 @@
     const TEMPLATE_GROUPS = [
       { id: "design", label: "Design templates", listId: "library-templates", cardLabel: () => "Design template" },
       { id: "kit", label: "Rollcage kits", listId: "library-kits", cardLabel: (t) => (t.source ? "Rollcage kit from " + t.source.label : "Rollcage kit") },
-      { id: "sample", label: "Custom cages samples", listId: "library-samples", cardLabel: () => "Custom cage sample" },
+      { id: "sample", label: "Real world cage samples", listId: "library-samples", cardLabel: () => "Real world cage sample" },
     ];
     const groupLists = {};
     TEMPLATE_GROUPS.forEach((g) => { groupLists[g.id] = el("div", { class: "load-dialog-list", id: g.listId }); });

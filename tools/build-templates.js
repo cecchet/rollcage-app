@@ -167,7 +167,7 @@ const TEMPLATES = [
   // (double X) is no longer listed; it's still the base the kit samples
   // were derived from.
   { group: "sample", id: "porsche-gt3-cup", file: "Porsche GT3 Cup Car.json", withPictures: true },
-  // `subtitle` replaces the card's default line (here, "Custom cage sample").
+  // `subtitle` replaces the card's default line (here, "Real world cage sample").
   {
     group: "sample", id: "audi-rs4-rally", file: "RS4 Rally car.json", withPictures: true,
     subtitleLink: { before: "Rollcage by ", label: "CAS Competition", url: "https://www.facebook.com/cas.competition/" },
