@@ -399,7 +399,7 @@ make("Worst cage.json", "Worst cage -- what not to do", {
   cage_within_suspension_points: { value: "no" },
   main_structure_construction: { value: "no" },
   main_hoop_single_plane: { value: "no" },
-  main_hoop_lean_angle: { value: "25" },
+  main_hoop_lean_angle: { value: "-25" },
   main_hoop_bend_count: { value: "3" },
   front_rollbar_angle: { value: { bend_count: "2", angle: "25" } },
   front_feet_forward_of_rollbar: { value: "no" },

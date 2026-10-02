@@ -1236,6 +1236,11 @@
   // its junction, their ends on it move with it.
   const FOLLOWS_BACKSTAY = /^(Rear diagonal|253-18|253-19|Rear backstay gusset)/;
   let leanDeg = 0;
+  // A main rollbar not in one single plane: its two legs lean opposite
+  // ways (this many degrees, the left one's top forward), the twist fading
+  // to none at the middle of its top -- every bar on it follows, as with
+  // the lean.
+  let twistDeg = 0;
   let backstayDeg = null; // null = as modeled
   let frontDeg = null;    // null = as modeled
   // Bar ends entered as off their junction (over 100mm), drawn visibly
@@ -1543,13 +1548,16 @@
     const a = leanAnchors;
     if (!a) return;
     const k = Math.tan((leanDeg * Math.PI) / 180);
+    const kt = Math.tan((twistDeg * Math.PI) / 180);
+    // -1..1 across the hoop's width, +1 on the car's left side.
+    const sideOf = (q) => Math.max(-1, Math.min(1, ((q.y - a.centerY) / Math.max(1, a.hoopTopWidth / 2)) * a.leftSignY));
     const shift = backstayFootShift(a, k);
     const frontK = frontDeg == null || a.modeledFrontTan == null ? 0 : Math.tan((frontDeg * Math.PI) / 180) - a.modeledFrontTan;
     const v = new THREE.Vector3();
     const inv = new THREE.Matrix4();
     // The angle fields' fore/aft shift at an undeformed world point, and
     // that point deformed (a copy).
-    const fieldDx = (q) => a.dir * k * (q.z - a.z0) * leanWeight(a, q.x)
+    const fieldDx = (q) => a.dir * (k + (kt ? kt * sideOf(q) : 0)) * (q.z - a.z0) * leanWeight(a, q.x)
       + (shift ? -a.dir * shift * backstayWeight(a, q.x, q.z) : 0)
       + (frontK ? a.dir * frontK * frontLegWeight(a, q.x, q.z) : 0);
     const deform = (q) => { const c = q.clone(); c.x += fieldDx(q); return c; };
@@ -1577,7 +1585,7 @@
       if (mesh.matrixAutoUpdate) mesh.updateMatrix();
       const offs = a.hoopTopWidth ? junctionOffsets.filter((o) => o.file === file) : [];
       const follows = hostMoves.length && FOLLOWS_BACKSTAY.test(file);
-      const key = k === 0 && shift === 0 && frontK === 0 && !offs.length && !follows ? "0" : k.toFixed(6) + "|" + shift.toFixed(3) + "|" + frontK.toFixed(6) + "|" + JSON.stringify(offs) + "|" + (follows ? hostKey : "") + "|" + mesh.matrix.elements.map((e) => e.toFixed(3)).join(",");
+      const key = k === 0 && kt === 0 && shift === 0 && frontK === 0 && !offs.length && !follows ? "0" : k.toFixed(6) + "|" + kt.toFixed(6) + "|" + shift.toFixed(3) + "|" + frontK.toFixed(6) + "|" + JSON.stringify(offs) + "|" + (follows ? hostKey : "") + "|" + mesh.matrix.elements.map((e) => e.toFixed(3)).join(",");
       if ((mesh.userData.leanKey || "0") === key) return;
       mesh.userData.leanKey = key;
       const geometry = mesh.geometry;
@@ -1677,10 +1685,12 @@
   // Called by app.js after every applyState/setMeshTransforms (it depends
   // on both); a missing/non-numeric answer means a vertical hoop. Capped
   // well past the 10-degree limit so a typo can't fold the cage over.
-  function setMainHoopLean(degrees) {
+  // twist: see twistDeg (0 or omitted = a single plane hoop).
+  function setMainHoopLean(degrees, twist) {
     const d = Number(degrees);
     onReady(() => {
       leanDeg = Number.isFinite(d) ? Math.max(-25, Math.min(25, d)) : 0;
+      twistDeg = Number(twist) || 0;
       applyMainHoopLean();
     });
   }

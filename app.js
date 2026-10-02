@@ -2302,7 +2302,7 @@
         state.activeTab = 1;
         window.CageView.applyState(computeCageColors(), false);
         window.CageView.setMeshTransforms(computeCageTransforms());
-        if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value));
+        if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value), mainHoopTwistDeg());
         if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
         if (window.CageView.setFrontRollbarAngle) window.CageView.setFrontRollbarAngle(parseFloat((getAnswer("front_rollbar_angle").value || {}).angle));
         if (window.CageView.setJunctionOffsets) window.CageView.setJunctionOffsets(junctionOffsets());
@@ -5985,6 +5985,11 @@
     windshield_reinforcement_present: optionalBarSafetyTier,
   };
 
+  // A main rollbar answered "Not compliant" for staying in one single plane
+  // is drawn twisted in the 3D model: one leg leaning +10 degrees, the
+  // other -10.
+  function mainHoopTwistDeg() { return getAnswer("main_hoop_single_plane").value === "no" ? 10 : 0; }
+
   // Pure computation half of the safety score -- every rule/row below used
   // to build DOM directly via addRow(); now addRow() just pushes a plain
   // {id, label, tier, valueText, points} row instead, so this same walk
@@ -6279,9 +6284,10 @@
     // year, not the logbook issue date used for grandfathering routing),
     // so this only fires when a real 4-digit year can actually be pulled
     // out of it, and only while anti-intrusion bars aren't already "yes".
+    // A missing recommended item is worth 0 (a warning, not a credit).
     const yearMatch = /\b(19|20)\d{2}\b/.exec(getAnswer("vehicle_year").value || "");
     if (yearMatch && parseInt(yearMatch[0], 10) < 2002 && getAnswer("anti_intrusion_present").value !== "yes") {
-      addRow("anti_intrusion_pre_2002", "253-25 anti-intrusion bars (pre-2002 car)", "orange", "Recommended for cars built before 2002 (built " + yearMatch[0] + ")", undefined,
+      addRow("anti_intrusion_pre_2002", "253-25 anti-intrusion bars (pre-2002 car)", "orange", "Recommended for cars built before 2002 (built " + yearMatch[0] + ")", 0,
         { elementId: "anti_intrusion_present" });
     }
 
@@ -6314,8 +6320,8 @@
     });
 
     // A bar joining further than the 100mm limit from its junction loses
-    // 5 points per mm over -- every junction-distance table (a safetyLimit
-    // column), one row per end that's over.
+    // 5 points per cm over (1 per 2mm, at least 1) -- every junction-distance
+    // table (a safetyLimit column), one row per end that's over.
     path.elements.forEach((elm) => {
       if (elm.evaluationType !== "table" || !elm.columns || !elementVisible(elm)) return;
       const col = elm.columns.find((c) => c.safetyLimit);
@@ -6329,7 +6335,7 @@
         violations += 1;
         addRow(elm.id + "__" + row.id, row.label, "red",
           Math.round(mm) + "mm from its junction -- " + Math.round(over) + "mm over the " + limit + "mm limit",
-          -Math.round(5 * over), { elementId: elm.id, rowId: row.id });
+          -Math.max(1, Math.round(over / 2)), { elementId: elm.id, rowId: row.id });
       });
     });
 
@@ -9548,7 +9554,7 @@
       window.CageView.setMeshTransforms(computeCageTransforms());
       // Tilts the modeled main hoop / backstays to the entered angles (after
       // the transforms -- the deformation works on each part's final placement).
-      if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value));
+      if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value), mainHoopTwistDeg());
       if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
       if (window.CageView.setFrontRollbarAngle) window.CageView.setFrontRollbarAngle(parseFloat((getAnswer("front_rollbar_angle").value || {}).angle));
       if (window.CageView.setJunctionOffsets) window.CageView.setJunctionOffsets(junctionOffsets());
