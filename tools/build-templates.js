@@ -185,12 +185,30 @@ const TEMPLATES = [
     ["bmw-road-racing-9hio", "9hio BMW road racing.json", [["1.jpg", "door_bars_left"], ["2.jpg", "overview"], ["3.jpg", "main_rollbar"], ["4.jpg", "overview"],
       // Across the cabin: the 253-31 temple bars and windshield reinforcements.
       ["5.jpg", "overview", [["temple_bar_present", "both"], ["windshield_reinforcement_present", "both"]]]]],
+    // 9hio's own photos (not video frames).
+    ["honda-fit-rally-9hio", "9hio Honda Fit rally.json", [
+      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1"], ["main_hoop_diagonals", "253-7-2"], ["backstays", "yes"],
+        ["rear_lateral_reinforcement_present", "upper"]]],
+      ["2.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"], ["dash_bar_present", "yes"]]],
+      ["3.jpg", "door_bars_right", [["door_bars_right", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"],
+        ["gusset_design__a_pillar_side_right__design", "taco"], ["dash_bar_present", "yes"]]],
+      ["4.jpg", "overview", [["main_hoop_diagonals", "253-7-2"], ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"],
+        ["rear_lateral_reinforcement_present", "upper"]]],
+      ["5.jpg", "backstay_diagonals", [["main_hoop_diagonals", "253-7-2"], ["harness_bar_present", "253-26-27"], ["backstays", "yes"],
+        ["backstay_diagonals", "253-22"], ["rear_transversal_present", "yes"]]],
+      ["6.jpg", "roof_bars", [["roof_bars", "253-14"], ["main_hoop_diagonals", "253-7-2"], ["harness_bar_present", "253-26-27"]]],
+      ["7.jpg", "overview", [["a_pillar_reinforcement", "continuous"], ["windshield_reinforcement_present", "both"], ["temple_bar_present", "both"]]],
+      ["8.jpg", "main_rollbar", [["main_hoop_diagonals", "253-7-2"]]],
+      ["9.jpg", "overview"],
+    ]],
     // The user's own frame grabs from the video.
     ["mustang-road-racing-9hio", "9hio Ford Mustang road racing.json", [
       ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"]]],
       ["2.jpg", "main_rollbar", [["main_hoop_diagonals", "diag-left"], ["harness_bar_present", "253-26-27"]]],
       ["3.jpg", "door_bars_right", [["door_bars_right", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"]]],
       ["4.jpg", "backstay_diagonals", [["backstays", "yes"], ["backstay_diagonals", "253-21-1"], ["main_hoop_diagonals", "diag-left"], ["harness_bar_present", "253-26-27"]]],
+      // The video's first frame: 3/4 front of the car (also its vehicle photo).
+      ["5.jpg", "overview", [["door_bars_left", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"], ["windshield_reinforcement_present", "both"]]],
     ]],
   ].map(([id, file, list]) => ({
     group: "sample", id, file,

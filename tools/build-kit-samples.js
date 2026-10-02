@@ -239,6 +239,9 @@ make("9hio Subaru STI hillclimb.json", "Subaru WRX STI -- 9hio hillclimb cage", 
   door_bars_left: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
   door_bars_right: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
   rear_lateral_reinforcement_present: { value: "lower" },
+  // B-pillar gussets (main hoop to B-pillar), both sides.
+  gusset_design__b_pillar_left__design: { value: "single_plate" },
+  gusset_design__b_pillar_right__design: { value: "single_plate" },
   a_pillar_reinforcement: { value: "two_bars" },
   gusset_design__a_pillar_2pc_left_upper_front__design: { value: "taco" },
   gusset_design__a_pillar_2pc_left_lower_rear__design: { value: "taco" },
@@ -297,6 +300,25 @@ make("9hio Ford Mustang road racing.json", "Ford Mustang -- 9hio road racing cag
   vehicle_codriver: { value: "no" },
   vehicle_manufacturer: { value: "Ford" }, vehicle_model: { value: "Mustang (S550)" }, vehicle_year: { value: "2018" },
   vehicle_weight: { value: { value: "3700", unit: "lb" } }, // approx. stock curb weight
+}));
+
+// From 9hio's photos: 253-7 X main hoop with harness bar, 253-14 roof with
+// its 253-22 backstay V to the rear strut towers, 253-18 between them,
+// 253-9 X door bars (no sill bars), 253-17 upper bar, 1-bar 253-15 with its
+// side gussets, 253-31 windshield reinforcements, dash bar.
+make("9hio Honda Fit rally.json", "Honda Fit -- 9hio rally cage", nineHio({
+  roof_bars: { value: "253-14" },
+  backstay_diagonals: { value: "253-22" },
+  rear_transversal_present: { value: "yes" },
+  rear_lateral_reinforcement_present: { value: "upper" },
+  gusset_design__a_pillar_side_left__design: { value: "taco" },
+  gusset_design__a_pillar_side_right__design: { value: "taco" },
+  // 253-31 temple bars and windshield reinforcements, both sides.
+  temple_bar_present: { value: "both" },
+  windshield_reinforcement_present: { value: "both" },
+  vehicle_codriver: { value: "yes" },
+  vehicle_manufacturer: { value: "Honda" }, vehicle_model: { value: "Fit (GD)" }, vehicle_year: { value: "2008" },
+  vehicle_weight: { value: { value: "2500", unit: "lb" } }, // approx. stock curb weight
 }));
 
 // Also: 253-31 temple bars and sill bars on both sides, and a 2-piece
