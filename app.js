@@ -2287,6 +2287,8 @@
         actions: [
           el("button", { class: "btn small", onclick: openSelected(() => startFromTemplate(t)) }, ["Start from template"]),
           t.source ? el("a", { class: "btn small secondary", href: t.source.url, target: "_blank", rel: "noopener" }, ["View product page ↗"]) : null,
+          // A walk-around video of the cage, in the app's own video viewer.
+          t.video ? el("button", { class: "btn small secondary", onclick: () => { state.mediaViewer = { video: t.video.id, caption: t.video.title }; render(); } }, ["Watch video ▶"]) : null,
         ],
       }));
     });

@@ -19,6 +19,15 @@ const pics = (id, list) => list.map(([file, category, tags]) => ({
   ...(tags ? { elements: tags.map(([elementId, value, extra]) => ({ elementId, value, extra: extra || {} })) } : {}),
 }));
 
+// 9hio's YouTube walk-around videos (the cards' "Watch video" button opens
+// them in the app's video viewer).
+const NINE_HIO_VIDEOS = {
+  "mustang-road-racing-9hio": { id: "vvbtOjYRLQ4", title: "Mustang Road Racing rollcage" },
+  "bmw-road-racing-9hio": { id: "GrPJzszg77I", title: "BMW road racing rollcage build" },
+  "brz-rally-9hio": { id: "GOxmtc2pqGA", title: "BRZ rally rollcage" },
+  "subaru-sti-hillclimb-9hio": { id: "v3eeSjGU51k", title: "Hillclimb Subaru STi rollcage" },
+};
+
 // Listed in library order, grouped into the library's sections by `group`:
 // "design" (Design templates), "kit" (Rollcage kits -- based on a vendor's
 // kit: the card links to its product page, with a snapshot of that page as
@@ -171,6 +180,7 @@ const TEMPLATES = [
   {
     group: "sample", id: "audi-rs4-rally", file: "RS4 Rally car.json", withPictures: true,
     subtitleLink: { before: "Rollcage by ", label: "CAS Competition", url: "https://www.facebook.com/cas.competition/" },
+    video: { id: "Hq8RB9Z1WEc", title: "Project Froooog" },
   },
   // 9hio cages: frames from 9hio's walk-around videos as pictures (and the
   // 3/4 front shot as the vehicle photo); the card links to 9hio.
@@ -214,6 +224,7 @@ const TEMPLATES = [
     ]],
   ].map(([id, file, list]) => ({
     group: "sample", id, file,
+    ...(NINE_HIO_VIDEOS[id] ? { video: NINE_HIO_VIDEOS[id] } : {}),
     subtitleLink: { before: "Rollcage by ", label: "9hio", url: "https://9hio.com/" },
     pictures: pics(id, list),
     vehiclePhotos: { front: "images/templates/" + id + "/vehicle-front.jpg" },
@@ -286,6 +297,7 @@ const out = TEMPLATES.map((t) => {
     ...(t.vehiclePhotos ? { vehiclePhotos: t.vehiclePhotos } : {}),
     ...(t.subtitle ? { subtitle: t.subtitle } : {}),
     ...(t.subtitleLink ? { subtitleLink: t.subtitleLink } : {}),
+    ...(t.video ? { video: t.video } : {}),
     ...(t.cardPhoto ? { cardPhoto: t.cardPhoto } : {}),
   };
 });
