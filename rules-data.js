@@ -285,7 +285,8 @@
       hideNotes: true,
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1.4",
-      description: "Requires 253-15 windscreen pillar reinforcement if dimension A exceeds 200mm (which is the case for essentially all cars) -- mandatory regardless of dimension A for an ARA logbook.",
+      // ARA's stricter rule is only shown under ARA (see its patch below).
+      description: "Requires 253-15 windscreen pillar reinforcement if dimension A exceeds 200mm.",
       diagram: "253-15-dimension-a",
       evaluationType: "numeric",
       unit: "mm",
@@ -2879,6 +2880,9 @@
       a_pillar_reinforcement: {
         reference: "ARA RTR 2.2.2(c)(2)(a); 2020 FIA 253 Ch.8.3.2.1.4",
         description: "ARA is explicit: new cages without windscreen supports will NOT be accepted for logbooking whenever dimension A exceeds 200mm -- which is the case for essentially all cars.",
+      },
+      a_pillar_dimension_a: {
+        description: "Requires 253-15 windscreen pillar reinforcement if dimension A exceeds 200mm (which is the case for essentially all cars) -- mandatory regardless of dimension A for an ARA logbook.",
       },
     }),
     []

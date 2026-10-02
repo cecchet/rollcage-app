@@ -34,12 +34,23 @@ const TEMPLATES = [
     group: "design", id: "rally-cage-double-v", file: "Rally cage 1.json", name: "FIA Article 253 App J cage",
     dropAnswers: ["vehicle_manufacturer", "vehicle_model", "vehicle_year", "vehicle_builder", "vehicle_weight"],
   },
-  // Custom Cages' own diagrams don't match their installed cages, so only
-  // the installation photos are used as pictures.
+  // The VAB's diagram (1.jpg) matches its installation photos; the
+  // Fiesta's doesn't, so it only gets the photos.
   {
     group: "kit", id: "subaru-vab-custom-cages", file: "Custom Cages Subaru VAB.json",
     source: { label: "Custom Cages", url: "https://customcages.co.uk/products/subaru-impreza-vab-international-multipoint-t45-roll-cage-kit-fia-certificated", thumbnail: "images/templates/subaru-vab-custom-cages.jpg" },
     pictures: pics("subaru-vab-custom-cages", [
+      // The diagram: every element of the cage.
+      ["1.jpg", "overview", [
+        ["main_hoop_diagonals", "253-7-2"], ["backstays", "yes"], ["backstay_diagonals", "253-22"], ["roof_bars", "253-14"],
+        ["door_bars_left", "253-9-intersection-1"], ["door_bars_right", "253-9-intersection-1"],
+        ["harness_bar_present", "253-26-27"], ["rear_lateral_reinforcement_present", "lower"], ["dash_bar_present", "yes"],
+        ["temple_bar_present", "both"], ["windshield_reinforcement_present", "both"],
+        ["gusset_design__main_hoop_diag_upper__design", "taco"], ["gusset_design__main_hoop_diag_lower__design", "taco"],
+        ["gusset_design__door_front_left__design", "taco"], ["gusset_design__door_rear_left__design", "taco"],
+        ["gusset_design__door_front_right__design", "taco"], ["gusset_design__door_rear_right__design", "taco"],
+        ["gusset_design__a_pillar_left__design", "single_plate"], ["gusset_design__a_pillar_right__design", "single_plate"],
+      ]],
       ["4.jpg", "overview"], ["5.jpg", "overview"], ["6.jpg", "overview"], ["7.jpg", "overview"],
       ["8.jpg", "roof_bars"],
       ["3.jpg", "door_bars_left"],
@@ -104,8 +115,8 @@ const TEMPLATES = [
       ["1.jpg", "overview"], ["2.jpg", "overview"], ["3.jpg", "overview"],
       // Roll bar-only render: every element of the roll bar.
       ["4.jpg", "overview", [
-        ["main_hoop_diagonals", "253-7-1"], ["backstays", "yes"], ["harness_bar_present", "253-26-27"],
-        ["gusset_design__main_hoop_diag_left__design", "single_plate"], ["gusset_design__main_hoop_diag_right__design", "single_plate"],
+        ["main_hoop_diagonals", "253-7-1"], ["backstays", "yes"], ["backstay_diagonals", "253-21-1"],
+        ["harness_bar_present", "253-26-27"],
       ]],
       ["5.jpg", "roof_bars"],
     ]),

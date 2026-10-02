@@ -52,10 +52,13 @@ const common = {
 // kit, FIA certificated: X door bars with gusset plates, X roof, X main
 // hoop, harness bar, front and rear strut-top tie-ins (not modelled).
 make("Custom Cages Subaru VAB.json", "Subaru Impreza VAB -- Custom Cages FIA T45", Object.assign({}, common, {
-  // 253-14 roof with its mandatory 253-22 backstay V, and 253-17 (both bars).
+  // 253-14 roof with its mandatory 253-22 backstay V, 253-17 (lower bar
+  // only), 253-31 temple bars and windshield reinforcements on both sides.
   roof_bars: { value: "253-14" },
   backstay_diagonals: { value: "253-22" },
-  rear_lateral_reinforcement_present: { value: "both" },
+  rear_lateral_reinforcement_present: { value: "lower" },
+  temple_bar_present: { value: "both" },
+  windshield_reinforcement_present: { value: "both" },
   a_pillar_reinforcement: { value: "continuous" },
   primary_tubing: { value: { material: "t45", diameter: { val: 45, unit: "mm" }, thickness: { val: 2.5, unit: "mm" } } },
   secondary_tubing: { value: { material: "t45", diameter: { val: 38, unit: "mm" }, thickness: { val: 2.5, unit: "mm" } } },
@@ -74,12 +77,13 @@ make("Custom Cages Subaru VAB.json", "Subaru Impreza VAB -- Custom Cages FIA T45
 // hoop, X door bars, harness bar (optional tube), dash bar, front strut-top
 // tie-ins (not modelled). UK car, so right-hand drive.
 make("Custom Cages Ford Fiesta Mk6.json", "Ford Fiesta Mk6 -- Custom Cages FIA/MSUK CDS", Object.assign({}, common, {
-  // 253-14 roof with its 253-22 backstay V, 253-17 (both bars), 253-31
-  // windshield reinforcement plates both sides, 253-15 single bar with its
-  // two side gussets.
+  // 253-14 roof with its 253-22 backstay V, 253-17 (both bars), 253-18
+  // rear transversal, 253-31 windshield reinforcement plates both sides,
+  // 253-15 single bar with its two side gussets.
   roof_bars: { value: "253-14" },
   backstay_diagonals: { value: "253-22" },
   rear_lateral_reinforcement_present: { value: "both" },
+  rear_transversal_present: { value: "yes" },
   windshield_reinforcement_present: { value: "both" },
   a_pillar_reinforcement: { value: "continuous" },
   gusset_design__a_pillar_side_left__design: { value: "taco" },
@@ -178,14 +182,24 @@ make("CageKits Datsun 240Z NHRA.json", "Datsun 240Z -- CageKits NHRA 8.50 chromo
 }));
 
 // cagekits.org -- BMW E92 (2006-2013) weld-in roll bar kit, 1.5" x .095"
-// DOM: main hoop with an X and a harness bar, two backstays to the rear,
-// no backstay diagonal. Built on the roll bar sample, not the full cage.
+// DOM: main hoop with an X and a harness bar, two backstays to the rear
+// with a 253-21 X between them, no gussets at either X. Built on the roll
+// bar sample, not the full cage.
 make("CageKits BMW E92 roll bar.json", "BMW E92 -- CageKits roll bar", {
   main_structure_layout: { value: "half-rollcage" },
   main_hoop_diagonals: { value: "253-7-1" },
   harness_bar_present: { value: "253-26-27" },
   backstays: { value: "yes" },
-  backstay_diagonals: { value: "none" },
+  backstay_diagonals: { value: "253-21-1" },
+  // No gussets at the 253-7 or 253-21 crossings ("" = answered None).
+  gusset_design__main_hoop_diag_left__design: { value: "" },
+  gusset_design__main_hoop_diag_right__design: { value: "" },
+  gusset_design__main_hoop_diag_upper__design: { value: "" },
+  gusset_design__main_hoop_diag_lower__design: { value: "" },
+  gusset_design__backstay_diag_left__design: { value: "" },
+  gusset_design__backstay_diag_right__design: { value: "" },
+  gusset_design__backstay_diag_upper__design: { value: "" },
+  gusset_design__backstay_diag_lower__design: { value: "" },
   rear_lateral_reinforcement_present: { value: "none" },
   rear_transversal_present: { value: "no" },
   rear_lower_x_present: { value: "none" },
@@ -200,9 +214,22 @@ make("CageKits BMW E92 roll bar.json", "BMW E92 -- CageKits roll bar", {
   vehicle_builder: { value: "CageKits (kit)" },
 }, ROLLBAR_BASE);
 
+// Also: 253-31 temple bars and sill bars on both sides, and a 2-piece
+// 253-15 with 2 gussets per side (upper front, lower rear).
 make("Broken Motorsports Subaru GC.json", "Subaru Impreza GC -- Broken Motorsports DOM tubing", Object.assign({}, common, {
   backstay_diagonals: { value: "253-21-1" },
-  a_pillar_reinforcement: { value: "continuous" },
+  temple_bar_present: { value: "both" },
+  door_bars_left: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
+  door_bars_right: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
+  a_pillar_reinforcement: { value: "two_bars" },
+  gusset_design__a_pillar_2pc_left_upper_front__design: { value: "taco" },
+  gusset_design__a_pillar_2pc_left_lower_rear__design: { value: "taco" },
+  gusset_design__a_pillar_2pc_left_upper_rear__design: { value: "" },
+  gusset_design__a_pillar_2pc_left_lower_front__design: { value: "" },
+  gusset_design__a_pillar_2pc_right_upper_front__design: { value: "taco" },
+  gusset_design__a_pillar_2pc_right_lower_rear__design: { value: "taco" },
+  gusset_design__a_pillar_2pc_right_upper_rear__design: { value: "" },
+  gusset_design__a_pillar_2pc_right_lower_front__design: { value: "" },
   primary_tubing: { value: { material: "cds_dom", diameter: { val: 1.75, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
   secondary_tubing: { value: { material: "cds_dom", diameter: { val: 1.5, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
   vehicle_manufacturer: { value: "Subaru" },
