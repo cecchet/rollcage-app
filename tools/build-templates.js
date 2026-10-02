@@ -50,6 +50,8 @@ const TEMPLATES = [
         ["gusset_design__door_front_left__design", "taco"], ["gusset_design__door_rear_left__design", "taco"],
         ["gusset_design__door_front_right__design", "taco"], ["gusset_design__door_rear_right__design", "taco"],
         ["gusset_design__a_pillar_left__design", "single_plate"], ["gusset_design__a_pillar_right__design", "single_plate"],
+        ["a_pillar_reinforcement", "continuous"],
+        ["gusset_design__a_pillar_side_left__design", "taco"], ["gusset_design__a_pillar_side_right__design", "taco"],
       ]],
       ["4.jpg", "overview"], ["5.jpg", "overview"], ["6.jpg", "overview"], ["7.jpg", "overview"],
       ["8.jpg", "roof_bars"],
@@ -125,7 +127,8 @@ const TEMPLATES = [
   // (double X) is no longer listed; it's still the base the kit samples
   // were derived from.
   { group: "sample", id: "porsche-gt3-cup", file: "Porsche GT3 Cup Car.json", withPictures: true },
-  { group: "sample", id: "audi-rs4-rally", file: "RS4 Rally car.json", withPictures: true },
+  // `subtitle` replaces the card's default line (here, "Race car sample").
+  { group: "sample", id: "audi-rs4-rally", file: "RS4 Rally car.json", withPictures: true, subtitle: "Rollcage by CAS Competition" },
 ];
 
 // Writes an export's data-URL image to images/templates/<id>/<name>.<ext>
@@ -188,6 +191,7 @@ const out = TEMPLATES.map((t) => {
     ...(t.source ? { source: t.source } : {}),
     ...(t.pictures ? { pictures: t.pictures } : {}),
     ...(t.vehiclePhotos ? { vehiclePhotos: t.vehiclePhotos } : {}),
+    ...(t.subtitle ? { subtitle: t.subtitle } : {}),
   };
 });
 

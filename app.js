@@ -2262,7 +2262,7 @@
             : t.source && t.source.thumbnail ? el("img", { class: "load-dialog-photo", src: t.source.thumbnail, alt: t.source.label + " product page" }) : null,
         ],
         name: t.vehicle.name,
-        date: groupOf(t).cardLabel(t),
+        date: t.subtitle || groupOf(t).cardLabel(t),
         actions: [
           el("button", { class: "btn small", onclick: openSelected(() => startFromTemplate(t)) }, ["Start from template"]),
           t.source ? el("a", { class: "btn small secondary", href: t.source.url, target: "_blank", rel: "noopener" }, ["View product page ↗"]) : null,
@@ -2439,20 +2439,9 @@
   }
   // The vehicle's own fields -- the rollcage app's Vehicle description
   // panel, and the top of the logbook app's Logbook information.
+  // (The name is edited in the name field always shown above the model.)
   function appendVehicleFields(vehiclePanel) {
     {
-      const nameField = el("div", { class: "field" }, [
-        el("label", {}, ["Vehicle / entry name"]),
-        el("input", {
-          type: "text",
-          value: state.vehicle.name,
-          oninput: (e) => {
-            state.vehicle.name = e.target.value;
-            markDirty();
-          },
-        }),
-      ]);
-      vehiclePanel.appendChild(nameField);
       vehiclePanel.appendChild(
         el("div", { class: "field-row" }, [
           textAnswerField("Manufacturer", "vehicle_manufacturer"),

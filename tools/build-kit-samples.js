@@ -59,7 +59,10 @@ make("Custom Cages Subaru VAB.json", "Subaru Impreza VAB -- Custom Cages FIA T45
   rear_lateral_reinforcement_present: { value: "lower" },
   temple_bar_present: { value: "both" },
   windshield_reinforcement_present: { value: "both" },
+  // 253-15 as 1 continuous bar, with its side taco gussets.
   a_pillar_reinforcement: { value: "continuous" },
+  gusset_design__a_pillar_side_left__design: { value: "taco" },
+  gusset_design__a_pillar_side_right__design: { value: "taco" },
   primary_tubing: { value: { material: "t45", diameter: { val: 45, unit: "mm" }, thickness: { val: 2.5, unit: "mm" } } },
   secondary_tubing: { value: { material: "t45", diameter: { val: 38, unit: "mm" }, thickness: { val: 2.5, unit: "mm" } } },
   vehicle_manufacturer: { value: "Subaru" },
