@@ -507,6 +507,11 @@
     { val: 0.065, unit: "in" }, { val: 0.083, unit: "in" }, { val: 0.095, unit: "in" }, { val: 0.12, unit: "in" },
     { val: 2.0, unit: "mm" }, { val: 2.5, unit: "mm" }, { val: 3.0, unit: "mm" },
   ];
+  // Plates (mounting feet, gussets) also come in 1/8" and 3/16" stock.
+  const PLATE_THICKNESS_PRESETS = THICKNESS_PRESETS.slice(0, 4).concat(
+    [{ val: 0.125, unit: "in" }, { val: 0.188, unit: "in" }],
+    THICKNESS_PRESETS.slice(4)
+  );
   function dimLabel(d) { return d.val + (d.unit === "mm" ? "mm" : '"'); }
   function toInches(dim) {
     if (!dim || dim.val === "" || dim.val == null) return null;
@@ -5298,7 +5303,7 @@
       onchange: (e) => setAnswer(subId, { value: Object.assign({}, v, { material: e.target.value }) }),
     });
     wrap.appendChild(el("div", { class: "tubing3-field" }, [el("label", {}, ["Material"]), matInput]));
-    wrap.appendChild(renderDimField("Thickness", THICKNESS_PRESETS, v.thickness, (dim) => setAnswer(subId, { value: Object.assign({}, v, { thickness: dim }) })));
+    wrap.appendChild(renderDimField("Thickness", PLATE_THICKNESS_PRESETS, v.thickness, (dim) => setAnswer(subId, { value: Object.assign({}, v, { thickness: dim }) })));
     return wrap;
   }
 
