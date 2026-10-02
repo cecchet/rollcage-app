@@ -13,6 +13,8 @@
   --warn-bg: #fff4dd;
   --info-bg: #eef2f9;
   --template: #6b3fb3;
+  --kit: #b4530f;
+  --sample: #0e7490;
   --radius: 10px;
 }
 
@@ -32,6 +34,8 @@
     --warn-bg: #3a2f10;
     --info-bg: #202634;
     --template: #b794f6;
+    --kit: #f6a85a;
+    --sample: #5fd4e8;
   }
 }
 
@@ -830,6 +834,8 @@ textarea { resize: vertical; min-height: 50px; }
 .library-section-current { --section: var(--accent); }
 .library-section-saved { --section: var(--pass); }
 .library-section-templates { --section: var(--template); }
+.library-section-kit { --section: var(--kit); }
+.library-section-sample { --section: var(--sample); }
 .library-section-current .library-current-card { border-color: var(--section); }
 .picture-coverage { margin: 16px 0 8px; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); }
 .picture-coverage.incomplete { border-color: var(--warn); background: var(--warn-bg); }

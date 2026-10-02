@@ -2190,12 +2190,21 @@
 
     // Built-in design templates (templates.js) -- read-only, no photos, so
     // only a 3D snapshot rendered on the fly (see ensureTemplateThumbs).
+    // They're shown in 3 sections by their `group` (see tools/build-templates.js);
+    // all of them start the same way.
     const templates = window.ROLLCAGE_TEMPLATES || [];
-    const templateList = el("div", { class: "load-dialog-list", id: "library-templates" });
+    const TEMPLATE_GROUPS = [
+      { id: "design", label: "Design templates", listId: "library-templates", cardLabel: () => "Design template" },
+      { id: "kit", label: "Rollcage kits", listId: "library-kits", cardLabel: (t) => (t.source ? "Rollcage kit from " + t.source.label : "Rollcage kit") },
+      { id: "sample", label: "Race car samples", listId: "library-samples", cardLabel: () => "Race car sample" },
+    ];
+    const groupLists = {};
+    TEMPLATE_GROUPS.forEach((g) => { groupLists[g.id] = el("div", { class: "load-dialog-list", id: g.listId }); });
+    const groupOf = (t) => TEMPLATE_GROUPS.find((g) => g.id === t.group) || TEMPLATE_GROUPS[0];
     templates.forEach((t) => {
       const selId = TEMPLATE_SELECTION_PREFIX + t.templateId;
       const thumb = templateThumbCache[t.templateId];
-      templateList.appendChild(libraryCard({
+      groupLists[groupOf(t).id].appendChild(libraryCard({
         selected: state.librarySelectedId === selId,
         onSelect: () => { state.librarySelectedId = selId; render(); },
         images: [
@@ -2209,7 +2218,7 @@
             : t.source && t.source.thumbnail ? el("img", { class: "load-dialog-photo", src: t.source.thumbnail, alt: t.source.label + " product page" }) : null,
         ],
         name: t.vehicle.name,
-        date: t.source ? "Design template · based on a kit from " + t.source.label : "Design template",
+        date: groupOf(t).cardLabel(t),
         actions: [
           el("button", { class: "btn small", onclick: openSelected(() => startFromTemplate(t)) }, ["Start from template"]),
           t.source ? el("a", { class: "btn small secondary", href: t.source.url, target: "_blank", rel: "noopener" }, ["View product page ↗"]) : null,
@@ -2238,7 +2247,8 @@
         ? el("div", { class: "library-section library-section-current" }, [el("h3", { class: "library-section-heading" }, ["Currently editing"]), renderLibraryCurrent()])
         : el("div", { class: "element-desc" }, ["Select a saved " + NOUN + " or template below to see what you can do with it."]),
       el("div", { class: "library-section library-section-saved" }, [el("h3", { class: "library-section-heading" }, ["Saved " + NOUN + "s"]), list]),
-      templates.length ? el("div", { class: "library-section library-section-templates" }, [el("h3", { class: "library-section-heading" }, ["Design templates"]), templateList]) : null,
+      ...TEMPLATE_GROUPS.filter((g) => templates.some((t) => groupOf(t) === g)).map((g) =>
+        el("div", { class: "library-section library-section-templates library-section-" + g.id }, [el("h3", { class: "library-section-heading" }, [g.label]), groupLists[g.id]])),
     ]);
     const overlay = el("div", { class: "modal-overlay" }, [dialog]);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });

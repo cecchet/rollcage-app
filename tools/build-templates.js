@@ -14,23 +14,21 @@ const OUT_FILE = path.join(__dirname, "..", "templates.js");
 // Rollcage pictures for a template: [file in images/templates/<id>/, picture category].
 const pics = (id, list) => list.map(([file, category]) => ({ src: "images/templates/" + id + "/" + file, category }));
 
-// Listed in library order; `name` overrides the export's own vehicle name.
+// Listed in library order, grouped into the library's sections by `group`:
+// "design" (Design templates), "kit" (Rollcage kits -- based on a vendor's
+// kit: the card links to its product page, with a snapshot of that page as
+// thumbnail) and "sample" (Race car samples -- real cars' exports). All of
+// them behave as templates. `name` overrides the export's own vehicle name.
+// `withPictures`: the export's own rollcage pictures (with their tags) and
+// vehicle photos are extracted to images/templates/<id>/ and loaded when
+// starting from it.
 const TEMPLATES = [
-  // "Rally cage 1/2.json" (double V / double X) are no longer listed --
-  // the vendor-kit Subaru templates below cover the same designs. Rally
-  // cage 2.json is still the base the kit samples were derived from.
-  // Replaces the former "Road racing" template. `withPictures`: the export's
-  // own rollcage pictures (with their tags) and vehicle photos are extracted
-  // to images/templates/<id>/ and loaded when starting from it.
-  { id: "porsche-gt3-cup", file: "Porsche GT3 Cup Car.json", withPictures: true },
-  { id: "audi-rs4-rally", file: "RS4 Rally car.json", withPictures: true },
-  { id: "half-rollcage", file: "Rollbar _ half rollcage.json" },
-  // Based on a vendor's cage kit: the library card links to its product
-  // page, with a snapshot of that page (images/templates/) as thumbnail.
+  { group: "design", id: "half-rollcage", file: "Rollbar _ half rollcage.json" },
+  { group: "design", id: "rally-cage-double-v", file: "Rally cage 1.json", name: "Rally cage double V" },
   // Custom Cages' own diagrams don't match their installed cages, so only
   // the installation photos are used as pictures.
   {
-    id: "subaru-vab-custom-cages", file: "Custom Cages Subaru VAB.json",
+    group: "kit", id: "subaru-vab-custom-cages", file: "Custom Cages Subaru VAB.json",
     source: { label: "Custom Cages", url: "https://customcages.co.uk/products/subaru-impreza-vab-international-multipoint-t45-roll-cage-kit-fia-certificated", thumbnail: "images/templates/subaru-vab-custom-cages.jpg" },
     pictures: pics("subaru-vab-custom-cages", [
       ["4.jpg", "overview"], ["5.jpg", "overview"], ["6.jpg", "overview"], ["7.jpg", "overview"],
@@ -40,7 +38,7 @@ const TEMPLATES = [
     ]),
   },
   {
-    id: "ford-fiesta-mk6-custom-cages", file: "Custom Cages Ford Fiesta Mk6.json",
+    group: "kit", id: "ford-fiesta-mk6-custom-cages", file: "Custom Cages Ford Fiesta Mk6.json",
     source: { label: "Custom Cages", url: "https://customcages.co.uk/products/ford-fiesta-mk-6-junior-international-multipoint-cds-roll-cage-kit-fia-msuk-certificated", thumbnail: "images/templates/ford-fiesta-mk6-custom-cages.jpg" },
     pictures: pics("ford-fiesta-mk6-custom-cages", [
       ["6.jpg", "overview"],
@@ -51,12 +49,34 @@ const TEMPLATES = [
     ]),
   },
   {
-    id: "subaru-gc-broken-motorsports", file: "Broken Motorsports Subaru GC.json",
+    group: "kit", id: "subaru-gc-broken-motorsports", file: "Broken Motorsports Subaru GC.json",
     source: { label: "Broken Motorsports", url: "https://bleedingtarmac.com/products/broken-motorsports-subaru-gc-roll-cage-kit", thumbnail: "images/templates/subaru-gc-broken-motorsports.jpg" },
     // Only the kit's diagrams (3D line drawing, general arrangement sheet,
     // 4-view drawing).
     pictures: pics("subaru-gc-broken-motorsports", [["1.jpg", "overview"], ["2.jpg", "overview"], ["3.jpg", "overview"]]),
   },
+  {
+    group: "kit", id: "mazda-mx5-cagekits", file: "CageKits Mazda MX-5 Miata.json",
+    source: { label: "CageKits", url: "https://cagekits.org/product/mx-5-miata-road-race-roll-cage-kit/", thumbnail: "images/templates/mazda-mx5-cagekits.jpg" },
+    // CageKits' renders (used with permission).
+    pictures: pics("mazda-mx5-cagekits", [
+      ["1.jpg", "overview"], ["2.jpg", "overview"], ["3.jpg", "overview"], ["4.jpg", "overview"],
+      ["5.jpg", "roof_bars"],
+    ]),
+  },
+  {
+    group: "kit", id: "datsun-240z-cagekits", file: "CageKits Datsun 240Z NHRA.json",
+    source: { label: "CageKits", url: "https://cagekits.org/product/240z-nhra-8-5-chromoly-roll-cage-kit/", thumbnail: "images/templates/datsun-240z-cagekits.jpg" },
+    pictures: pics("datsun-240z-cagekits", [
+      ["1.jpg", "overview"], ["3.jpg", "overview"], ["4.jpg", "overview"],
+      ["5.jpg", "roof_bars"],
+    ]),
+  },
+  // The Porsche replaces the former "Road racing" template. Rally cage 2.json
+  // (double X) is no longer listed; it's still the base the kit samples
+  // were derived from.
+  { group: "sample", id: "porsche-gt3-cup", file: "Porsche GT3 Cup Car.json", withPictures: true },
+  { group: "sample", id: "audi-rs4-rally", file: "RS4 Rally car.json", withPictures: true },
 ];
 
 // Writes an export's data-URL image to images/templates/<id>/<name>.<ext>
@@ -111,6 +131,7 @@ const out = TEMPLATES.map((t) => {
   Object.entries(d.answers || {}).forEach(([k, v]) => { if (!DROPPED_ANSWERS.test(k)) answers[k] = { ...v, photos: [] }; });
   return {
     templateId: t.id,
+    group: t.group || "design",
     // No sanctioning body by default -- picked in Part 6, like a new cage.
     vehicle: { ...d.vehicle, name: t.name || d.vehicle.name, org: "none", logbookDate: "" },
     pathId: d.pathId || "new_construction",

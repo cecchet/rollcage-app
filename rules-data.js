@@ -65,11 +65,13 @@
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8 (CHS)", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
+    { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   const NASA_SECONDARY_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8 (CHS)", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
+    { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
 
   // ARA -- per ARA RTR 2.2.2(c)(2)(c)/(d). Unlike NASA, ARA's Docol R8
@@ -81,16 +83,19 @@
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
+    { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   const ARA_SECONDARY_STD_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8 (\"all other parts\" spec)", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.065 }] },
     { material: "t45", label: "T45", manualOnly: true },
+    { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   const ARA_SECONDARY_REINF_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8 (diagonal/reinforcement spec)", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
+    { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   // Used by ARA's grandfathered path only (untouched further down).
   const ARA_ADDON_TUBING = [
@@ -105,10 +110,12 @@
   const CARS_PRIMARY_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
+    { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   const CARS_SECONDARY_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
+    { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   // 2000-2008 grandfathered era table (Appendix 29.1.13), used by CARS's
   // grandfathered path only (untouched further down, kept in its original
@@ -782,6 +789,12 @@
         { id: "main_diagonal_other", label: "253-7: Main rollbar diagonal -- Other (2 half bars, same spec)" },
       ];
     }
+    // A single tube: one row, keeping the row id of the mesh it uses (see
+    // mainDiagFileTubeRow / harnessBarTubeRow in app.js) so a spec entered
+    // before stays put. Not 253-7, which is only the X.
+    if (value === "diag-left") return [{ id: "main_diagonals_left", label: "Main rollbar diagonal (top on left side)" }];
+    if (value === "diag-right") return [{ id: "main_diagonals_right", label: "Main rollbar diagonal (top on right side)" }];
+    if (value === "diag-horizontal") return [{ id: "main_diagonals_left", label: "Main rollbar horizontal bar" }];
     return [
       { id: "main_diagonals_left", label: "253-7: Main rollbar diagonal -- Left" },
       { id: "main_diagonals_right", label: "253-7: Main rollbar diagonal -- Right" },
@@ -3174,11 +3187,13 @@
     { material: "cds_dom", label: "Cold drawn seamless carbon steel (min 350 N/mm2)", combos: [{ minDiameterIn: mm(45), minThicknessIn: mm(2.5) }, { minDiameterIn: mm(50), minThicknessIn: mm(2.0) }, { minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8", manualOnly: true },
     { material: "t45", label: "T45", manualOnly: true },
+    { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   const FIA_SECONDARY_REQ = [
     { material: "cds_dom", label: "Cold drawn seamless carbon steel (min 350 N/mm2)", combos: [{ minDiameterIn: mm(38), minThicknessIn: mm(2.5) }, { minDiameterIn: mm(40), minThicknessIn: mm(2.0) }, { minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8", manualOnly: true },
     { material: "t45", label: "T45", manualOnly: true },
+    { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   const FIA_RULES = {
     org: "FIA",
