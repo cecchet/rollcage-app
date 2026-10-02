@@ -19,7 +19,11 @@ const TEMPLATES = [
   // "Rally cage 1/2.json" (double V / double X) are no longer listed --
   // the vendor-kit Subaru templates below cover the same designs. Rally
   // cage 2.json is still the base the kit samples were derived from.
-  { id: "road-racing", file: "Road racing.json" },
+  // Replaces the former "Road racing" template. `withPictures`: the export's
+  // own rollcage pictures (with their tags) and vehicle photos are extracted
+  // to images/templates/<id>/ and loaded when starting from it.
+  { id: "porsche-gt3-cup", file: "Porsche GT3 Cup Car.json", withPictures: true },
+  { id: "audi-rs4-rally", file: "RS4 Rally car.json", withPictures: true },
   { id: "half-rollcage", file: "Rollbar _ half rollcage.json" },
   // Based on a vendor's cage kit: the library card links to its product
   // page, with a snapshot of that page (images/templates/) as thumbnail.
@@ -49,16 +53,62 @@ const TEMPLATES = [
   {
     id: "subaru-gc-broken-motorsports", file: "Broken Motorsports Subaru GC.json",
     source: { label: "Broken Motorsports", url: "https://bleedingtarmac.com/products/broken-motorsports-subaru-gc-roll-cage-kit", thumbnail: "images/templates/subaru-gc-broken-motorsports.jpg" },
+    // Only the kit's diagrams (3D line drawing, general arrangement sheet,
+    // 4-view drawing).
+    pictures: pics("subaru-gc-broken-motorsports", [["1.jpg", "overview"], ["2.jpg", "overview"], ["3.jpg", "overview"]]),
   },
 ];
 
+// Writes an export's data-URL image to images/templates/<id>/<name>.<ext>
+// and returns its src (relative to the app).
+function writeImage(id, name, dataUrl) {
+  const m = /^data:image\/(jpeg|png|webp);base64,(.*)$/.exec(dataUrl || "");
+  if (!m) return null;
+  const dir = path.join(__dirname, "..", "images", "templates", id);
+  fs.mkdirSync(dir, { recursive: true });
+  const file = name + "." + (m[1] === "jpeg" ? "jpg" : m[1]);
+  fs.writeFileSync(path.join(dir, file), Buffer.from(m[2], "base64"));
+  return "images/templates/" + id + "/" + file;
+}
+// An export's rollcage pictures (photo, tags, "Selected parts" snapshot)
+// and 3/4 front/rear vehicle photos, as template pictures.
+function exportPictures(t, d) {
+  const images = d.images || {};
+  const pictures = (d.pictures || []).map((p, i) => {
+    const rec = images[p.id] || {};
+    const src = writeImage(t.id, String(i + 1), rec.photo);
+    if (!src) return null;
+    const screenshot = p.hasScreenshot ? writeImage(t.id, (i + 1) + "-parts", rec.screenshot) : null;
+    return {
+      src, category: p.category || "overview",
+      elements: p.elements || [], aiSuggestions: p.aiSuggestions || [],
+      ...(screenshot ? { screenshot } : {}),
+    };
+  }).filter(Boolean);
+  const vehiclePhotos = {};
+  ["front", "rear"].forEach((slot) => {
+    const ref = d.vehiclePhotos && d.vehiclePhotos[slot];
+    const src = ref && writeImage(t.id, "vehicle-" + slot, (images[ref.id] || {}).photo);
+    if (src) vehiclePhotos[slot] = src;
+  });
+  return { pictures, vehiclePhotos };
+}
+// Identifies one real car or person (VIN, owner / builder / inspector
+// contacts, inspection and logbook details) -- never part of a template.
+const DROPPED_ANSWERS = /^vehicle_(vin|owner_|builder_|inspector_|inspection_|logbook_|description_notes)/;
+
 const out = TEMPLATES.map((t) => {
   const d = JSON.parse(fs.readFileSync(path.join(SAMPLES_DIR, t.file), "utf8"));
+  if (t.withPictures) {
+    const fromExport = exportPictures(t, d);
+    t.pictures = fromExport.pictures;
+    if (Object.keys(fromExport.vehiclePhotos).length) t.vehiclePhotos = fromExport.vehiclePhotos;
+  }
   (t.pictures || []).forEach((p) => {
     if (!fs.existsSync(path.join(__dirname, "..", p.src))) throw new Error("Missing template picture " + p.src);
   });
   const answers = {};
-  Object.entries(d.answers || {}).forEach(([k, v]) => { answers[k] = { ...v, photos: [] }; });
+  Object.entries(d.answers || {}).forEach(([k, v]) => { if (!DROPPED_ANSWERS.test(k)) answers[k] = { ...v, photos: [] }; });
   return {
     templateId: t.id,
     // No sanctioning body by default -- picked in Part 6, like a new cage.
@@ -67,6 +117,7 @@ const out = TEMPLATES.map((t) => {
     answers,
     ...(t.source ? { source: t.source } : {}),
     ...(t.pictures ? { pictures: t.pictures } : {}),
+    ...(t.vehiclePhotos ? { vehiclePhotos: t.vehiclePhotos } : {}),
   };
 });
 

@@ -2056,27 +2056,41 @@
     render();
     loadTemplatePictures(t, state.sessionId);
   }
-  // A vendor-kit template's rollcage pictures (templates.js `pictures`):
-  // each is fetched, stored like an uploaded photo and added untagged to its
-  // category -- unless another rollcage has been opened meanwhile.
+  // A template's pictures (templates.js `pictures`, `vehiclePhotos`): each
+  // is fetched and stored like an uploaded photo -- rollcage pictures in
+  // their category with their tags (and "Selected parts" snapshot) if the
+  // template has any, vehicle photos in their 3/4 front/rear slot -- unless
+  // another rollcage has been opened meanwhile.
   function loadTemplatePictures(t, sessionId) {
-    if (!t.pictures || !t.pictures.length) return;
+    const vehicleSlots = Object.keys(t.vehiclePhotos || {});
+    if (!(t.pictures || []).length && !vehicleSlots.length) return;
     const toDataUrl = (blob) => new Promise((resolve, reject) => {
       const r = new FileReader();
       r.onload = () => resolve(r.result);
       r.onerror = reject;
       r.readAsDataURL(blob);
     });
-    Promise.all(t.pictures.map((p) => fetch(p.src).then((resp) => { if (!resp.ok) throw new Error(p.src); return resp.blob(); }).then(toDataUrl).then((photo) => ({ p, photo })).catch(() => null)))
-      .then((loaded) => {
-        if (state.sessionId !== sessionId) return;
-        loaded.filter(Boolean).forEach(({ p, photo }) => {
-          const id = picUid();
-          state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false, category: p.category });
-          putPictureRecord(id, { photo, screenshot: null });
-        });
-        render();
+    const fetchImage = (src) => (src
+      ? fetch(src).then((resp) => { if (!resp.ok) throw new Error(src); return resp.blob(); }).then(toDataUrl).catch(() => null)
+      : Promise.resolve(null));
+    const clone = (v) => JSON.parse(JSON.stringify(v || []));
+    Promise.all([
+      Promise.all((t.pictures || []).map((p) => Promise.all([fetchImage(p.src), fetchImage(p.screenshot)]).then(([photo, screenshot]) => ({ p, photo, screenshot })))),
+      Promise.all(vehicleSlots.map((slot) => fetchImage(t.vehiclePhotos[slot]).then((photo) => ({ slot, photo })))),
+    ]).then(([pictures, vehicle]) => {
+      if (state.sessionId !== sessionId) return;
+      pictures.filter((x) => x.photo).forEach(({ p, photo, screenshot }) => {
+        const id = picUid();
+        state.pictures.push({ id, elements: clone(p.elements), aiSuggestions: clone(p.aiSuggestions), hasScreenshot: !!screenshot, category: p.category });
+        putPictureRecord(id, { photo, screenshot: screenshot || null });
       });
+      vehicle.filter((x) => x.photo).forEach(({ slot, photo }) => {
+        const id = picUid();
+        state.vehiclePhotos = Object.assign({}, state.vehiclePhotos, { [slot]: { id } });
+        putPictureRecord(id, { photo, screenshot: null });
+      });
+      render();
+    });
   }
   // Templates have no saved snapshot, so each one's is rendered once per
   // page load by briefly swapping its answers into state, applying them to
@@ -2188,9 +2202,11 @@
           thumb
             ? el("img", { class: "load-dialog-model", src: thumb, alt: "3D model" })
             : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
-          // A template based on a vendor's kit: a snapshot of its product
-          // page (the vendor's own photos stay on their site -- see the link).
-          t.source && t.source.thumbnail ? el("img", { class: "load-dialog-photo", src: t.source.thumbnail, alt: t.source.label + " product page" }) : null,
+          // The template's 3/4 front car photo, like a saved card -- or, for
+          // a template based on a vendor's kit, a snapshot of its product page.
+          t.vehiclePhotos && t.vehiclePhotos.front
+            ? el("img", { class: "load-dialog-photo", src: t.vehiclePhotos.front, alt: "3/4 front photo" })
+            : t.source && t.source.thumbnail ? el("img", { class: "load-dialog-photo", src: t.source.thumbnail, alt: t.source.label + " product page" }) : null,
         ],
         name: t.vehicle.name,
         date: t.source ? "Design template · based on a kit from " + t.source.label : "Design template",
