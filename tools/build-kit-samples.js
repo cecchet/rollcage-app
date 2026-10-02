@@ -311,8 +311,11 @@ make("9hio Honda Fit rally.json", "Honda Fit -- 9hio rally cage", nineHio({
   backstay_diagonals: { value: "253-22" },
   rear_transversal_present: { value: "yes" },
   rear_lateral_reinforcement_present: { value: "upper" },
-  gusset_design__a_pillar_side_left__design: { value: "taco" },
-  gusset_design__a_pillar_side_right__design: { value: "taco" },
+  // 2-piece 253-15 with upper front / lower rear gussets, 253-25.
+  a_pillar_reinforcement: { value: "two_bars" },
+  ...Object.fromEntries(["left", "right"].flatMap((s) => ["upper_front", "upper_rear", "lower_front", "lower_rear"].map((p) =>
+    ["gusset_design__a_pillar_2pc_" + s + "_" + p + "__design", { value: p === "upper_front" || p === "lower_rear" ? "taco" : "" }]))),
+  anti_intrusion_present: { value: "yes" },
   // 253-31 temple bars and windshield reinforcements, both sides.
   temple_bar_present: { value: "both" },
   windshield_reinforcement_present: { value: "both" },
