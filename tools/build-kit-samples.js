@@ -217,6 +217,88 @@ make("CageKits BMW E92 roll bar.json", "BMW E92 -- CageKits roll bar", {
   vehicle_builder: { value: "CageKits (kit)" },
 }, ROLLBAR_BASE);
 
+// 9hio custom cages (from 9hio's walk-around videos), all DOM tubing.
+const DOM_TUBING = {
+  primary_tubing: { value: { material: "cds_dom", diameter: { val: 1.75, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
+  secondary_tubing: { value: { material: "cds_dom", diameter: { val: 1.5, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
+};
+const nineHio = (vehicle) => Object.assign({}, common, DOM_TUBING, { a_pillar_reinforcement: { value: "continuous" }, vehicle_drive_side: { value: "lhd" }, vehicle_builder: { value: "9hio" } }, vehicle);
+make("9hio Subaru BRZ rally.json", "Subaru BRZ -- 9hio rally cage", nineHio({
+  // 253-14 roof with its 253-22 backstay V.
+  roof_bars: { value: "253-14" },
+  backstay_diagonals: { value: "253-22" },
+  vehicle_codriver: { value: "yes" },
+  vehicle_manufacturer: { value: "Subaru" }, vehicle_model: { value: "BRZ" }, vehicle_year: { value: "2015" },
+  vehicle_weight: { value: { value: "2800", unit: "lb" } }, // approx. stock curb weight
+}));
+make("9hio Subaru STI hillclimb.json", "Subaru WRX STI -- 9hio hillclimb cage", nineHio({
+  // 253-14 roof with its 253-22 backstay V, sill bars both sides, 253-17
+  // lower bar, 2-piece 253-15 with upper front / lower rear gussets.
+  roof_bars: { value: "253-14" },
+  backstay_diagonals: { value: "253-22" },
+  door_bars_left: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
+  door_bars_right: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
+  rear_lateral_reinforcement_present: { value: "lower" },
+  a_pillar_reinforcement: { value: "two_bars" },
+  gusset_design__a_pillar_2pc_left_upper_front__design: { value: "taco" },
+  gusset_design__a_pillar_2pc_left_lower_rear__design: { value: "taco" },
+  gusset_design__a_pillar_2pc_left_upper_rear__design: { value: "" },
+  gusset_design__a_pillar_2pc_left_lower_front__design: { value: "" },
+  gusset_design__a_pillar_2pc_right_upper_front__design: { value: "taco" },
+  gusset_design__a_pillar_2pc_right_lower_rear__design: { value: "taco" },
+  gusset_design__a_pillar_2pc_right_upper_rear__design: { value: "" },
+  gusset_design__a_pillar_2pc_right_lower_front__design: { value: "" },
+  vehicle_codriver: { value: "no" },
+  vehicle_manufacturer: { value: "Subaru" }, vehicle_model: { value: "WRX STI" }, vehicle_year: { value: "2016" },
+  vehicle_weight: { value: { value: "3400", unit: "lb" } }, // approx. stock curb weight
+}));
+// Single main hoop diagonal topping out on the driver side, 253-21 X in the
+// rear (no gussets), 2-piece 253-15 (no gussets), sill bars both sides,
+// 253-17 lower bar, 253-31 temple bars and windshield reinforcements both
+// sides, 253-54 multiplane box main hoop feet.
+make("9hio BMW road racing.json", "BMW E46 M3 -- 9hio road racing cage", nineHio({
+  roof_bars: { value: "single-front-left" },
+  main_hoop_diagonals: { value: "diag-left" },
+  tubing_bar_classification__main_diagonals_left__spec: { value: "primary" },
+  backstay_diagonals: { value: "253-21-1" },
+  gusset_design__backstay_diag_left__design: { value: "" },
+  gusset_design__backstay_diag_right__design: { value: "" },
+  gusset_design__backstay_diag_upper__design: { value: "" },
+  gusset_design__backstay_diag_lower__design: { value: "" },
+  a_pillar_reinforcement: { value: "two_bars" },
+  ...Object.fromEntries(["left", "right"].flatMap((s) => ["upper_front", "upper_rear", "lower_front", "lower_rear"].map((p) => ["gusset_design__a_pillar_2pc_" + s + "_" + p + "__design", { value: "" }]))),
+  door_bars_left: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
+  door_bars_right: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
+  rear_lateral_reinforcement_present: { value: "lower" },
+  temple_bar_present: { value: "both" },
+  windshield_reinforcement_present: { value: "both" },
+  mounting_feet_design__main_hoop_left__design: { value: "multiplane_box" },
+  mounting_feet_design__main_hoop_right__design: { value: "multiplane_box" },
+  vehicle_codriver: { value: "no" },
+  vehicle_manufacturer: { value: "BMW" }, vehicle_model: { value: "M3 (E46)" }, vehicle_year: { value: "2003" },
+  vehicle_weight: { value: { value: "3400", unit: "lb" } }, // approx. stock curb weight
+}));
+// 253-21 X in the rear, 253-31 temple bars and windshield reinforcements
+// both sides.
+make("9hio Ford Mustang road racing.json", "Ford Mustang -- 9hio road racing cage", nineHio({
+  roof_bars: { value: "single-front-left" },
+  main_hoop_diagonals: { value: "diag-left" },
+  tubing_bar_classification__main_diagonals_left__spec: { value: "primary" },
+  backstay_diagonals: { value: "253-21-1" },
+  temple_bar_present: { value: "both" },
+  windshield_reinforcement_present: { value: "both" },
+  // No gussets at the 253-21 X or the 1-bar 253-15 ("" = answered None).
+  gusset_design__backstay_diag_left__design: { value: "" },
+  gusset_design__backstay_diag_right__design: { value: "" },
+  gusset_design__backstay_diag_upper__design: { value: "" },
+  gusset_design__backstay_diag_lower__design: { value: "" },
+  gusset_design__a_pillar_side_left__design: { value: "" },
+  gusset_design__a_pillar_side_right__design: { value: "" },
+  vehicle_codriver: { value: "no" },
+  vehicle_manufacturer: { value: "Ford" }, vehicle_model: { value: "Mustang (S550)" }, vehicle_year: { value: "2018" },
+  vehicle_weight: { value: { value: "3700", unit: "lb" } }, // approx. stock curb weight
+}));
+
 // Also: 253-31 temple bars and sill bars on both sides, and a 2-piece
 // 253-15 with 2 gussets per side (upper front, lower rear).
 make("Broken Motorsports Subaru GC.json", "Subaru Impreza GC -- Broken Motorsports DOM tubing", Object.assign({}, common, {

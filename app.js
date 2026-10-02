@@ -2191,16 +2191,29 @@
     const sessions = Object.values(loadAll()).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
     // A library card: clicking it selects it, and only the selected card
     // shows its own actions, right on it -- so it's clear what they apply to.
-    const libraryCard = ({ selected, onSelect, images, name, date, actions }) => el("div", {
-      class: "load-dialog-item" + (selected ? " selected" : ""), id: selected ? "library-selected" : null,
-    }, [
-      el("button", { type: "button", class: "load-dialog-card" + (selected ? " selected" : ""), "aria-pressed": selected ? "true" : "false", onclick: onSelect }, [
+    // dateLink ({ before, label, url }): a subtitle with a link in it -- a
+    // link can't go inside the card's button, so it's laid over the
+    // button's (space-keeping, invisible) subtitle line instead.
+    const libraryCard = ({ selected, onSelect, images, name, date, dateLink, actions }) => {
+      const dateText = dateLink ? dateLink.before + dateLink.label : date;
+      const button = el("button", { type: "button", class: "load-dialog-card" + (selected ? " selected" : ""), "aria-pressed": selected ? "true" : "false", onclick: onSelect }, [
         el("div", { class: "load-dialog-images" }, images),
         el("div", { class: "load-dialog-name" }, [name]),
-        el("div", { class: "load-dialog-date" }, [date]),
-      ]),
-      selected ? el("div", { class: "library-card-actions" }, actions) : null,
-    ]);
+        el("div", { class: "load-dialog-date" + (dateLink ? " load-dialog-date-placeholder" : "") }, [dateText]),
+      ]);
+      return el("div", { class: "load-dialog-item" + (selected ? " selected" : ""), id: selected ? "library-selected" : null }, [
+        dateLink
+          ? el("div", { class: "load-dialog-card-wrap" }, [
+              button,
+              el("div", { class: "load-dialog-date load-dialog-date-link" }, [
+                dateLink.before,
+                el("a", { href: dateLink.url, target: "_blank", rel: "noopener" }, [dateLink.label]),
+              ]),
+            ])
+          : button,
+        selected ? el("div", { class: "library-card-actions" }, actions) : null,
+      ]);
+    };
     const openSelected = (fn) => () => confirmDiscardIfDirty(() => { state.libraryOpen = false; fn(); });
     const list = el("div", { class: "load-dialog-list" });
     if (!sessions.length) list.appendChild(el("div", { class: "ai-status" }, ["No saved " + NOUN + "s yet."]));
@@ -2240,7 +2253,7 @@
     const TEMPLATE_GROUPS = [
       { id: "design", label: "Design templates", listId: "library-templates", cardLabel: () => "Design template" },
       { id: "kit", label: "Rollcage kits", listId: "library-kits", cardLabel: (t) => (t.source ? "Rollcage kit from " + t.source.label : "Rollcage kit") },
-      { id: "sample", label: "Custom cages sample", listId: "library-samples", cardLabel: () => "Custom cage sample" },
+      { id: "sample", label: "Custom cages samples", listId: "library-samples", cardLabel: () => "Custom cage sample" },
     ];
     const groupLists = {};
     TEMPLATE_GROUPS.forEach((g) => { groupLists[g.id] = el("div", { class: "load-dialog-list", id: g.listId }); });
@@ -2265,6 +2278,7 @@
         ],
         name: t.vehicle.name,
         date: t.subtitle || groupOf(t).cardLabel(t),
+        dateLink: t.subtitleLink,
         actions: [
           el("button", { class: "btn small", onclick: openSelected(() => startFromTemplate(t)) }, ["Start from template"]),
           t.source ? el("a", { class: "btn small secondary", href: t.source.url, target: "_blank", rel: "noopener" }, ["View product page ↗"]) : null,
@@ -8179,11 +8193,19 @@
   // clicking a bar while already on Part 2 scrolls to and flashes that row
   // instead of switching to Part 1's design-choice card -- a band-split
   // file (see tubeRowSplitBand) covers 2 rows on one mesh, so both flash.
+  // A table row's card may have been collapsed (once complete) -- its rows
+  // aren't on the page then, so it's expanded (and re-rendered) first.
+  function expandTableCard(elmId) {
+    if (state.expandedIds[elmId] === true) return;
+    state.expandedIds[elmId] = true;
+    render();
+  }
   function jumpToTubeRow(file) {
     const band = tubeRowSplitBand(file);
     const row = fileTubeRow(file);
     const rowIds = band ? [band.insideRow, band.outsideRow] : row ? [row] : [];
     if (!rowIds.length) return;
+    expandTableCard("tubing_bar_classification");
     let first = null;
     rowIds.forEach((rowId) => {
       const rowEl = document.getElementById("row-tubing_bar_classification__" + rowId);
@@ -8205,6 +8227,7 @@
   }
   function jumpToFootRow(row) {
     state.activeTab = 1;
+    state.expandedIds.mounting_feet_design = true;
     render();
     const rowEl = document.getElementById("row-mounting_feet_design__" + row);
     if (!rowEl) return;
@@ -8215,6 +8238,7 @@
   // table -- stays on Part 2 (that table is already on screen) instead of
   // switching to Part 1's design table.
   function jumpToFootSizeRow(row) {
+    expandTableCard("mounting_feet_size");
     const rowEl = document.getElementById("row-mounting_feet_size__" + row);
     if (!rowEl) return;
     scrollBelowViewer(rowEl, { center: true });
@@ -8227,6 +8251,7 @@
   }
   function jumpToGussetRow(row) {
     state.activeTab = 1;
+    state.expandedIds.gusset_design = true;
     render();
     const rowEl = document.getElementById("row-gusset_design__" + row);
     if (!rowEl) return;

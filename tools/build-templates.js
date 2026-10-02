@@ -114,6 +114,7 @@ const TEMPLATES = [
       ["main_hoop_diagonals", "253-7-2"], ["backstays", "yes"], ["backstay_diagonals", "253-21-1"], ["roof_bars", "253-12-1"],
       ["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }], ["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }],
       ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"], ["temple_bar_present", "both"],
+      ["a_pillar_reinforcement", "two_bars"],
     ]])),
   },
   {
@@ -166,8 +167,37 @@ const TEMPLATES = [
   // (double X) is no longer listed; it's still the base the kit samples
   // were derived from.
   { group: "sample", id: "porsche-gt3-cup", file: "Porsche GT3 Cup Car.json", withPictures: true },
-  // `subtitle` replaces the card's default line (here, "Race car sample").
-  { group: "sample", id: "audi-rs4-rally", file: "RS4 Rally car.json", withPictures: true, subtitle: "Rollcage by CAS Competition" },
+  // `subtitle` replaces the card's default line (here, "Custom cage sample").
+  {
+    group: "sample", id: "audi-rs4-rally", file: "RS4 Rally car.json", withPictures: true,
+    subtitleLink: { before: "Rollcage by ", label: "CAS Competition", url: "https://www.facebook.com/cas.competition/" },
+  },
+  // 9hio cages: frames from 9hio's walk-around videos as pictures (and the
+  // 3/4 front shot as the vehicle photo); the card links to 9hio.
+  ...[
+    ["brz-rally-9hio", "9hio Subaru BRZ rally.json", [["1.jpg", "door_bars_left"], ["2.jpg", "main_rollbar"], ["3.jpg", "backstay_diagonals"], ["4.jpg", "overview"], ["5.jpg", "door_bars_right"],
+      // Looking up at the 253-14 roof, the 253-22 backstay V and the main hoop X.
+      ["6.jpg", "roof_bars", [["roof_bars", "253-14"], ["backstay_diagonals", "253-22"], ["main_hoop_diagonals", "253-7-2"]]]]],
+    ["subaru-sti-hillclimb-9hio", "9hio Subaru STI hillclimb.json", [["1.jpg", "overview"], ["2.jpg", "door_bars_left"],
+      // From the rear: the 253-14 roof, the 253-22 backstay V and the main hoop X.
+      ["3.jpg", "main_rollbar", [["roof_bars", "253-14"], ["backstay_diagonals", "253-22"], ["main_hoop_diagonals", "253-7-2"]]],
+      ["4.jpg", "door_bars_right"]]],
+    ["bmw-road-racing-9hio", "9hio BMW road racing.json", [["1.jpg", "door_bars_left"], ["2.jpg", "overview"], ["3.jpg", "main_rollbar"], ["4.jpg", "overview"],
+      // Across the cabin: the 253-31 temple bars and windshield reinforcements.
+      ["5.jpg", "overview", [["temple_bar_present", "both"], ["windshield_reinforcement_present", "both"]]]]],
+    // The user's own frame grabs from the video.
+    ["mustang-road-racing-9hio", "9hio Ford Mustang road racing.json", [
+      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"]]],
+      ["2.jpg", "main_rollbar", [["main_hoop_diagonals", "diag-left"], ["harness_bar_present", "253-26-27"]]],
+      ["3.jpg", "door_bars_right", [["door_bars_right", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"]]],
+      ["4.jpg", "backstay_diagonals", [["backstays", "yes"], ["backstay_diagonals", "253-21-1"], ["main_hoop_diagonals", "diag-left"], ["harness_bar_present", "253-26-27"]]],
+    ]],
+  ].map(([id, file, list]) => ({
+    group: "sample", id, file,
+    subtitleLink: { before: "Rollcage by ", label: "9hio", url: "https://9hio.com/" },
+    pictures: pics(id, list),
+    vehiclePhotos: { front: "images/templates/" + id + "/vehicle-front.jpg" },
+  })),
 ];
 
 // Writes an export's data-URL image to images/templates/<id>/<name>.<ext>
@@ -235,6 +265,7 @@ const out = TEMPLATES.map((t) => {
     ...(t.pictures ? { pictures: t.pictures } : {}),
     ...(t.vehiclePhotos ? { vehiclePhotos: t.vehiclePhotos } : {}),
     ...(t.subtitle ? { subtitle: t.subtitle } : {}),
+    ...(t.subtitleLink ? { subtitleLink: t.subtitleLink } : {}),
     ...(t.cardPhoto ? { cardPhoto: t.cardPhoto } : {}),
   };
 });
