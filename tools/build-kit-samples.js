@@ -1,17 +1,21 @@
 // Builds the design-samples/*.json files for the "Rollcage kits" templates
-// (Custom Cages, Broken Motorsports, CageKits) from "Rally cage 2.json":
-// every kit starts from that sample's answers (feet, gussets, welds,
-// distances...), overrides its own design answers below, and drops every
-// personal / logbook field. Run it after editing a kit, then
+// (Custom Cages, Broken Motorsports, CageKits) from a base sample --
+// "Rally cage 2.json" for full cages, "Rollbar _ half rollcage.json" for a
+// roll bar: every kit starts from that sample's answers (feet, gussets,
+// welds, distances...), overrides its own design answers below, and drops
+// every personal / logbook field. Run it after editing a kit, then
 // tools/build-templates.js to regenerate templates.js:
 //   node app/tools/build-kit-samples.js && node app/tools/build-templates.js
 const fs = require("fs");
 const path = require("path");
 const dir = path.join(__dirname, "..", "..", "design-samples") + path.sep;
-const base = JSON.parse(fs.readFileSync(dir + "Rally cage 2.json", "utf8"));
+const loadSample = (file) => JSON.parse(fs.readFileSync(dir + file, "utf8"));
+const CAGE_BASE = "Rally cage 2.json";
+const ROLLBAR_BASE = "Rollbar _ half rollcage.json";
 const PERSONAL = /^vehicle_(owner|builder_|inspector|inspection|logbook|description_notes)/;
 
-function make(file, name, overrides) {
+function make(file, name, overrides, baseFile) {
+  const base = loadSample(baseFile || CAGE_BASE);
   const answers = {};
   Object.entries(base.answers).forEach(([k, v]) => {
     if (PERSONAL.test(k) || k === "vehicle_logbook_body") return;
@@ -112,6 +116,7 @@ make("CageKits Mazda MX-5 Miata.json", "Mazda MX-5 Miata NA/NB -- CageKits road 
   windshield_reinforcement_present: { value: "both" },
   // No 253-15 bars, so no tube rows for them either.
   a_pillar_reinforcement: { value: "none" },
+  a_pillar_dimension_a: undefined, // not known for this kit
   tubing_bar_classification__a_pillar_left__spec: undefined,
   tubing_bar_classification__a_pillar_right__spec: undefined,
   // No gussets at the backstay X or the A-pillars ("" = answered None).
@@ -148,6 +153,7 @@ make("CageKits Datsun 240Z NHRA.json", "Datsun 240Z -- CageKits NHRA 8.50 chromo
   main_hoop_diagonals: { value: "diag-lower-half" },
   // No 253-15 bars, so no tube rows for them either.
   a_pillar_reinforcement: { value: "none" },
+  a_pillar_dimension_a: undefined, // not known for this kit
   tubing_bar_classification__a_pillar_left__spec: undefined,
   tubing_bar_classification__a_pillar_right__spec: undefined,
   // No A-pillar gussets ("" = answered None).
@@ -170,6 +176,29 @@ make("CageKits Datsun 240Z NHRA.json", "Datsun 240Z -- CageKits NHRA 8.50 chromo
   vehicle_weight: { value: { value: "2300", unit: "lb" } }, // 240Z, approx. stock curb weight
   vehicle_builder: { value: "CageKits (kit)" },
 }));
+
+// cagekits.org -- BMW E92 (2006-2013) weld-in roll bar kit, 1.5" x .095"
+// DOM: main hoop with an X and a harness bar, two backstays to the rear,
+// no backstay diagonal. Built on the roll bar sample, not the full cage.
+make("CageKits BMW E92 roll bar.json", "BMW E92 -- CageKits roll bar", {
+  main_structure_layout: { value: "half-rollcage" },
+  main_hoop_diagonals: { value: "253-7-1" },
+  harness_bar_present: { value: "253-26-27" },
+  backstays: { value: "yes" },
+  backstay_diagonals: { value: "none" },
+  rear_lateral_reinforcement_present: { value: "none" },
+  rear_transversal_present: { value: "no" },
+  rear_lower_x_present: { value: "none" },
+  primary_tubing: { value: { material: "cds_dom", diameter: { val: 1.5, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
+  secondary_tubing: { value: { material: "cds_dom", diameter: { val: 1.5, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
+  vehicle_drive_side: { value: "lhd" },
+  vehicle_codriver: { value: "no" },
+  vehicle_manufacturer: { value: "BMW" },
+  vehicle_model: { value: "3 Series coupe (E92)" },
+  vehicle_year: { value: "2010" },
+  vehicle_weight: { value: { value: "3450", unit: "lb" } }, // E92 coupe, approx. stock curb weight
+  vehicle_builder: { value: "CageKits (kit)" },
+}, ROLLBAR_BASE);
 
 make("Broken Motorsports Subaru GC.json", "Subaru Impreza GC -- Broken Motorsports DOM tubing", Object.assign({}, common, {
   backstay_diagonals: { value: "253-21-1" },

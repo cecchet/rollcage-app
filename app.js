@@ -1964,6 +1964,17 @@
     const v = state.mediaViewer;
     if (!v) return;
     const close = () => { state.mediaViewer = null; render(); };
+    // A gallery (the rollcage pictures -- see openPictureGallery): the
+    // current one's photo, with previous / next arrows (and the keyboard's
+    // left / right arrows), wrapping around.
+    const gallery = v.gallery && v.gallery.length ? v.gallery : null;
+    if (gallery) {
+      const cur = gallery[v.index] || gallery[0];
+      loadPictureImage(cur.picId);
+      v.image = (pictureImageCache[cur.picId] || {}).photo || "";
+      v.caption = cur.caption + " (" + (v.index + 1) + " of " + gallery.length + ")";
+    }
+    const step = (d) => { v.index = (v.index + d + gallery.length) % gallery.length; v.zoomed = false; render(); };
     const closeBtn = el("button", { class: "btn small secondary image-viewer-close", onclick: close }, ["Close"]);
     const media = v.video
       ? el("div", { class: "video-viewer-frame" }, [
@@ -1981,15 +1992,26 @@
         });
     const actions = [closeBtn];
     if (v.video) actions.unshift(el("a", { class: "btn small secondary", href: "https://youtu.be/" + encodeURIComponent(v.video), target: "_blank", rel: "noopener" }, ["Open on YouTube"]));
+    const arrow = (d, label, text) => el("button", {
+      type: "button", class: "image-viewer-arrow " + (d < 0 ? "prev" : "next"), title: label, "aria-label": label,
+      onclick: (e) => { e.stopPropagation(); step(d); },
+    }, [text]);
+    const many = gallery && gallery.length > 1;
     const overlay = el("div", { class: "modal-overlay image-viewer" + (v.video ? " video-viewer" : "") + (v.zoomed ? " zoomed" : ""), role: "dialog", "aria-modal": "true", "aria-label": v.caption }, [
+      many ? arrow(-1, "Previous picture", "‹") : null,
       el("figure", { class: "image-viewer-figure" }, [
-        media,
-        el("figcaption", {}, [v.caption + (v.video ? "" : " · click the image to " + (v.zoomed ? "fit it to the screen" : "zoom in"))]),
+        v.image || v.video ? media : el("div", { class: "image-viewer-loading" }, ["Loading..."]),
+        el("figcaption", {}, [v.caption + (v.video ? "" : " · click the image to " + (v.zoomed ? "fit it to the screen" : "zoom in") + (many ? " · ← / → for the other pictures" : ""))]),
         el("div", { class: "toolbar" }, actions),
       ]),
+      many ? arrow(1, "Next picture", "›") : null,
     ]);
     overlay.addEventListener("click", (e) => { if (e.target === overlay || !v.video) close(); });
-    overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") close();
+      else if (many && e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
+      else if (many && e.key === "ArrowRight") { e.preventDefault(); step(1); }
+    });
     holder.appendChild(overlay);
     closeBtn.focus({ preventScroll: true }); // (a zoomed photo stays at its top-left)
   }
@@ -1999,6 +2021,18 @@
   function openImageViewer(src, caption) {
     if (!src) return;
     state.mediaViewer = { image: src, caption: caption || "Photo", zoomed: false };
+    render();
+  }
+  // Every rollcage picture in the viewer, in Part 1's order (waiting to be
+  // sorted first, then each category), opened at this one -- the arrows
+  // step through the others.
+  function openPictureGallery(picId) {
+    const order = [UNSORTED_PICTURES].concat(PICTURE_CATEGORIES.map((c) => c.id));
+    const pics = state.pictures.slice().sort((a, b) => order.indexOf(a.category || "overview") - order.indexOf(b.category || "overview"));
+    if (!pics.length) return;
+    const gallery = pics.map((p) => ({ picId: p.id, caption: (p.category === UNSORTED_PICTURES ? "Waiting to be sorted" : pictureCategoryDef(p.category).label) + " photo" }));
+    const index = Math.max(0, pics.findIndex((p) => p.id === picId));
+    state.mediaViewer = { gallery, index, zoomed: false };
     render();
   }
 
@@ -4094,7 +4128,7 @@
     if (pic.videoFrame) card.appendChild(el("div", { class: "picture-video-frame", title: pic.videoFrame.name }, ["Video frame " + formatVideoTime(pic.videoFrame.t)]));
     card.appendChild(
       cached.photo
-        ? el("img", { class: "picture-card-photo zoomable", src: cached.photo, alt: "", title: "Click to view full screen", onclick: () => openImageViewer(cached.photo, pictureCategoryDef(pic.category).label + " photo") })
+        ? el("img", { class: "picture-card-photo zoomable", src: cached.photo, alt: "", title: "Click to view full screen", onclick: () => openPictureGallery(pic.id) })
         : el("div", { class: "picture-card-photo picture-card-loading" }, ["Loading..."])
     );
     card.appendChild(
@@ -4506,7 +4540,7 @@
         ]),
         cached.photo ? el("button", {
           type: "button", class: "coverage-picture-zoom", title: "View full screen (click the photo there to zoom in)", "aria-label": "View this picture full screen",
-          onclick: () => openImageViewer(cached.photo, pictureCategoryDef(pic.category).label + " photo"),
+          onclick: () => openPictureGallery(pic.id),
         }, ["🔍"]) : null,
       ]));
     });
@@ -5769,6 +5803,24 @@
       addRow("main_rollbar_driver_support", "Main rollbar support (driver side)", "red",
         "No main rollbar or backstay diagonal reaches the top of the main rollbar on the driver side -- unsafe rollbar support on driver side", UNSAFE_POINTS,
         { elementId: "main_hoop_diagonals" });
+    }
+
+    // No 253-15 windscreen pillar reinforcement: a violation (-100) once
+    // dimension A is over 200mm (Drawing 253-15). Without that measurement
+    // it's only a warning (no points) that the cage may be missing one.
+    const aPillarElm = path.elements.find((e) => e.id === "a_pillar_reinforcement");
+    if (aPillarElm && elementVisible(aPillarElm) && getAnswer("a_pillar_reinforcement").value === "none") {
+      const dimElm = path.elements.find((e) => e.id === "a_pillar_dimension_a");
+      const dimA = parseFloat(getAnswer("a_pillar_dimension_a").value);
+      if (!isNaN(dimA) && dimA > 200) {
+        violations += 1;
+        addRow("a_pillar_missing", "Windscreen pillar reinforcement (253-15)", "red",
+          "None present with dimension A at " + Math.round(dimA) + "mm (over 200mm) -- violation", -100, { elementId: "a_pillar_reinforcement" });
+      } else if (isNaN(dimA) && dimElm && elementVisible(dimElm)) {
+        addRow("a_pillar_missing", "Windscreen pillar reinforcement (253-15)", "orange",
+          "None present and dimension A not measured -- the cage may be missing a required 253-15 (required when A exceeds 200mm)", 0,
+          { elementId: "a_pillar_dimension_a" });
+      }
     }
 
     // An identified base structure (253-1/253-2/253-3) is worth its own
@@ -9133,7 +9185,7 @@
       if (photo) {
         const img = first.querySelector("img");
         if (img.getAttribute("src") !== photo) img.setAttribute("src", photo);
-        first.onclick = () => openImageViewer(photo, pictureCategoryDef(pic.category).label + " photo");
+        first.onclick = () => openPictureGallery(pic.id);
       }
     }
   }

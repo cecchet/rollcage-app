@@ -97,6 +97,19 @@ const TEMPLATES = [
       ["5.jpg", "roof_bars"],
     ]),
   },
+  {
+    group: "kit", id: "bmw-e92-cagekits", file: "CageKits BMW E92 roll bar.json",
+    source: { label: "CageKits", url: "https://cagekits.org/product/e92-bolt-in-roll-bar-kit/", thumbnail: "images/templates/bmw-e92-cagekits.jpg" },
+    pictures: pics("bmw-e92-cagekits", [
+      ["1.jpg", "overview"], ["2.jpg", "overview"], ["3.jpg", "overview"],
+      // Roll bar-only render: every element of the roll bar.
+      ["4.jpg", "overview", [
+        ["main_hoop_diagonals", "253-7-1"], ["backstays", "yes"], ["harness_bar_present", "253-26-27"],
+        ["gusset_design__main_hoop_diag_left__design", "single_plate"], ["gusset_design__main_hoop_diag_right__design", "single_plate"],
+      ]],
+      ["5.jpg", "roof_bars"],
+    ]),
+  },
   // The Porsche replaces the former "Road racing" template. Rally cage 2.json
   // (double X) is no longer listed; it's still the base the kit samples
   // were derived from.
