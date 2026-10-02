@@ -329,8 +329,9 @@ make("9hio Honda Fit rally.json", "Honda Fit -- 9hio rally cage", nineHio({
 }));
 
 // Also: 253-31 temple bars and sill bars on both sides, and a 2-piece
-// 253-15 with 2 gussets per side (upper front, lower rear).
-make("Broken Motorsports Subaru GC.json", "Subaru Impreza GC -- Broken Motorsports DOM tubing", Object.assign({}, common, {
+// 253-15 with 2 gussets per side (upper front, lower rear). Its GD kit
+// (bleedingtarmac.com subaru-gd-roll-cage-kit) is the same cage.
+const brokenMotorsports = Object.assign({}, common, {
   backstay_diagonals: { value: "253-21-1" },
   temple_bar_present: { value: "both" },
   door_bars_left: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
@@ -347,10 +348,17 @@ make("Broken Motorsports Subaru GC.json", "Subaru Impreza GC -- Broken Motorspor
   primary_tubing: { value: { material: "cds_dom", diameter: { val: 1.75, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
   secondary_tubing: { value: { material: "cds_dom", diameter: { val: 1.5, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
   vehicle_manufacturer: { value: "Subaru" },
+  vehicle_builder: { value: "Broken Motorsports (kit)" },
+});
+make("Broken Motorsports Subaru GC.json", "Subaru Impreza GC -- Broken Motorsports DOM tubing", Object.assign({}, brokenMotorsports, {
   vehicle_model: { value: "Impreza (GC)" },
   vehicle_year: { value: "1998" },
   vehicle_weight: { value: { value: "2750", unit: "lb" } }, // Impreza GC, approx. stock curb weight
-  vehicle_builder: { value: "Broken Motorsports (kit)" },
+}));
+make("Broken Motorsports Subaru GD.json", "Subaru Impreza GD -- Broken Motorsports DOM tubing", Object.assign({}, brokenMotorsports, {
+  vehicle_model: { value: "Impreza WRX (GD)" },
+  vehicle_year: { value: "2004" },
+  vehicle_weight: { value: { value: "3100", unit: "lb" } }, // Impreza WRX GD sedan, approx. stock curb weight
 }));
 
 // "Worst cage" design template: everything one should not do in a

@@ -47,6 +47,30 @@ const TEMPLATES = [
   // Everything one should not do (see build-kit-samples.js) -- shows every
   // warning the app gives, for the lowest Frog Safety score.
   { group: "design", id: "worst-cage", file: "Worst cage.json", name: "Worst cage", subtitle: "Everything you should not do in a rollcage" },
+  {
+    group: "kit", id: "subaru-gc-broken-motorsports", file: "Broken Motorsports Subaru GC.json",
+    source: { label: "Broken Motorsports", url: "https://bleedingtarmac.com/products/broken-motorsports-subaru-gc-roll-cage-kit", thumbnail: "images/templates/subaru-gc-broken-motorsports.jpg" },
+    // Only the kit's diagrams (3D line drawing, general arrangement sheet,
+    // 4-view drawing), each tagged with the bars -- their sheet notes the
+    // gussets aren't drawn.
+    pictures: pics("subaru-gc-broken-motorsports", ["1.jpg", "2.jpg", "3.jpg"].map((file) => [file, "overview", [
+      ["main_hoop_diagonals", "253-7-2"], ["backstays", "yes"], ["backstay_diagonals", "253-21-1"], ["roof_bars", "253-12-1"],
+      ["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }], ["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }],
+      ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"], ["temple_bar_present", "both"],
+      ["a_pillar_reinforcement", "two_bars"],
+    ]])),
+  },
+  {
+    group: "kit", id: "subaru-gd-broken-motorsports", file: "Broken Motorsports Subaru GD.json",
+    source: { label: "Broken Motorsports", url: "https://bleedingtarmac.com/products/subaru-gd-roll-cage-kit", thumbnail: "images/templates/subaru-gd-broken-motorsports.jpg" },
+    // The GC's kit for the GD sedan: the same diagrams, with a GD.
+    pictures: pics("subaru-gd-broken-motorsports", ["1.jpg", "2.jpg", "3.jpg"].map((file) => [file, "overview", [
+      ["main_hoop_diagonals", "253-7-2"], ["backstays", "yes"], ["backstay_diagonals", "253-21-1"], ["roof_bars", "253-12-1"],
+      ["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }], ["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }],
+      ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"], ["temple_bar_present", "both"],
+      ["a_pillar_reinforcement", "two_bars"],
+    ]])),
+  },
   // The VAB's diagram (1.jpg) matches its installation photos; the
   // Fiesta's doesn't, so it only gets the photos.
   {
@@ -115,19 +139,6 @@ const TEMPLATES = [
         ["main_hoop_diagonals", "253-7-2"],
       ]],
     ]),
-  },
-  {
-    group: "kit", id: "subaru-gc-broken-motorsports", file: "Broken Motorsports Subaru GC.json",
-    source: { label: "Broken Motorsports", url: "https://bleedingtarmac.com/products/broken-motorsports-subaru-gc-roll-cage-kit", thumbnail: "images/templates/subaru-gc-broken-motorsports.jpg" },
-    // Only the kit's diagrams (3D line drawing, general arrangement sheet,
-    // 4-view drawing), each tagged with the bars -- their sheet notes the
-    // gussets aren't drawn.
-    pictures: pics("subaru-gc-broken-motorsports", ["1.jpg", "2.jpg", "3.jpg"].map((file) => [file, "overview", [
-      ["main_hoop_diagonals", "253-7-2"], ["backstays", "yes"], ["backstay_diagonals", "253-21-1"], ["roof_bars", "253-12-1"],
-      ["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }], ["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }],
-      ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"], ["temple_bar_present", "both"],
-      ["a_pillar_reinforcement", "two_bars"],
-    ]])),
   },
   {
     group: "kit", id: "mazda-mx5-cagekits", file: "CageKits Mazda MX-5 Miata.json",
