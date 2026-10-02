@@ -1187,9 +1187,19 @@
   // unsaved edits the open one may have on top. Photos come along: each
   // picture-store record the rollcage refers to is embedded under its id
   // in "images", so the file is self-contained.
-  async function exportSavedSessionToFile(sessionId) {
+  function exportSavedSessionToFile(sessionId) {
     const s = loadAll()[sessionId];
-    if (!s) return;
+    if (s) exportSessionToFile(s);
+  }
+  // The open rollcage as it is right now, unsaved changes included -- same
+  // record shape saveCurrent() stores.
+  function exportCurrentSessionToFile() {
+    exportSessionToFile({
+      sessionId: state.sessionId, vehicle: state.vehicle, pathId: state.pathId, answers: state.answers,
+      pictures: state.pictures, homologationPhotos: state.homologationPhotos, vehiclePhotos: state.vehiclePhotos, events: state.events,
+    });
+  }
+  async function exportSessionToFile(s) {
     // Same file format in both apps (the rollcage app and Digital logbooks),
     // so an export from either imports into the other -- exportedFrom just
     // lets the importing app say where a file came from.
@@ -1707,9 +1717,10 @@
     renderLibrary(holder);
     renderUnsavedDialog(holder);
     renderSaveAsDialog(holder);
+    // Before the media viewer, so a photo opened from it shows on top.
+    renderCoveragePictureDialog(holder);
     renderMediaViewer(holder);
     renderVideoFrameViewer(holder);
-    renderCoveragePictureDialog(holder);
     renderTour(holder);
   }
 
@@ -2043,6 +2054,29 @@
     normalizeUnavailableChoices();
     state.dirty = true;
     render();
+    loadTemplatePictures(t, state.sessionId);
+  }
+  // A vendor-kit template's rollcage pictures (templates.js `pictures`):
+  // each is fetched, stored like an uploaded photo and added untagged to its
+  // category -- unless another rollcage has been opened meanwhile.
+  function loadTemplatePictures(t, sessionId) {
+    if (!t.pictures || !t.pictures.length) return;
+    const toDataUrl = (blob) => new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+    Promise.all(t.pictures.map((p) => fetch(p.src).then((resp) => { if (!resp.ok) throw new Error(p.src); return resp.blob(); }).then(toDataUrl).then((photo) => ({ p, photo })).catch(() => null)))
+      .then((loaded) => {
+        if (state.sessionId !== sessionId) return;
+        loaded.filter(Boolean).forEach(({ p, photo }) => {
+          const id = picUid();
+          state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false, category: p.category });
+          putPictureRecord(id, { photo, screenshot: null });
+        });
+        render();
+      });
   }
   // Templates have no saved snapshot, so each one's is rendered once per
   // page load by briefly swapping its answers into state, applying them to
@@ -2154,10 +2188,16 @@
           thumb
             ? el("img", { class: "load-dialog-model", src: thumb, alt: "3D model" })
             : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
+          // A template based on a vendor's kit: a snapshot of its product
+          // page (the vendor's own photos stay on their site -- see the link).
+          t.source && t.source.thumbnail ? el("img", { class: "load-dialog-photo", src: t.source.thumbnail, alt: t.source.label + " product page" }) : null,
         ],
         name: t.vehicle.name,
-        date: "Design template",
-        actions: [el("button", { class: "btn small", onclick: openSelected(() => startFromTemplate(t)) }, ["Start from template"])],
+        date: t.source ? "Design template · based on a kit from " + t.source.label : "Design template",
+        actions: [
+          el("button", { class: "btn small", onclick: openSelected(() => startFromTemplate(t)) }, ["Start from template"]),
+          t.source ? el("a", { class: "btn small secondary", href: t.source.url, target: "_blank", rel: "noopener" }, ["View product page ↗"]) : null,
+        ],
       }));
     });
     setTimeout(ensureTemplateThumbs, 0);
@@ -2245,6 +2285,7 @@
         el("button", { class: "btn small secondary", title: "Save as a new " + NOUN + ", leaving the original as it was last saved", onclick: startSaveAs }, ["Save as…"]),
         el("button", { class: "btn small secondary", disabled: state.pdfReportStatus === "generating" || !state.pathId, onclick: generatePdfReport },
           [state.pdfReportStatus === "generating" ? "Generating report…" : "PDF report"]),
+        el("button", { class: "btn small secondary", title: "Includes any unsaved changes", onclick: exportCurrentSessionToFile }, ["Export to file"]),
       ]),
     ]);
   }
@@ -4417,12 +4458,20 @@
       loadPictureImage(pic.id);
       const cached = pictureImageCache[pic.id] || {};
       const on = (pic.elements || []).some((t) => t.elementId === dlg.elementId);
-      grid.appendChild(el("button", {
-        type: "button", class: "coverage-picture" + (on ? " selected" : ""), "aria-pressed": on ? "true" : "false",
-        onclick: () => toggle(pic),
-      }, [
-        cached.photo ? el("img", { src: cached.photo, alt: "" }) : el("div", { class: "coverage-picture-loading" }, ["Loading..."]),
-        el("span", { class: "coverage-picture-label" }, [(on ? "✓ " : "") + pictureCategoryDef(pic.category).label]),
+      // The tile toggles the tag; its magnifier opens the photo full screen
+      // (zoomable) to check whether the element really is in it.
+      grid.appendChild(el("div", { class: "coverage-picture-tile" }, [
+        el("button", {
+          type: "button", class: "coverage-picture" + (on ? " selected" : ""), "aria-pressed": on ? "true" : "false",
+          onclick: () => toggle(pic),
+        }, [
+          cached.photo ? el("img", { src: cached.photo, alt: "" }) : el("div", { class: "coverage-picture-loading" }, ["Loading..."]),
+          el("span", { class: "coverage-picture-label" }, [(on ? "✓ " : "") + pictureCategoryDef(pic.category).label]),
+        ]),
+        cached.photo ? el("button", {
+          type: "button", class: "coverage-picture-zoom", title: "View full screen (click the photo there to zoom in)", "aria-label": "View this picture full screen",
+          onclick: () => openImageViewer(cached.photo, pictureCategoryDef(pic.category).label + " photo"),
+        }, ["🔍"]) : null,
       ]));
     });
     const count = state.pictures.filter((p) => (p.elements || []).some((t) => t.elementId === dlg.elementId)).length;
@@ -4513,7 +4562,8 @@
     }, [
       el("div", { class: "compare-option-heading" }, [heading]),
       el("div", { class: "compare-option-value" }, [valueText]),
-      detail ? el("div", { class: "compare-option-detail" }, [detail]) : null,
+      // One line per detail (e.g. what keeping this side does, then the AI's reasoning).
+      ...[].concat(detail || []).filter(Boolean).map((d) => el("div", { class: "compare-option-detail" }, [d])),
     ]);
     const list = el("div", { class: "compare-list" });
     rows.forEach((r) => {
@@ -4523,9 +4573,9 @@
           option(r, "pictures", "Identified in the pictures", r.optLabel + (r.s.confidence ? " (" + r.s.confidence + " confidence)" : ""),
             r.notInDesign ? "Not part of the current design -- change the design answer that brings it in first."
               : !r.s.value ? "Edit the picture's elements to pick which design it shows."
-              : r.s.rationale, !r.canApply),
+              : ["Keeping this updates the design.", r.s.rationale], !r.canApply),
           option(r, "checklist", "Currently defined design", r.currentLabel || "Not answered yet",
-            r.absent ?"Keeping this removes it from the pictures' tags." : "Keeping this updates the pictures' tags to it."),
+            r.absent ?"Keeping this removes it from the pictures' tags." : "Keeping this overwrites the picture tag."),
         ]),
       ]));
     });

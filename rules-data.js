@@ -1030,9 +1030,6 @@
         { id: "a_pillar_2pc_right_lower_rear", label: "253-15: Windshield pillar reinforcement 2-piece gusset - right lower rear", restrictOptionIds: ["taco"] }
       );
     }
-    if (getAnswer("windshield_reinforcement_present").value === "yes") {
-      rows.push({ id: "windshield_left", label: "Windshield bar junction - left" }, { id: "windshield_right", label: "Windshield bar junction - right" });
-    }
     const rearLowerXVal = getAnswer("rear_lower_x_present").value;
     if (rearLowerXVal === "253-19-1" || rearLowerXVal === "253-19-2") {
       rows.push({ id: "rear_lower_x_left", label: "253-19: Rear lower X junction - left" }, { id: "rear_lower_x_right", label: "253-19: Rear lower X junction - right" });
@@ -1129,8 +1126,6 @@
     if (gussetRowId === "a_pillar_side_right" || gussetRowId.indexOf("a_pillar_2pc_right") === 0) {
       return ["a_pillar_right"].concat(doorBarTubeRowsForSide(getAnswer("door_bars_right").value, "right").map((r) => r.id));
     }
-    if (gussetRowId === "windshield_left") return ["windshield_reinforcement_left"];
-    if (gussetRowId === "windshield_right") return ["windshield_reinforcement_right"];
     if (gussetRowId.indexOf("rear_lower_x_") === 0) {
       return rearLowerXTubeRows(getAnswer("rear_lower_x_present").value).map((r) => r.id);
     }

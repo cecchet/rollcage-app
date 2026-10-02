@@ -845,7 +845,10 @@ button.picture-coverage-chip:hover:not(:disabled) { box-shadow: inset 0 0 0 1px 
 .picture-elements-toggle { font: inherit; font-size: 0.8rem; color: var(--accent); background: none; border: none; padding: 2px 0; cursor: pointer; text-align: left; }
 .coverage-picture-dialog { max-width: 760px; width: calc(100vw - 32px); }
 .coverage-picture-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; max-height: 60vh; overflow: auto; margin: 8px 0; }
-.coverage-picture { display: flex; flex-direction: column; gap: 4px; padding: 4px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; }
+.coverage-picture-tile { position: relative; display: flex; }
+.coverage-picture { flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 4px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; }
+.coverage-picture-zoom { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; padding: 0; font-size: 0.9rem; line-height: 1; border: none; border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: #fff; cursor: zoom-in; }
+.coverage-picture-zoom:hover { background: rgba(0, 0, 0, 0.8); }
 .coverage-picture img, .coverage-picture-loading { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: calc(var(--radius) - 2px); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: var(--muted); }
 .coverage-picture.selected { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); background: var(--info-bg); }
 .coverage-picture-label { font-size: 0.75rem; text-align: left; }
