@@ -12,10 +12,11 @@ const SAMPLES_DIR = path.join(__dirname, "..", "..", "design-samples");
 const OUT_FILE = path.join(__dirname, "..", "templates.js");
 
 // Rollcage pictures for a template: [file in images/templates/<id>/, picture
-// category, optional tagged elements ([elementId, value] pairs)].
+// category, optional tagged elements ([elementId, value, extra?] -- extra
+// e.g. { sill_bar: "yes" } on a door bar)].
 const pics = (id, list) => list.map(([file, category, tags]) => ({
   src: "images/templates/" + id + "/" + file, category,
-  ...(tags ? { elements: tags.map(([elementId, value]) => ({ elementId, value, extra: {} })) } : {}),
+  ...(tags ? { elements: tags.map(([elementId, value, extra]) => ({ elementId, value, extra: extra || {} })) } : {}),
 }));
 
 // Listed in library order, grouped into the library's sections by `group`:
@@ -107,8 +108,13 @@ const TEMPLATES = [
     group: "kit", id: "subaru-gc-broken-motorsports", file: "Broken Motorsports Subaru GC.json",
     source: { label: "Broken Motorsports", url: "https://bleedingtarmac.com/products/broken-motorsports-subaru-gc-roll-cage-kit", thumbnail: "images/templates/subaru-gc-broken-motorsports.jpg" },
     // Only the kit's diagrams (3D line drawing, general arrangement sheet,
-    // 4-view drawing).
-    pictures: pics("subaru-gc-broken-motorsports", [["1.jpg", "overview"], ["2.jpg", "overview"], ["3.jpg", "overview"]]),
+    // 4-view drawing), each tagged with the bars -- their sheet notes the
+    // gussets aren't drawn.
+    pictures: pics("subaru-gc-broken-motorsports", ["1.jpg", "2.jpg", "3.jpg"].map((file) => [file, "overview", [
+      ["main_hoop_diagonals", "253-7-2"], ["backstays", "yes"], ["backstay_diagonals", "253-21-1"], ["roof_bars", "253-12-1"],
+      ["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }], ["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }],
+      ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"], ["temple_bar_present", "both"],
+    ]])),
   },
   {
     group: "kit", id: "mazda-mx5-cagekits", file: "CageKits Mazda MX-5 Miata.json",
@@ -144,7 +150,7 @@ const TEMPLATES = [
     ]),
   },
   {
-    group: "kit", id: "bmw-e92-cagekits", file: "CageKits BMW E92 roll bar.json",
+    group: "kit", id: "bmw-e92-cagekits", file: "CageKits BMW E92 roll bar.json", subtitle: "Rollbar kit from CageKits",
     source: { label: "CageKits", url: "https://cagekits.org/product/e92-bolt-in-roll-bar-kit/", thumbnail: "images/templates/bmw-e92-cagekits.jpg" },
     pictures: pics("bmw-e92-cagekits", [
       ["1.jpg", "overview"], ["2.jpg", "overview"], ["3.jpg", "overview"],
@@ -209,6 +215,10 @@ const out = TEMPLATES.map((t) => {
     t.pictures = fromExport.pictures;
     if (Object.keys(fromExport.vehiclePhotos).length) t.vehiclePhotos = fromExport.vehiclePhotos;
   }
+  // The library card shows a small copy of the front photo (made once,
+  // 320px wide, as <id>/vehicle-front-card.jpg) rather than the full one.
+  const cardPhoto = "images/templates/" + t.id + "/vehicle-front-card.jpg";
+  if (t.vehiclePhotos && t.vehiclePhotos.front && fs.existsSync(path.join(__dirname, "..", cardPhoto))) t.cardPhoto = cardPhoto;
   (t.pictures || []).forEach((p) => {
     if (!fs.existsSync(path.join(__dirname, "..", p.src))) throw new Error("Missing template picture " + p.src);
   });
@@ -225,6 +235,7 @@ const out = TEMPLATES.map((t) => {
     ...(t.pictures ? { pictures: t.pictures } : {}),
     ...(t.vehiclePhotos ? { vehiclePhotos: t.vehiclePhotos } : {}),
     ...(t.subtitle ? { subtitle: t.subtitle } : {}),
+    ...(t.cardPhoto ? { cardPhoto: t.cardPhoto } : {}),
   };
 });
 

@@ -2240,7 +2240,7 @@
     const TEMPLATE_GROUPS = [
       { id: "design", label: "Design templates", listId: "library-templates", cardLabel: () => "Design template" },
       { id: "kit", label: "Rollcage kits", listId: "library-kits", cardLabel: (t) => (t.source ? "Rollcage kit from " + t.source.label : "Rollcage kit") },
-      { id: "sample", label: "Race car samples", listId: "library-samples", cardLabel: () => "Race car sample" },
+      { id: "sample", label: "Custom cages sample", listId: "library-samples", cardLabel: () => "Custom cage sample" },
     ];
     const groupLists = {};
     TEMPLATE_GROUPS.forEach((g) => { groupLists[g.id] = el("div", { class: "load-dialog-list", id: g.listId }); });
@@ -2257,9 +2257,11 @@
             : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
           // The template's 3/4 front car photo, like a saved card -- or, for
           // a template based on a vendor's kit, a snapshot of its product page.
+          // Small card-sized copies, loaded only as the card scrolls into view;
+          // a template's full pictures are only fetched when starting from it.
           t.vehiclePhotos && t.vehiclePhotos.front
-            ? el("img", { class: "load-dialog-photo", src: t.vehiclePhotos.front, alt: "3/4 front photo" })
-            : t.source && t.source.thumbnail ? el("img", { class: "load-dialog-photo", src: t.source.thumbnail, alt: t.source.label + " product page" }) : null,
+            ? el("img", { class: "load-dialog-photo", src: t.cardPhoto || t.vehiclePhotos.front, alt: "3/4 front photo", loading: "lazy" })
+            : t.source && t.source.thumbnail ? el("img", { class: "load-dialog-photo", src: t.source.thumbnail, alt: t.source.label + " product page", loading: "lazy" }) : null,
         ],
         name: t.vehicle.name,
         date: t.subtitle || groupOf(t).cardLabel(t),
