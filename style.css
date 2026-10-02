@@ -56,6 +56,7 @@ body {
 }
 
 .app-header h1 { margin-bottom: 6px; font-size: 1.5rem; }
+.app-header h1 .app-logo { height: 1.8em; width: auto; vertical-align: middle; margin: -0.2em 0.35em 0 0; }
 .brand-link {
   font-size: 0.9rem;
   font-weight: 400;
@@ -152,6 +153,24 @@ body {
   pointer-events: none;
   z-index: 2;
 }
+/* The first rollcage picture, bottom right -- no bigger than the logo. */
+.cage-viewer-first-picture {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg);
+  cursor: zoom-in;
+  z-index: 2;
+}
+.cage-viewer-first-picture img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cage-viewer-first-picture:hover { border-color: var(--accent); }
+#cageViewerFirstPicture[hidden] { display: none; }
 /* Names the exact weld/junction point under the cursor in Part 3, so it can
    be told apart from the others before committing to a double-click.
    pointer-events:none so it never itself becomes the raycast target;

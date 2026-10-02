@@ -1,0 +1,184 @@
+// Builds the design-samples/*.json files for the "Rollcage kits" templates
+// (Custom Cages, Broken Motorsports, CageKits) from "Rally cage 2.json":
+// every kit starts from that sample's answers (feet, gussets, welds,
+// distances...), overrides its own design answers below, and drops every
+// personal / logbook field. Run it after editing a kit, then
+// tools/build-templates.js to regenerate templates.js:
+//   node app/tools/build-kit-samples.js && node app/tools/build-templates.js
+const fs = require("fs");
+const path = require("path");
+const dir = path.join(__dirname, "..", "..", "design-samples") + path.sep;
+const base = JSON.parse(fs.readFileSync(dir + "Rally cage 2.json", "utf8"));
+const PERSONAL = /^vehicle_(owner|builder_|inspector|inspection|logbook|description_notes)/;
+
+function make(file, name, overrides) {
+  const answers = {};
+  Object.entries(base.answers).forEach(([k, v]) => {
+    if (PERSONAL.test(k) || k === "vehicle_logbook_body") return;
+    answers[k] = JSON.parse(JSON.stringify(v));
+  });
+  Object.entries(overrides).forEach(([k, v]) => {
+    if (v === undefined) delete answers[k];
+    else answers[k] = Object.assign({ note: "", photos: [], extra: {} }, answers[k] || {}, v);
+  });
+  const out = { sessionId: "template-" + file.replace(/\W+/g, "-").toLowerCase(), vehicle: { name, org: "none", logbookStatus: "new", logbookDate: "" }, pathId: base.pathId, answers };
+  fs.writeFileSync(dir + file, JSON.stringify(out, null, 2));
+  console.log("wrote", file, Object.keys(answers).length, "answers");
+}
+
+const common = {
+  // Not on either kit
+  anti_intrusion_present: { value: "no" },
+  temple_bar_present: { value: "none" },
+  windshield_reinforcement_present: { value: "none" },
+  rear_lateral_reinforcement_present: { value: "none" },
+  rear_transversal_present: { value: "no" },
+  rear_lower_x_present: { value: "none" },
+  lower_main_hoop_bar_present: { value: "no" },
+  door_bars_left: { value: "253-9-intersection-1", extra: { sill_bar: "no" } },
+  door_bars_right: { value: "253-9-intersection-1", extra: { sill_bar: "no" } },
+  harness_bar_present: { value: "253-26-27" },
+  dash_bar_present: { value: "yes" },
+  roof_bars: { value: "253-12-1" },
+  main_hoop_diagonals: { value: "253-7-2" },
+  backstays: { value: "yes" },
+};
+
+// customcages.co.uk -- Subaru Impreza VAB "International" multipoint T45
+// kit, FIA certificated: X door bars with gusset plates, X roof, X main
+// hoop, harness bar, front and rear strut-top tie-ins (not modelled).
+make("Custom Cages Subaru VAB.json", "Subaru Impreza VAB -- Custom Cages FIA T45", Object.assign({}, common, {
+  // 253-14 roof with its mandatory 253-22 backstay V, and 253-17 (both bars).
+  roof_bars: { value: "253-14" },
+  backstay_diagonals: { value: "253-22" },
+  rear_lateral_reinforcement_present: { value: "both" },
+  a_pillar_reinforcement: { value: "continuous" },
+  primary_tubing: { value: { material: "t45", diameter: { val: 45, unit: "mm" }, thickness: { val: 2.5, unit: "mm" } } },
+  secondary_tubing: { value: { material: "t45", diameter: { val: 38, unit: "mm" }, thickness: { val: 2.5, unit: "mm" } } },
+  vehicle_manufacturer: { value: "Subaru" },
+  vehicle_model: { value: "Impreza WRX STI (VAB)" },
+  vehicle_year: { value: "2015" },
+  vehicle_weight: { value: { value: "1540", unit: "kg" } }, // Impreza WRX STI (VAB), approx. stock curb weight
+  vehicle_builder: { value: "Custom Cages (kit)" },
+}));
+
+// bleedingtarmac.com -- Broken Motorsports Subaru GC "Rally X" kit (USA
+// rally): X roof, X between the backstays, X main hoop, X door bars,
+// front strut tower tie-ins (not modelled), DOM tube.
+// customcages.co.uk -- Ford Fiesta Mk6 "Junior International" multipoint
+// CDS kit, FIA / MSUK certificated: X roof with a centre gusset, X main
+// hoop, X door bars, harness bar (optional tube), dash bar, front strut-top
+// tie-ins (not modelled). UK car, so right-hand drive.
+make("Custom Cages Ford Fiesta Mk6.json", "Ford Fiesta Mk6 -- Custom Cages FIA/MSUK CDS", Object.assign({}, common, {
+  // 253-14 roof with its 253-22 backstay V, 253-17 (both bars), 253-31
+  // windshield reinforcement plates both sides, 253-15 single bar with its
+  // two side gussets.
+  roof_bars: { value: "253-14" },
+  backstay_diagonals: { value: "253-22" },
+  rear_lateral_reinforcement_present: { value: "both" },
+  windshield_reinforcement_present: { value: "both" },
+  a_pillar_reinforcement: { value: "continuous" },
+  gusset_design__a_pillar_side_left__design: { value: "taco" },
+  gusset_design__a_pillar_side_right__design: { value: "taco" },
+  // A 253-14 roof has no junction gussets -- drop the base sample's 253-12 ones.
+  gusset_design__roof_front__design: undefined,
+  gusset_design__roof_rear__design: undefined,
+  // Leftovers of the base sample's 2-bar 253-15.
+  gusset_design__a_pillar_2pc_left_upper_rear__design: undefined, gusset_design__a_pillar_2pc_left_lower_rear__design: undefined,
+  gusset_design__a_pillar_2pc_left_upper_front__design: undefined, gusset_design__a_pillar_2pc_left_lower_front__design: undefined,
+  gusset_design__a_pillar_2pc_right_upper_rear__design: undefined, gusset_design__a_pillar_2pc_right_lower_rear__design: undefined,
+  gusset_design__a_pillar_2pc_right_upper_front__design: undefined, gusset_design__a_pillar_2pc_right_lower_front__design: undefined,
+  primary_tubing: { value: { material: "cds_dom", diameter: { val: 45, unit: "mm" }, thickness: { val: 2.5, unit: "mm" } } },
+  secondary_tubing: { value: { material: "cds_dom", diameter: { val: 38, unit: "mm" }, thickness: { val: 2.5, unit: "mm" } } },
+  vehicle_drive_side: { value: "rhd" },
+  vehicle_manufacturer: { value: "Ford" },
+  vehicle_model: { value: "Fiesta Mk6" },
+  vehicle_year: { value: "2005" },
+  vehicle_weight: { value: { value: "1100", unit: "kg" } }, // Fiesta Mk6, approx. stock curb weight
+  vehicle_builder: { value: "Custom Cages (kit)" },
+}));
+
+// cagekits.org -- MX-5 Miata NA/NB road race kit (NASA / SCCA inspired):
+// X door bars, single front-left roof diagonal, X between the backstays
+// (no gussets), single main hoop diagonal topping out on the driver side,
+// 253-31 temple bars and windshield reinforcements on both sides, no
+// A-pillar gussets, harness bar, dash bar, 1.5" x .095" DOM throughout.
+// Driver only.
+make("CageKits Mazda MX-5 Miata.json", "Mazda MX-5 Miata NA/NB -- CageKits road race", Object.assign({}, common, {
+  roof_bars: { value: "single-front-left" },
+  backstay_diagonals: { value: "253-21-1" },
+  main_hoop_diagonals: { value: "diag-left" },
+  temple_bar_present: { value: "both" },
+  windshield_reinforcement_present: { value: "both" },
+  // No 253-15 bars, so no tube rows for them either.
+  a_pillar_reinforcement: { value: "none" },
+  tubing_bar_classification__a_pillar_left__spec: undefined,
+  tubing_bar_classification__a_pillar_right__spec: undefined,
+  // No gussets at the backstay X or the A-pillars ("" = answered None).
+  gusset_design__backstay_diag_left__design: { value: "" },
+  gusset_design__backstay_diag_right__design: { value: "" },
+  gusset_design__backstay_diag_upper__design: { value: "" },
+  gusset_design__backstay_diag_lower__design: { value: "" },
+  gusset_design__a_pillar_left__design: { value: "" },
+  gusset_design__a_pillar_right__design: { value: "" },
+  gusset_design__a_pillar_side_left__design: { value: "" },
+  gusset_design__a_pillar_side_right__design: { value: "" },
+  tubing_bar_classification__main_diagonals_left__spec: { value: "primary" },
+  tubing_bar_classification__temple_bar_left__spec: { value: "secondary" },
+  tubing_bar_classification__temple_bar_right__spec: { value: "secondary" },
+  tubing_bar_classification__windshield_reinforcement_left__spec: { value: "secondary" },
+  tubing_bar_classification__windshield_reinforcement_right__spec: { value: "secondary" },
+  primary_tubing: { value: { material: "cds_dom", diameter: { val: 1.5, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
+  secondary_tubing: { value: { material: "cds_dom", diameter: { val: 1.5, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
+  vehicle_codriver: { value: "no" },
+  vehicle_manufacturer: { value: "Mazda" },
+  vehicle_model: { value: "MX-5 Miata (NA/NB)" },
+  vehicle_year: { value: "1995" },
+  vehicle_weight: { value: { value: "2200", unit: "lb" } }, // MX-5 NA/NB, approx. stock curb weight
+  vehicle_builder: { value: "CageKits (kit)" },
+}));
+
+// cagekits.org -- Datsun 240Z (S30, 1970-73) NHRA 8.50 kit, 1.625" x .083"
+// 4130 chromoly: two door bars per side, main hoop V-brace, backstays to
+// the rear strut towers with no diagonal, no FIA roof bar design, dash bar,
+// harness bar.
+make("CageKits Datsun 240Z NHRA.json", "Datsun 240Z -- CageKits NHRA 8.50 chromoly", Object.assign({}, common, {
+  roof_bars: { value: "none" },
+  backstay_diagonals: { value: "none" },
+  main_hoop_diagonals: { value: "diag-lower-half" },
+  // No 253-15 bars, so no tube rows for them either.
+  a_pillar_reinforcement: { value: "none" },
+  tubing_bar_classification__a_pillar_left__spec: undefined,
+  tubing_bar_classification__a_pillar_right__spec: undefined,
+  // No A-pillar gussets ("" = answered None).
+  gusset_design__a_pillar_left__design: { value: "" },
+  gusset_design__a_pillar_right__design: { value: "" },
+  gusset_design__a_pillar_side_left__design: { value: "" },
+  gusset_design__a_pillar_side_right__design: { value: "" },
+  door_bars_left: { value: "253-11", extra: { sill_bar: "no" } },
+  door_bars_right: { value: "253-11", extra: { sill_bar: "no" } },
+  tubing_bar_classification__main_diagonals_left__spec: { value: "primary" },
+  tubing_bar_classification__main_diagonals_right__spec: { value: "primary" },
+  tubing_bar_classification__d11_left__spec: { value: "secondary" },
+  tubing_bar_classification__d11_right__spec: { value: "secondary" },
+  primary_tubing: { value: { material: "chromoly_4130", diameter: { val: 1.625, unit: "in" }, thickness: { val: 0.083, unit: "in" } } },
+  secondary_tubing: { value: { material: "chromoly_4130", diameter: { val: 1.625, unit: "in" }, thickness: { val: 0.083, unit: "in" } } },
+  vehicle_codriver: { value: "no" },
+  vehicle_manufacturer: { value: "Datsun" },
+  vehicle_model: { value: "240Z (S30)" },
+  vehicle_year: { value: "1972" },
+  vehicle_weight: { value: { value: "2300", unit: "lb" } }, // 240Z, approx. stock curb weight
+  vehicle_builder: { value: "CageKits (kit)" },
+}));
+
+make("Broken Motorsports Subaru GC.json", "Subaru Impreza GC -- Broken Motorsports DOM tubing", Object.assign({}, common, {
+  backstay_diagonals: { value: "253-21-1" },
+  a_pillar_reinforcement: { value: "continuous" },
+  primary_tubing: { value: { material: "cds_dom", diameter: { val: 1.75, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
+  secondary_tubing: { value: { material: "cds_dom", diameter: { val: 1.5, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
+  vehicle_manufacturer: { value: "Subaru" },
+  vehicle_model: { value: "Impreza (GC)" },
+  vehicle_year: { value: "1998" },
+  vehicle_weight: { value: { value: "2750", unit: "lb" } }, // Impreza GC, approx. stock curb weight
+  vehicle_builder: { value: "Broken Motorsports (kit)" },
+}));

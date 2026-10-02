@@ -795,6 +795,14 @@
     if (value === "diag-left") return [{ id: "main_diagonals_left", label: "Main rollbar diagonal (top on left side)" }];
     if (value === "diag-right") return [{ id: "main_diagonals_right", label: "Main rollbar diagonal (top on right side)" }];
     if (value === "diag-horizontal") return [{ id: "main_diagonals_left", label: "Main rollbar horizontal bar" }];
+    if (value === "diag-lower-half") return [
+      { id: "main_diagonals_left", label: "Main rollbar V-brace -- Left" },
+      { id: "main_diagonals_right", label: "Main rollbar V-brace -- Right" },
+    ];
+    if (value === "diag-v-center") return [
+      { id: "main_diagonals_left", label: "Main rollbar center V -- Left" },
+      { id: "main_diagonals_right", label: "Main rollbar center V -- Right" },
+    ];
     return [
       { id: "main_diagonals_left", label: "253-7: Main rollbar diagonal -- Left" },
       { id: "main_diagonals_right", label: "253-7: Main rollbar diagonal -- Right" },
@@ -1210,7 +1218,7 @@
         ];
         if (getAnswer("door_bars_left").extra.sill_bar === "yes") rows.push({ id: "sill_bar_left", label: "Sill bar -- Left" });
         if (getAnswer("door_bars_right").extra.sill_bar === "yes") rows.push({ id: "sill_bar_right", label: "Sill bar -- Right" });
-        if (!half) {
+        if (!half && getAnswer("a_pillar_reinforcement").value !== "none") {
           rows.push(
             { id: "a_pillar_left", label: "253-15: A-pillar reinforcement -- Left" },
             { id: "a_pillar_right", label: "253-15: A-pillar reinforcement -- Right" }
@@ -1918,6 +1926,9 @@
             return "Not possible with the " + sides.join(" and ") + " door bar design selected (253-11, single bar or no door bar) -- only the 1 continuous bar build can be done.";
           },
         },
+        // e.g. drag or older cages -- doesn't meet the FIA requirement
+        // whenever dimension A exceeds 200mm.
+        { id: "none", label: "None present", outcome: "fail" },
       ],
       diagram: "253-15",
       tubing: null,

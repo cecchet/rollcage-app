@@ -11,8 +11,12 @@ const path = require("path");
 const SAMPLES_DIR = path.join(__dirname, "..", "..", "design-samples");
 const OUT_FILE = path.join(__dirname, "..", "templates.js");
 
-// Rollcage pictures for a template: [file in images/templates/<id>/, picture category].
-const pics = (id, list) => list.map(([file, category]) => ({ src: "images/templates/" + id + "/" + file, category }));
+// Rollcage pictures for a template: [file in images/templates/<id>/, picture
+// category, optional tagged elements ([elementId, value] pairs)].
+const pics = (id, list) => list.map(([file, category, tags]) => ({
+  src: "images/templates/" + id + "/" + file, category,
+  ...(tags ? { elements: tags.map(([elementId, value]) => ({ elementId, value, extra: {} })) } : {}),
+}));
 
 // Listed in library order, grouped into the library's sections by `group`:
 // "design" (Design templates), "kit" (Rollcage kits -- based on a vendor's
@@ -24,7 +28,12 @@ const pics = (id, list) => list.map(([file, category]) => ({ src: "images/templa
 // starting from it.
 const TEMPLATES = [
   { group: "design", id: "half-rollcage", file: "Rollbar _ half rollcage.json" },
-  { group: "design", id: "rally-cage-double-v", file: "Rally cage 1.json", name: "Rally cage double V" },
+  // A generic design -- the sample car's own vehicle details (an Audi RS4)
+  // are left out; its measurements stay.
+  {
+    group: "design", id: "rally-cage-double-v", file: "Rally cage 1.json", name: "FIA Article 253 App J cage",
+    dropAnswers: ["vehicle_manufacturer", "vehicle_model", "vehicle_year", "vehicle_builder", "vehicle_weight"],
+  },
   // Custom Cages' own diagrams don't match their installed cages, so only
   // the installation photos are used as pictures.
   {
@@ -60,7 +69,17 @@ const TEMPLATES = [
     source: { label: "CageKits", url: "https://cagekits.org/product/mx-5-miata-road-race-roll-cage-kit/", thumbnail: "images/templates/mazda-mx5-cagekits.jpg" },
     // CageKits' renders (used with permission).
     pictures: pics("mazda-mx5-cagekits", [
-      ["1.jpg", "overview"], ["2.jpg", "overview"], ["3.jpg", "overview"], ["4.jpg", "overview"],
+      ["1.jpg", "overview"], ["2.jpg", "overview"], ["3.jpg", "overview"],
+      // Cage-only render: every element of the cage.
+      ["4.jpg", "overview", [
+        ["main_hoop_diagonals", "diag-left"], ["backstays", "yes"], ["backstay_diagonals", "253-21-1"],
+        ["roof_bars", "single-front-left"],
+        ["door_bars_left", "253-9-intersection-1"], ["door_bars_right", "253-9-intersection-1"],
+        ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"],
+        ["temple_bar_present", "both"], ["windshield_reinforcement_present", "both"],
+        ["gusset_design__door_front_left__design", "taco"], ["gusset_design__door_rear_left__design", "taco"],
+        ["gusset_design__door_front_right__design", "taco"], ["gusset_design__door_rear_right__design", "taco"],
+      ]],
       ["5.jpg", "roof_bars"],
     ]),
   },
@@ -68,7 +87,13 @@ const TEMPLATES = [
     group: "kit", id: "datsun-240z-cagekits", file: "CageKits Datsun 240Z NHRA.json",
     source: { label: "CageKits", url: "https://cagekits.org/product/240z-nhra-8-5-chromoly-roll-cage-kit/", thumbnail: "images/templates/datsun-240z-cagekits.jpg" },
     pictures: pics("datsun-240z-cagekits", [
-      ["1.jpg", "overview"], ["3.jpg", "overview"], ["4.jpg", "overview"],
+      ["1.jpg", "overview"], ["3.jpg", "overview"],
+      // Cage-only render: every element of the cage.
+      ["4.jpg", "overview", [
+        ["main_hoop_diagonals", "diag-lower-half"], ["backstays", "yes"],
+        ["door_bars_left", "253-11"], ["door_bars_right", "253-11"],
+        ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"],
+      ]],
       ["5.jpg", "roof_bars"],
     ]),
   },
@@ -128,7 +153,7 @@ const out = TEMPLATES.map((t) => {
     if (!fs.existsSync(path.join(__dirname, "..", p.src))) throw new Error("Missing template picture " + p.src);
   });
   const answers = {};
-  Object.entries(d.answers || {}).forEach(([k, v]) => { if (!DROPPED_ANSWERS.test(k)) answers[k] = { ...v, photos: [] }; });
+  Object.entries(d.answers || {}).forEach(([k, v]) => { if (!DROPPED_ANSWERS.test(k) && !(t.dropAnswers || []).includes(k)) answers[k] = { ...v, photos: [] }; });
   return {
     templateId: t.id,
     group: t.group || "design",

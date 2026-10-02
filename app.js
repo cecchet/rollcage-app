@@ -1713,6 +1713,16 @@
   // Both dialogs share #modalHolder; the unsaved-changes one is appended
   // last, so it sits on top when opened from inside the library.
   function renderModals(holder) {
+    // Every render rebuilds the dialogs, which would reset a scrolled one
+    // (e.g. the library, when a card is selected) back to its top -- each
+    // overlay's scroll is kept, keyed by its dialog.
+    const overlayKey = (o) => { const d = o.firstElementChild; return (d && (d.id || d.getAttribute("aria-label") || d.className)) || o.className; };
+    const scrolled = {};
+    [...holder.children].forEach((o) => { if (o.scrollTop) scrolled[overlayKey(o)] = o.scrollTop; });
+    renderModalsInto(holder);
+    [...holder.children].forEach((o) => { const top = scrolled[overlayKey(o)]; if (top) o.scrollTop = top; });
+  }
+  function renderModalsInto(holder) {
     holder.innerHTML = "";
     renderLibrary(holder);
     renderUnsavedDialog(holder);
@@ -7848,7 +7858,10 @@
     // default-ghost, which would otherwise clutter both builds together).
     const aPillarValue = getAnswer("a_pillar_reinforcement").value;
     const aPillarPreview = aPillarValue || "continuous";
-    if (aPillarPreview === "continuous") {
+    if (aPillarValue === "none") {
+      // No 253-15 at all: neither build, nor their gussets.
+      APILLAR_FILES.concat(APILLAR_2PIECE_FILES, APILLAR_SIDE_GUSSET_FILES, APILLAR_2PC_GUSSET_FILES).forEach((f) => { colors[f] = "hidden"; });
+    } else if (aPillarPreview === "continuous") {
       APILLAR_2PIECE_FILES.forEach((f) => { colors[f] = "hidden"; });
       APILLAR_2PC_GUSSET_FILES.forEach((f) => { colors[f] = "hidden"; });
       if (aPillarValue === "continuous") {
@@ -9106,6 +9119,21 @@
         thumb.hidden = false;
       } else {
         thumb.hidden = true;
+      }
+    }
+    // The first rollcage picture (a sorted one, else any), bottom right of
+    // the model -- click to view it full screen without going back to Part 1.
+    // Hidden while tagging a picture or marking damage (their own UI is up).
+    const first = document.getElementById("cageViewerFirstPicture");
+    if (first) {
+      const pic = state.pictures.find((p) => p.category !== UNSORTED_PICTURES) || state.pictures[0];
+      if (pic) loadPictureImage(pic.id);
+      const photo = pic && (pictureImageCache[pic.id] || {}).photo;
+      first.hidden = active || !photo;
+      if (photo) {
+        const img = first.querySelector("img");
+        if (img.getAttribute("src") !== photo) img.setAttribute("src", photo);
+        first.onclick = () => openImageViewer(photo, pictureCategoryDef(pic.category).label + " photo");
       }
     }
   }
