@@ -2928,7 +2928,7 @@
   // Checks what the checklist can actually tell about a PassTech body's
   // rollover protection rule -- full cage vs roll bar, tubing size for the
   // car's weight, welded foot plates -- and lists the rest (welded joints,
-  // padding, logbook, material) as manual checks. Each check:
+  // logbook, material) as manual checks (padding is left out). Each check:
   // { label, status: pass|fail|pending|manual, detail, target? }.
   function passTechRuleFor(pt) {
     const cls = state.vehicle.orgClass;
@@ -2997,11 +2997,8 @@
     }
     if (rule.materialNote) checks.push({ label: "Material", status: "manual", detail: rule.materialNote });
     if (rule.rolloverProtectionRequiresWelded) checks.push({ label: "Welded construction", status: "manual", detail: "Cage joints must be welded (no bolt-together joints)" });
-    if (rule.rolloverProtectionRequiresPadding) {
-      const extra = [rule.rolloverProtectionPaddingCertRequired ? "certified padding (SFI 45.1 / FIA 8857)" : "",
-        rule.rolloverProtectionRequiresForwardHoopPadding ? "including the forward hoop" : ""].filter(Boolean).join(", ");
-      checks.push({ label: "Roll cage padding", status: "manual", detail: "Padding required where the helmet can touch the cage" + (extra ? " -- " + extra : "") });
-    }
+    // Roll cage padding isn't part of the cage's own assessment -- left out
+    // of these checks (rolloverProtectionRequiresPadding is ignored).
     if (rule.rolloverProtectionRequiresLogbook) {
       const bodies = rule.rolloverProtectionAcceptedLogbookBodies;
       checks.push({ label: "Logbook", status: "manual", detail: "The cage must be logbooked" + (bodies && bodies.length ? " (accepted: " + bodies.join(", ") + ")" : "") });
@@ -6582,6 +6579,8 @@
     root.appendChild(panel);
   }
 
+  // An issue's rule reference in brackets -- nothing when it has none.
+  function refSuffix(f) { return f.reference ? " (" + f.reference + ")" : ""; }
   // A "Failing"/"Needs verification"/"Advisory" row from renderResults --
   // clickable straight to that item's own section (jumpToElementSection)
   // when it resolves to a real one. f is either a real path.elements entry
@@ -6702,7 +6701,7 @@
         el(
           "ul",
           { class: "issue-list" },
-          results.failures.map((f) => issueListItem(f, f.name + " — " + (f.hardFailMessage || "") + " (" + f.reference + ")"))
+          results.failures.map((f) => issueListItem(f, f.name + " — " + (f.hardFailMessage || "") + refSuffix(f)))
         )
       );
     }
@@ -6712,7 +6711,7 @@
         el(
           "ul",
           { class: "issue-list" },
-          results.unresolved.map((f) => issueListItem(f, f.name + " (" + f.reference + ")"))
+          results.unresolved.map((f) => issueListItem(f, f.name + refSuffix(f)))
         )
       );
     }
@@ -6722,7 +6721,7 @@
         el(
           "ul",
           { class: "issue-list" },
-          results.advisories.map((f) => issueListItem(f, f.name + " (" + f.reference + ")"))
+          results.advisories.map((f) => issueListItem(f, f.name + refSuffix(f)))
         )
       );
     }

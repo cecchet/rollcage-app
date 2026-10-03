@@ -2289,6 +2289,9 @@
       name: "Windshield reinforcement (253-31) present",
       category: "Optional bars",
       requirement: "recommended",
+      // Optional: unlike the temple bars, not actually recommended -- "None
+      // present" is a normal answer, not an advisory.
+      recommendedIf: () => false,
       reference: "",
       description: "Reinforcement tube or bent-sheet-metal U-shape per Article 253-8.2.14, thickness >=1.0mm, near the A-pillar/windshield junction. Ends must not extend past halfway along the members it's attached to.",
       // Doesn't apply to a half rollcage -- no A-pillar/windshield junction
