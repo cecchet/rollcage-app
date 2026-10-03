@@ -990,6 +990,10 @@ img.zoomable, #cageViewerPictureModeThumb { cursor: zoom-in; }
 /* Under a Part 8 safety score row: lined up with the row's label. */
 .safety-tier-explain { margin: -2px 0 4px 28px; }
 .safety-tier-explain .unsafe-explanation { margin-top: 0; }
+/* A grandfathered rule item answered by the rollcage design (renderDerivedCard). */
+.derived-source { margin-top: 6px; font-size: 0.8rem; color: var(--muted); }
+.collapsed-card .derived-source { margin-top: 0; padding: 0 14px 10px; }
+.derived-source-link { display: inline; background: none; border: none; padding: 0; cursor: pointer; font: inherit; color: var(--accent); text-decoration: underline; text-align: left; }
 .results-header-buttons { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 .tour-blocker { position: fixed; inset: 0; z-index: 200; }
 .tour-spotlight { position: fixed; z-index: 201; border-radius: 12px; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.75); pointer-events: none; transition: top 0.15s, left 0.15s, width 0.15s, height 0.15s; }

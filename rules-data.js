@@ -3444,6 +3444,134 @@
       paths: { new_construction: { label: "New Construction", elements: AGNOSTIC_ELEMENTS } },
     };
   });
+  // Grandfathered (existing logbook) items answered by the design checklist
+  // itself (Parts 2-5): derive(getAnswer, helpers) returns { value, from }
+  // -- the item's answer and the design items it was read from -- or null
+  // when those answers don't settle it (not answered yet, or a design the
+  // rule's wording doesn't clearly cover), leaving the question to the
+  // user. helpers.mainHoopTopCornerSupported(side, getAnswer) comes from
+  // the app (true / false / null).
+  const val = (getAnswer, id) => getAnswer(id).value;
+  const FULL_CAGES = ["253-1", "253-2", "253-3"];
+  const DOOR_BAR_DESIGNS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-10", "253-11", "nascar"];
+  const SIDES = ["left", "right"];
+  // A full cage yes, a rollbar-only cage no; "Other design" is left to the user.
+  const fullCage = (getAnswer) => {
+    const v = val(getAnswer, "main_structure_layout");
+    if (FULL_CAGES.includes(v)) return { value: "yes", from: ["main_structure_layout"] };
+    if (v === "half-rollcage") return { value: "no", from: ["main_structure_layout"] };
+    return null;
+  };
+  // Door bars on both sides: yes when both are a real door bar design, no
+  // as soon as one side has none (or a lone single bar).
+  const doorBarsBothSides = (getAnswer) => {
+    const v = SIDES.map((s) => val(getAnswer, "door_bars_" + s));
+    const from = ["door_bars_left", "door_bars_right"];
+    if (v.some((x) => x === "none" || x === "single-bar")) return { value: "no", from };
+    return v.every((x) => DOOR_BAR_DESIGNS.includes(x)) ? { value: "yes", from } : null;
+  };
+  const sillBarsBothSides = (getAnswer) => {
+    const v = SIDES.map((s) => (getAnswer("door_bars_" + s).extra || {}).sill_bar);
+    const from = ["door_bars_left", "door_bars_right"];
+    if (v.some((x) => x === "no")) return { value: "no", from };
+    return v.every((x) => x === "yes") ? { value: "yes", from } : null;
+  };
+  const aPillarBars = (getAnswer) => {
+    const v = val(getAnswer, "a_pillar_reinforcement");
+    if (v === "continuous" || v === "two_bars") return { value: "yes", from: ["a_pillar_reinforcement"] };
+    return v === "none" ? { value: "no", from: ["a_pillar_reinforcement"] } : null;
+  };
+  // Diagonal members in the main hoop / the backstays' plane (a V counts
+  // as two; the app's non-standard main hoop V is left to the user).
+  const MAIN_DIAGONAL_COUNT = { "253-7-1": 2, "253-7-2": 2, "diag-left": 1, "diag-right": 1, "diag-horizontal": 1, "diag-lower-half": 1, none: 0 };
+  const BACKSTAY_DIAGONAL_COUNT = { "253-20": 1, "253-20-right": 1, "253-21-1": 2, "253-21-2": 2, "253-22": 2, none: 0 };
+  const diagonalCounts = (getAnswer) => {
+    const main = MAIN_DIAGONAL_COUNT[val(getAnswer, "main_hoop_diagonals")];
+    const back = val(getAnswer, "backstays") === "no" ? 0 : BACKSTAY_DIAGONAL_COUNT[val(getAnswer, "backstay_diagonals")];
+    return main === undefined || back === undefined ? null : { main, back, from: ["main_hoop_diagonals", "backstay_diagonals"] };
+  };
+  const ROOF_BAR_COUNT = { "253-12-1": 2, "253-12-2": 2, "253-13": 2, "253-14": 2, "single-center": 1, "single-front-left": 1, "single-front-right": 1, none: 0 };
+  const GF_DERIVED = {
+    cars: {
+      base_structure_present: fullCage,
+      backstays_gf: (getAnswer) => {
+        const v = val(getAnswer, "backstays");
+        const angle = parseFloat(val(getAnswer, "backstay_angle"));
+        if (v === "no") return { value: "no", from: ["backstays"] };
+        if (v !== "yes") return null;
+        // At least 30 degrees from vertical, once measured.
+        return !isNaN(angle) && angle < 30 ? { value: "no", from: ["backstays", "backstay_angle"] } : { value: "yes", from: ["backstays"] };
+      },
+      diagonal_members_gf: (getAnswer) => {
+        const c = diagonalCounts(getAnswer);
+        if (!c) return null;
+        const value = c.main >= 2 ? "two_main_hoop" : c.main + c.back >= 2 ? "two_either_plane" : c.main + c.back === 1 ? "one_diagonal" : "none";
+        return { value, from: c.from };
+      },
+      roof_bars_gf: (getAnswer) => {
+        const n = ROOF_BAR_COUNT[val(getAnswer, "roof_bars")];
+        return n === undefined ? null : { value: n >= 2 ? "two_bars" : n === 1 ? "one_bar" : "none", from: ["roof_bars"] };
+      },
+      door_bars_present_gf: doorBarsBothSides,
+      // Every leg needs a foot -- one answered "None" fails it (plate size,
+      // thickness and bolts are left to the user).
+      mounting_feet_gf: (getAnswer) => {
+        const none = ["front_left", "front_right", "main_hoop_left", "main_hoop_right", "backstay_left", "backstay_right"]
+          .some((row) => val(getAnswer, "mounting_feet_design__" + row + "__design") === "none");
+        return none ? { value: "no", from: ["mounting_feet_design"] } : null;
+      },
+      // A, B, C and E are Part 4's installation constraints -- one over its
+      // limit fails it; D isn't measured there, so a pass is left to the user.
+      door_aperture_gf: (getAnswer) => {
+        const mm = (row) => {
+          const v = val(getAnswer, "installation_constraints__" + row + "__value");
+          const n = v && typeof v === "object" ? parseFloat(v.value) : NaN;
+          return isNaN(n) ? null : n * (v.unit === "in" ? 25.4 : v.unit === "cm" ? 10 : 1);
+        };
+        const a = mm("a"), b = mm("b"), c = mm("c"), e = mm("e"), h = mm("h");
+        const fails = (a != null && a < 300) || (b != null && b > 250) || (c != null && c > 300) || (e != null && h != null && e > h / 2);
+        return fails ? { value: "no", from: ["installation_constraints"] } : null;
+      },
+    },
+    nasa: {
+      main_structure_present: fullCage,
+      // At least one diagonal in the main hoop AND one in the backstays.
+      diagonals_minimum: (getAnswer) => {
+        const c = diagonalCounts(getAnswer);
+        return c ? { value: c.main >= 1 && c.back >= 1 ? "yes" : "no", from: c.from } : null;
+      },
+      door_bars_present: doorBarsBothSides,
+      // Roof bars settle it; without any, the windshield-bar gusset is the user's to answer.
+      roof_bar_or_windshield_gusset: (getAnswer) => {
+        const n = ROOF_BAR_COUNT[val(getAnswer, "roof_bars")];
+        return n >= 1 ? { value: "has_roof_bars", from: ["roof_bars"] } : null;
+      },
+      a_pillar_reinforcement_grandfathered: aPillarBars,
+      sill_bar_note: sillBarsBothSides,
+    },
+    ara: {
+      // A sill bar and a door bar on each side.
+      sill_and_extra_door_bar: (getAnswer) => {
+        const doors = doorBarsBothSides(getAnswer), sills = sillBarsBothSides(getAnswer);
+        if ((doors && doors.value === "no") || (sills && sills.value === "no")) return { value: "no", from: ["door_bars_left", "door_bars_right"] };
+        return doors && sills ? { value: "yes", from: ["door_bars_left", "door_bars_right"] } : null;
+      },
+      // Both top corners of the main hoop reached by a diagonal (main hoop or backstays).
+      main_hoop_corner_diagonals: (getAnswer, helpers) => {
+        const s = SIDES.map((side) => helpers.mainHoopTopCornerSupported(side, getAnswer));
+        const from = ["main_hoop_diagonals", "backstay_diagonals"];
+        if (s.includes(false)) return { value: "no", from };
+        return s.every((x) => x === true) ? { value: "yes", from } : null;
+      },
+      windscreen_support_each_side: aPillarBars,
+    },
+  };
+  Object.entries(GF_DERIVED).forEach(([org, items]) => {
+    const gf = window.RULES_DATA[org] && window.RULES_DATA[org].paths.grandfathered;
+    if (!gf) return;
+    gf.elements.forEach((elm) => { if (items[elm.id]) elm.derive = items[elm.id]; });
+  });
+
   // Not an org -- kept out of RULES_DATA's own keys, which the app lists
   // the sanctioning bodies from.
   Object.defineProperty(window.RULES_DATA, "useAnswers", { value: (fn) => { answerSource = fn; }, enumerable: false });

@@ -151,7 +151,7 @@
   }
 
   function renderCover(w, data) {
-    w.text(data.title || "Rollcage Inspection Report", { size: 20, bold: true, color: COLOR.accent });
+    w.text(data.title || "Rollcage Assessment Report", { size: 20, bold: true, color: COLOR.accent });
     w.spacer(1);
     w.text("by Frog Racing", { size: 10, color: COLOR.muted });
     w.spacer(6);
@@ -206,10 +206,12 @@
   }
 
   const LEVEL_COLOR = { pass: COLOR.green, fail: COLOR.red, warn: COLOR.amber };
-  function renderLogbook(w, logbook) {
+  // inLogbook: the logbook app's report (data.events set) -- a rollcage
+  // assessment has no logbook.
+  function renderLogbook(w, logbook, inLogbook) {
     if (!logbook) return;
     w.newPage();
-    w.heading("Sanctioning body compliance / Logbook");
+    w.heading(inLogbook ? "Sanctioning body compliance / Logbook" : "Sanctioning body compliance");
     w.text(logbook.verdictLabel, { size: 11, bold: true, color: LEVEL_COLOR[logbook.verdictLevel] || COLOR.text });
     if (logbook.verdictDetail) w.text(logbook.verdictDetail, { size: 9, color: COLOR.muted });
     w.spacer(2);
@@ -350,7 +352,7 @@
     }
     renderAngleImages(w, data.angleImages);
     renderParts(w, data.parts || []);
-    renderLogbook(w, data.logbook);
+    renderLogbook(w, data.logbook, !!data.events);
     renderPictures(w, data.pictures);
     renderSafetyScore(w, data.safetyScore);
     if (!data.events) renderLogbookApplicationDetails(w, data.logbookApplicationDetails);

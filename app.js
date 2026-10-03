@@ -28,7 +28,7 @@
     swUrl: "sw.js",
     apiUrl: "api/analyze-cage", // the AI photo analysis endpoint (api/analyze-cage.js)
     tourSeenKey: "rollcage-app-tour-seen",
-    pdfTitle: "Rollcage Inspection Report",
+    pdfTitle: "Rollcage Assessment Report",
   }, window.APP_CONFIG || {});
   const NOUN = CFG.noun;
   const NOUN_CAP = NOUN.charAt(0).toUpperCase() + NOUN.slice(1);
@@ -281,7 +281,21 @@
   let pictureTriageState = {};
 
   function getAnswer(id) {
+    return derivedAnswer(id) || state.answers[id] || { value: "", note: "", photos: [], extra: {} };
+  }
+  function storedAnswer(id) {
     return state.answers[id] || { value: "", note: "", photos: [], extra: {} };
+  }
+  // A grandfathered rule item the design checklist already answers (its
+  // rules-data.js derive): that answer, with derivedFrom listing the design
+  // items it was read from -- shown read-only (renderDerivedCard). null
+  // when there's nothing to derive it from yet.
+  function derivedAnswer(id) {
+    const gf = state.vehicle && state.vehicle.logbookPath === "grandfathered" ? grandfatheredPath() : null;
+    const elm = gf && gf.elements.find((e) => e.id === id);
+    if (!elm || !elm.derive) return null;
+    const d = elm.derive(storedAnswer, { mainHoopTopCornerSupported });
+    return d && d.value != null ? { value: d.value, note: "", photos: [], extra: {}, derivedFrom: d.from || [] } : null;
   }
   // Some rule names/descriptions follow the current answers (see
   // rules-data.js's useAnswers).
@@ -1458,16 +1472,20 @@
     { label: "Vehicle weight", id: "vehicle_weight", isWeight: true },
     { label: "Drive configuration", id: "vehicle_drive_side", map: { lhd: "Left-hand drive", rhd: "Right-hand drive" } },
     { label: "Occupants", id: "vehicle_codriver", map: { no: "Driver only", yes: "Driver + Codriver" } },
-    { label: "Certificate number", id: "vehicle_certificate_number" },
-    { label: "Logbook number", id: "vehicle_logbook_number" },
+    { label: "Certificate number", id: "vehicle_certificate_number", logbookOnly: true },
+    { label: "Logbook number", id: "vehicle_logbook_number", logbookOnly: true },
   ];
+  // The sanctioning body and logbook details belong to the logbook app's
+  // report only -- a rollcage assessment has neither (a saved rollcage may
+  // still carry them, e.g. one imported from a logbook).
   function buildReportVehicleLines() {
-    const lines = [
-      { label: "Vehicle / entry name", value: state.vehicle.name || "(unnamed)" },
-      { label: "Sanctioning body", value: (RULES[state.vehicle.org] || {}).orgFullName || state.vehicle.org },
-    ];
-    if (state.vehicle.logbookDate) lines.push({ label: "Logbook issue date", value: state.vehicle.logbookDate });
-    VEHICLE_INFO_FIELDS.forEach(({ label, id, map, isWeight }) => {
+    const lines = [{ label: "Vehicle / entry name", value: state.vehicle.name || "(unnamed)" }];
+    if (CFG.logbook) {
+      lines.push({ label: "Sanctioning body", value: (RULES[state.vehicle.org] || {}).orgFullName || state.vehicle.org });
+      if (state.vehicle.logbookDate) lines.push({ label: "Logbook issue date", value: state.vehicle.logbookDate });
+    }
+    VEHICLE_INFO_FIELDS.forEach(({ label, id, map, isWeight, logbookOnly }) => {
+      if (logbookOnly && !CFG.logbook) return;
       const v = getAnswer(id).value;
       if (isWeight) {
         if (v && typeof v === "object" && v.value !== "" && v.value != null) lines.push({ label, value: v.value + " " + (v.unit || "kg") });
@@ -5060,12 +5078,42 @@
 
   // Short one-line summary shown on a collapsed card in place of its full
   // question body.
+  // A grandfathered rule item answered by the design checklist (see
+  // derivedAnswer): its answer, and where it comes from -- each source a
+  // link to its question, where it's changed.
+  function renderDerivedCard(elm, answer, status) {
+    const designPath = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    const sources = answer.derivedFrom
+      .map((id) => designPath && designPath.elements.find((e) => e.id === id))
+      .filter((src) => src && elementVisible(src));
+    const expanded = !!state.expandedIds[elm.id];
+    const card = el("div", { class: "element-card derived-card state-" + status + (expanded ? "" : " collapsed-card"), id: "section-" + elm.id });
+    card.appendChild(el("div", { class: "element-head" + (expanded ? "" : " collapsed-head"), onclick: () => { state.expandedIds[elm.id] = !expanded; render(); } }, [
+      el("span", { class: "element-name" }, [elm.name]),
+      el("span", { class: "collapsed-summary" }, [elementSummary(elm, answer)]),
+    ]));
+    if (expanded) {
+      card.appendChild(el("div", { class: "element-ref" }, [elm.reference]));
+      card.appendChild(el("div", { class: "element-desc" }, [elm.description]));
+    }
+    if (sources.length) {
+      const links = [];
+      sources.forEach((src, i) => {
+        if (i) links.push(" · ");
+        links.push(el("button", { type: "button", class: "derived-source-link", title: "Go to this question to change it", onclick: (e) => { e.stopPropagation(); jumpToElementSection(src.id); } },
+          [partName(elementPhase(src)) + ": " + src.name + " (" + elementSummary(src, getAnswer(src.id)) + ")"]));
+      });
+      card.appendChild(el("div", { class: "derived-source" }, ["From the rollcage design — "].concat(links)));
+    }
+    return card;
+  }
+
   function elementSummary(elm, answer) {
     if (elm.evaluationType === "choice") {
       const opt = (elm.options || []).find((o) => o.id === answer.value);
       return opt ? opt.label : String(answer.value);
     }
-    if (elm.evaluationType === "boolean") {
+    if (elm.evaluationType === "boolean" || (elm.evaluationType === "attestation" && (answer.value === "yes" || answer.value === "no"))) {
       return answer.value === "yes" ? "Yes" : "No";
     }
     if (elm.evaluationType === "numeric" && elm.fields) {
@@ -5105,6 +5153,7 @@
   function renderElementCard(elm) {
     const answer = getAnswer(elm.id);
     const status = elementStatus(elm, answer);
+    if (answer.derivedFrom) return renderDerivedCard(elm, answer, status);
     const reqBadgeClass = { required: "req", recommended: "rec", conditional: "cond", exception: "exc", informational: "info" }[elm.requirement] || "info";
     // Parts 1-3 are pure capture now (geometry, then tubing sizes/materials,
     // then measurements/angles/welds) -- required/recommended is a
