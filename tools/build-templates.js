@@ -19,6 +19,13 @@ const pics = (id, list) => list.map(([file, category, tags]) => ({
   ...(tags ? { elements: tags.map(([elementId, value, extra]) => ({ elementId, value, extra: extra || {} })) } : {}),
 }));
 
+// A kit's mounting plates, as tags (one per foot, its design): the kits'
+// 253-53 double plane plates, and 253-57 flat plates at the backstays.
+// rollbar: no front feet.
+const FEET = (rollbar) => (rollbar ? [] : [["front_left", "double_plane"], ["front_right", "double_plane"]]).concat([
+  ["main_hoop_left", "double_plane"], ["main_hoop_right", "double_plane"], ["backstay_left", "flat_curved"], ["backstay_right", "flat_curved"],
+]).map(([row, design]) => ["mounting_feet_design__" + row + "__design", design]);
+
 // 9hio's YouTube walk-around videos (the cards' "Watch video" button opens
 // them in the app's video viewer).
 const NINE_HIO_VIDEOS = {
@@ -58,6 +65,7 @@ const TEMPLATES = [
       ["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }], ["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }],
       ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"], ["temple_bar_present", "both"],
       ["a_pillar_reinforcement", "two_bars"],
+      ...FEET(),
     ]])),
   },
   {
@@ -69,6 +77,7 @@ const TEMPLATES = [
       ["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }], ["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }],
       ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"], ["temple_bar_present", "both"],
       ["a_pillar_reinforcement", "two_bars"],
+      ...FEET(),
     ]])),
   },
   // The VAB's diagram (1.jpg) matches its installation photos; the
@@ -89,6 +98,7 @@ const TEMPLATES = [
         ["gusset_design__a_pillar_left__design", "single_plate"], ["gusset_design__a_pillar_right__design", "single_plate"],
         ["a_pillar_reinforcement", "continuous"],
         ["gusset_design__a_pillar_side_left__design", "taco"], ["gusset_design__a_pillar_side_right__design", "taco"],
+        ...FEET(),
       ]],
       ["4.jpg", "overview"], ["5.jpg", "overview"], ["6.jpg", "overview"], ["7.jpg", "overview"],
       ["8.jpg", "roof_bars"],
@@ -155,6 +165,7 @@ const TEMPLATES = [
         ["temple_bar_present", "both"], ["windshield_reinforcement_present", "both"],
         ["gusset_design__door_front_left__design", "taco"], ["gusset_design__door_rear_left__design", "taco"],
         ["gusset_design__door_front_right__design", "taco"], ["gusset_design__door_rear_right__design", "taco"],
+        ...FEET(),
       ]],
       ["5.jpg", "roof_bars"],
     ]),
@@ -169,6 +180,7 @@ const TEMPLATES = [
         ["main_hoop_diagonals", "diag-lower-half"], ["backstays", "yes"],
         ["door_bars_left", "253-11"], ["door_bars_right", "253-11"],
         ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"],
+        ...FEET(),
       ]],
       ["5.jpg", "roof_bars"],
     ]),
@@ -182,6 +194,7 @@ const TEMPLATES = [
       ["4.jpg", "overview", [
         ["main_hoop_diagonals", "253-7-1"], ["backstays", "yes"], ["backstay_diagonals", "253-21-1"],
         ["harness_bar_present", "253-26-27"],
+        ...FEET(true),
       ]],
       ["5.jpg", "roof_bars"],
     ]),

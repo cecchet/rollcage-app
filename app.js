@@ -3803,11 +3803,13 @@
     },
     // Optional bars rarely sit in a close-up of one of the areas above (a
     // dash bar under the dashboard, a harness bar, 253-25 anti-intrusion
-    // bars low in the doors...): their own category.
+    // bars low in the doors...): their own category -- with gusset
+    // close-ups, wherever they are (gussets: every junction's).
     {
       id: "optional_bars",
-      label: "Optional bars (dash bar, harness bar...)",
-      limit: 5,
+      label: "Optional bars and gussets (dash bar, harness bar...)",
+      limit: 8,
+      gussets: true,
       elementIds: ["dash_bar_present", "harness_bar_present", "lower_main_hoop_bar_present", "rear_transversal_present", "rear_lower_x_present",
         "rear_lateral_reinforcement_present", "anti_intrusion_present", "temple_bar_present", "windshield_reinforcement_present"],
     },
@@ -3875,7 +3877,8 @@
       });
     }
 
-    // Junction gussets: every one in "overview", and in a close-up
+    // Junction gussets: every one in "overview" (and the gusset close-ups'
+    // category), and in a close-up
     // category the ones at its own junctions (see gussetRowCategory) --
     // a gusset is also evidence of the bar design around it (an X's
     // crossing, a 2-bar 253-15's split; see the prompt in analyze-cage.js).
@@ -3883,7 +3886,7 @@
       const gussetElm = path.elements.find((e) => e.id === "gusset_design");
       if (gussetElm) {
         const options = gussetElm.columns[0].options;
-        resolveRows(gussetElm).filter((row) => isOverview || gussetRowCategory(row.id) === categoryId).forEach((row) => {
+        resolveRows(gussetElm).filter((row) => isOverview || categoryDef.gussets || gussetRowCategory(row.id) === categoryId).forEach((row) => {
           let description = "Gusset (bracing plate or wrap-around sleeve) at this specific tube junction.";
           if (row.restrictOptionIds && row.restrictOptionIds.length === 1) {
             description += ' This junction only ever uses a "' + row.restrictOptionIds[0] + '" gusset by design -- default to that if a gusset is visible there at all, unless the photo clearly shows otherwise.';
