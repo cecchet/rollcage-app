@@ -1369,7 +1369,11 @@
   // app's account panel issues a logbook from it): a copy, unsaved changes
   // included, without photos.
   window.RollcageApp = {
-    currentRollcage: () => JSON.parse(JSON.stringify({ vehicle: state.vehicle, pathId: state.pathId, answers: state.answers, events: state.events })),
+    currentRollcage: () => JSON.parse(JSON.stringify({
+      vehicle: state.vehicle, pathId: state.pathId, answers: state.answers, events: state.events,
+      // The photos' entries (ids, tags...); their images: getPhoto(id).
+      pictures: state.pictures, vehiclePhotos: state.vehiclePhotos, homologationPhotos: state.homologationPhotos,
+    })),
     // The editor (3D model + checklist), hidden at start with CFG.startHidden.
     workspaceShown: () => !document.body.classList.contains("workspace-hidden"),
     showWorkspace: () => { setWorkspaceShown(true); render(); },
@@ -1457,9 +1461,20 @@
     // this instead of the library window, when set -- the logbook app's own
     // library.
     setLibraryHandler: (fn) => { libraryHandler = fn; },
+    // A stored photo ({ photo, screenshot } data URLs), or null.
+    getPhoto: (id) => getPictureRecord(id).catch(() => null),
+    // Stores a photo ({ photo, screenshot? }) and returns its new id.
+    putPhoto: (record) => { const id = picUid(); return putPictureRecord(id, record).then(() => id); },
     // Links the open logbook to its online copy (after issuing or
-    // uploading it) and saves it as it is.
-    linkCurrent: (server) => {
+    // uploading it) and saves it as it is. shaById: each photo's id -> its
+    // SHA-256 once uploaded (kept on the picture as sha256).
+    linkCurrent: (server, shaById) => {
+      if (shaById) {
+        state.pictures = state.pictures.map((p) => (shaById[p.id]
+          ? Object.assign({}, p, { sha256: shaById[p.id] }, shaById[p.id + ":shot"] ? { screenshotSha256: shaById[p.id + ":shot"] } : {}) : p));
+        const vp = state.vehiclePhotos || {};
+        ["front", "rear"].forEach((slot) => { if (vp[slot] && shaById[vp[slot].id]) vp[slot] = Object.assign({}, vp[slot], { sha256: shaById[vp[slot].id] }); });
+      }
       state.vehicle = Object.assign({}, state.vehicle, { server });
       saveCurrent();
       state.dirty = false;
