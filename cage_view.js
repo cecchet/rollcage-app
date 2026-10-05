@@ -551,12 +551,7 @@
       e.preventDefault();
     }, { passive: false });
 
-    window.addEventListener("resize", () => {
-      if (!container.clientWidth) return;
-      camera.aspect = container.clientWidth / Math.max(1, container.clientHeight);
-      camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
-    });
+    window.addEventListener("resize", resize);
 
     PARTS.forEach((file) => {
       fetch("cage_parts/" + encodeURIComponent(file) + "?v=" + CAGE_PARTS_VERSION).then((r) => {
@@ -1727,6 +1722,15 @@
   }
   // Shows/hides the model (the session bar's "3D Model" toggle in app.js),
   // resizing the renderer on the way back in.
+  // Fits the renderer to its container -- on a window resize, and when the
+  // page shows a viewer that was laid out hidden (0 x 0).
+  function resize() {
+    const container = document.getElementById("cageViewerContainer");
+    if (!container || !container.clientWidth || !camera || !renderer) return;
+    camera.aspect = container.clientWidth / Math.max(1, container.clientHeight);
+    camera.updateProjectionMatrix();
+    renderer.setSize(container.clientWidth, container.clientHeight);
+  }
   function setVisible(show) {
     const container = document.getElementById("cageViewerContainer");
     if (!container) return;
@@ -1760,6 +1764,9 @@
   // wide, or null before the model has loaded.
   function snapshot(maxWidth, opts) {
     if (!ready || !renderer) return null;
+    // Not laid out yet (the viewer hidden, or just shown): no picture to take
+    // -- callers try again on a later render.
+    if (!renderer.domElement.width || !renderer.domElement.height) return null;
     const saved = { theta, phi, roll, radius, target: target.clone() };
     const hiddenForShot = [];
     Object.keys(meshes).forEach((file) => {
@@ -1832,7 +1839,7 @@
     renderer.render(scene, camera);
     return out.toDataURL("image/jpeg", 0.85);
   }
-  window.CageView = { setVisible, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot };
+  window.CageView = { setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");

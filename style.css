@@ -92,6 +92,8 @@ body {
    once the panel grew past a small corner widget. Collapsing it (the
    "Hide" button, which just hides the canvas underneath the header)
    shrinks the reserved space the same way, no extra JS needed. */
+/* The editor hidden until a logbook is opened (CFG.startHidden). */
+body.workspace-hidden .cage-viewer-row, body.workspace-hidden #app { display: none; }
 .cage-viewer-row {
   position: sticky;
   top: 0;
@@ -818,6 +820,7 @@ textarea { resize: vertical; min-height: 50px; }
 .confirm-dialog-actions { justify-content: flex-end; }
 .load-dialog-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .load-dialog-header h2 { margin: 0; }
+.library-search { width: 100%; box-sizing: border-box; margin-bottom: 10px; }
 .load-dialog-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

@@ -29,6 +29,13 @@
     apiUrl: "api/analyze-cage", // the AI photo analysis endpoint (api/analyze-cage.js)
     tourSeenKey: "rollcage-app-tour-seen",
     pdfTitle: "Rollcage Assessment Report",
+    // Start with the editor (the 3D model and the checklist) hidden, and
+    // the library closed: an app built on this one (the logbook app's
+    // account panel) shows them through window.RollcageApp when a logbook
+    // is opened.
+    startHidden: false,
+    // Hide a logbook's events until it's issued (vehicle.server set).
+    eventsOnlyWhenIssued: false,
   }, window.APP_CONFIG || {});
   const NOUN = CFG.noun;
   const NOUN_CAP = NOUN.charAt(0).toUpperCase() + NOUN.slice(1);
@@ -1298,7 +1305,10 @@
   }
   function saveAsNewRollcage(name) {
     state.sessionId = uid();
-    state.vehicle = { ...state.vehicle, name };
+    // A copy isn't the online logbook the original may be linked to (the
+    // logbook app's vehicle.server).
+    const { server, ...vehicle } = state.vehicle;
+    state.vehicle = { ...vehicle, name };
     state.pictures = state.pictures.map((p) => ({ ...p, id: cloneStoredPicture(p.id) }));
     state.homologationPhotos = state.homologationPhotos.map((p) => ({ ...p, id: cloneStoredPicture(p.id) }));
     const vp = state.vehiclePhotos || {};
@@ -1353,6 +1363,120 @@
       pictures: state.pictures, homologationPhotos: state.homologationPhotos, vehiclePhotos: state.vehiclePhotos, events: state.events,
     });
   }
+  // For an app built on this one to read the open rollcage (the logbook
+  // app's account panel issues a logbook from it): a copy, unsaved changes
+  // included, without photos.
+  window.RollcageApp = {
+    currentRollcage: () => JSON.parse(JSON.stringify({ vehicle: state.vehicle, pathId: state.pathId, answers: state.answers, events: state.events })),
+    // The editor (3D model + checklist), hidden at start with CFG.startHidden.
+    workspaceShown: () => !document.body.classList.contains("workspace-hidden"),
+    showWorkspace: () => { setWorkspaceShown(true); render(); },
+    hideWorkspace: () => { state.libraryOpen = false; setWorkspaceShown(false); render(); },
+    // (A frame later: the 3D view needs its size before the library draws
+    // its cards' snapshots from it.)
+    openLibrary: () => {
+      setWorkspaceShown(true);
+      requestAnimationFrame(() => { state.libraryOpen = true; state.librarySelectedId = null; render(); });
+    },
+    // The library on this device, for syncing it with the online one. A
+    // logbook's vehicle.server ({ id, digitalNumber, lastSeq, fingerprint,
+    // syncedAt }) links it to its online copy.
+    listLocal: () => JSON.parse(JSON.stringify(Object.values(loadAll()))),
+    currentSessionId: () => state.sessionId,
+    isDirty: () => state.dirty,
+    // Creates or replaces a saved logbook (by sessionId); the open one is
+    // reloaded when it has no unsaved changes.
+    saveLocal: (record) => {
+      const all = loadAll();
+      all[record.sessionId] = Object.assign({}, record, { updatedAt: new Date().toISOString() });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+      if (record.sessionId === state.sessionId && !state.dirty) loadSession(record.sessionId);
+      else render();
+    },
+    // part: then show that part of it (see showPart).
+    openLocal: (sessionId, part) => confirmDiscardIfDirty(() => {
+      state.libraryOpen = false; loadSession(sessionId); setWorkspaceShown(true); render();
+      if (part) window.RollcageApp.showPart(part);
+    }),
+    // A blank logbook, open below (after the usual unsaved-changes check).
+    newLogbook: () => confirmDiscardIfDirty(() => { state.libraryOpen = false; startNew(); setWorkspaceShown(true); render(); }),
+    // Deletes a saved logbook and its photos -- the caller has confirmed.
+    deleteLocal: (sessionId) => deleteSavedRollcage(sessionId, true),
+    // Saves the open logbook on this device (the library's Save).
+    save: () => saveWithFlash(),
+    // Downloads the open logbook as a file, photos included (Export to file).
+    exportFile: () => exportCurrentSessionToFile(),
+    // Picks an export file (from either app) and opens it; onOpen(sessionId,
+    // notice) once it's in.
+    importFile: (onOpen) => {
+      const input = el("input", { type: "file", accept: "application/json", class: "visually-hidden" });
+      input.addEventListener("change", () => { const f = input.files && input.files[0]; if (f) importSessionFromFile(f, { open: true, onOpen }); input.remove(); });
+      document.body.appendChild(input);
+      input.click();
+    },
+    // Shows a part of the open logbook: "rollcage" (its design), "events"
+    // (its event log), or "logbook" (Part 1).
+    showPart: (which) => {
+      state.libraryOpen = false;
+      setWorkspaceShown(true);
+      state.activeTab = which === "rollcage" ? 1 : LOGBOOK_PHASE;
+      if (which !== "rollcage") state.resultsExpanded = true;
+      render();
+      requestAnimationFrame(() => {
+        const target = document.getElementById(which === "events" ? "logbook-events" : which === "logbook" ? "compliance-panel" : "cageViewerContainer");
+        if (target) scrollBelowViewer(target);
+      });
+    },
+    setAnswer: (id, value) => setAnswer(id, { value }),
+    jumpTo: (where) => { if (where === "logbook") window.RollcageApp.showPart("logbook"); else jumpToElementSection(where); },
+    // What a logbook needs before it's issued: the logbook information
+    // (Part 1) and every checklist part complete. [{ label, done, missing?,
+    // where }] -- where: "logbook" or the first missing item's id (jumpTo).
+    issueReadiness: () => {
+      const v = (id) => { const a = getAnswer(id).value; return typeof a === "string" ? a.trim() : ""; };
+      const items = [
+        { label: "Sanctioning body", done: !!state.vehicle.org && state.vehicle.org !== "none", where: "logbook" },
+        { label: "Vehicle: manufacturer, model and year", done: !!(v("vehicle_manufacturer") && v("vehicle_model") && v("vehicle_year")), where: "logbook" },
+        { label: "Owner's name and email", done: !!(v("vehicle_owner_name") && /^[^@\s]+@[^@\s]+$/.test(v("vehicle_owner_email"))), where: "logbook" },
+        { label: "Logbook number", done: !!v("vehicle_logbook_number"), where: "logbook" },
+      ];
+      const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+      if (path) {
+        const { phases } = computeUsedPhases(path);
+        [1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE].forEach((phase) => {
+          const missing = (phases[phase] || []).filter((elm) => elm.evaluationType !== "text" && elm.evaluationType !== "longtext"
+            && elm.requirement !== "informational" && !isElementComplete(elm));
+          items.push({ label: PHASE_LABELS[phase], done: !missing.length, missing: missing.length, where: missing.length ? missing[0].id : null });
+        });
+      }
+      return items;
+    },
+    // The session bar's library button (and its "Unsaved changes" tag) call
+    // this instead of the library window, when set -- the logbook app's own
+    // library.
+    setLibraryHandler: (fn) => { libraryHandler = fn; },
+    // Links the open logbook to its online copy (after issuing or
+    // uploading it) and saves it as it is.
+    linkCurrent: (server) => {
+      state.vehicle = Object.assign({}, state.vehicle, { server });
+      saveCurrent();
+      state.dirty = false;
+      render();
+    },
+  };
+  let libraryHandler = null;
+  function openLibraryButton() {
+    if (libraryHandler) libraryHandler();
+    else { state.libraryOpen = true; state.librarySelectedId = null; render(); }
+  }
+  function setWorkspaceShown(on) {
+    document.body.classList.toggle("workspace-hidden", !on);
+    if (on && window.CageView && window.CageView.setVisible) window.CageView.setVisible(state.showModel !== false);
+    // The 3D view was laid out hidden (0 x 0): fit it once it has a size.
+    if (on && window.CageView && window.CageView.resize) requestAnimationFrame(() => window.CageView.resize());
+  }
+  // Hidden from the start, before any script after this one looks.
+  if (CFG.startHidden) document.body.classList.add("workspace-hidden");
   async function exportSessionToFile(s) {
     // Same file format in both apps (the rollcage app and Digital logbooks),
     // so an export from either imports into the other -- exportedFrom just
@@ -1387,7 +1511,9 @@
   // becomes a logbook with no events yet. A sanctioning body this app
   // doesn't offer (e.g. a road-racing body, in the logbook app) falls back
   // to none -- the library then says so.
-  function importSessionFromFile(file) {
+  // opts.open: open the imported one right away (the logbook app's Import a
+  // file), after the usual unsaved-changes check.
+  function importSessionFromFile(file, opts) {
     const reader = new FileReader();
     reader.onload = () => {
       let data;
@@ -1446,7 +1572,8 @@
           alert("Couldn't save the imported " + NOUN + " (browser storage is full).");
           return;
         }
-        render();
+        if (opts && opts.open) confirmDiscardIfDirty(() => { state.libraryOpen = false; loadSession(sessionId); setWorkspaceShown(true); render(); if (opts.onOpen) opts.onOpen(sessionId, state.libraryNotice); });
+        else render();
       }, () => alert("Couldn't store the imported " + NOUN + "'s photos in this browser."));
     };
     reader.readAsText(file);
@@ -1837,10 +1964,11 @@
           Object.assign(nameInput, { id: "rollcageNameInput" }),
           // Saving happens in the library now -- this keeps unsaved work visible.
           // A shortcut to where Save is now: the library's "Currently editing".
-          state.dirty ? el("button", { type: "button", class: "session-bar-unsaved", title: "Open the " + CFG.libraryName + " to save it", onclick: () => { state.libraryOpen = true; state.librarySelectedId = null; render(); } }, ["Unsaved changes"]) : null,
+          // (With an app's own library -- setLibraryHandler -- the tag saves it here.)
+          state.dirty ? el("button", { type: "button", class: "session-bar-unsaved", title: libraryHandler ? "Save it on this device" : "Open the " + CFG.libraryName + " to save it", onclick: () => (libraryHandler ? saveWithFlash() : openLibraryButton()) }, [libraryHandler ? "Unsaved changes — Save" : "Unsaved changes"]) : null,
         ]),
         el("div", { class: "session-bar-group" }, [
-          el("button", { class: "btn small secondary", title: "Save, Save as, PDF report and your saved " + NOUN + "s", onclick: () => { state.libraryOpen = true; state.librarySelectedId = null; render(); } }, [CFG.libraryName]),
+          el("button", { class: "btn small secondary", title: "Save, Save as, PDF report and your saved " + NOUN + "s", onclick: openLibraryButton }, [CFG.libraryName]),
           // A toggle: filled while the model shows, outlined while hidden.
           el("button", {
             class: "btn small" + (state.showModel ? "" : " secondary"), "aria-pressed": state.showModel ? "true" : "false",
@@ -1852,15 +1980,19 @@
     );
   }
 
-  function deleteSavedRollcage(sessionId) {
+  // confirmed: the caller already asked (the logbook app's own warnings).
+  function deleteSavedRollcage(sessionId, confirmed) {
     const s = loadAll()[sessionId];
     if (!s) return;
     const name = s.vehicle.name || "this unnamed " + NOUN;
-    if (!confirm('Delete "' + name + '"? This removes it from your saved rollcages and can\'t be undone.')) return;
+    if (!confirmed && !confirm('Delete "' + name + '"? This removes it from your saved ' + NOUN + 's and can\'t be undone.')) return;
     const all = loadAll();
     delete all[sessionId];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
     deletePictureRecord(sessionThumbId(sessionId));
+    // Its photos too (each saved rollcage has its own copies -- see
+    // cloneStoredPicture; the open one is replaced by a blank one below).
+    mapSessionPictureIds(s, (id) => { if (id) deletePictureRecord(id); return id; });
     state.librarySelectedId = null;
     // The open rollcage no longer exists as a save -- start a blank one
     // rather than leaving an orphan that a later Save would silently revive.
@@ -2006,7 +2138,7 @@
     const tour = TOURS[id];
     if (!tour) return;
     if (tour.onStart) tour.onStart();
-    if (id === "app") { state.libraryOpen = true; state.librarySelectedId = null; }
+    if (id === "app") { setWorkspaceShown(true); state.libraryOpen = true; state.librarySelectedId = null; }
     state.tour = { id, step: tour.intro ? -1 : 0 };
     if (!tour.intro && tour.steps[0].onEnter) tour.steps[0].onEnter();
     render();
@@ -2389,7 +2521,29 @@
       },
     });
 
-    const sessions = Object.values(loadAll()).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    const allSessions = Object.values(loadAll()).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    // The search box (once there are more than a few): every word typed must
+    // appear in the name, the car (make, model, year, VIN), the owner, or a
+    // logbook number.
+    const words = (state.librarySearch || "").toLowerCase().split(/\s+/).filter(Boolean);
+    const sessionText = (s) => {
+      const a = s.answers || {};
+      const v = (id) => (a[id] && typeof a[id].value === "string" ? a[id].value : "");
+      const server = (s.vehicle && s.vehicle.server) || {};
+      return [s.vehicle && s.vehicle.name, v("vehicle_manufacturer"), v("vehicle_model"), v("vehicle_year"), v("vehicle_vin"),
+        v("vehicle_owner_name"), v("vehicle_logbook_number"), server.digitalNumber].filter(Boolean).join(" ").toLowerCase();
+    };
+    const sessions = words.length ? allSessions.filter((s) => { const t = sessionText(s); return words.every((w) => t.includes(w)); }) : allSessions;
+    const searchBox = allSessions.length > 3 ? el("input", {
+      type: "text", class: "library-search", placeholder: "Search: name, car, VIN, owner, logbook number…", value: state.librarySearch || "",
+      oninput: (e) => {
+        state.librarySearch = e.target.value;
+        const pos = e.target.selectionStart;
+        render();
+        const box = document.querySelector(".library-search");
+        if (box) { box.focus(); box.setSelectionRange(pos, pos); }
+      },
+    }) : null;
     // A library card: clicking it selects it, and only the selected card
     // shows its own actions, right on it -- so it's clear what they apply to.
     // dateLink ({ before, label, url }): a subtitle with a link in it -- a
@@ -2417,7 +2571,7 @@
     };
     const openSelected = (fn) => () => confirmDiscardIfDirty(() => { state.libraryOpen = false; fn(); });
     const list = el("div", { class: "load-dialog-list" });
-    if (!sessions.length) list.appendChild(el("div", { class: "ai-status" }, ["No saved " + NOUN + "s yet."]));
+    if (!sessions.length) list.appendChild(el("div", { class: "ai-status" }, [allSessions.length ? "No saved " + NOUN + " matches." : "No saved " + NOUN + "s yet."]));
     sessions.forEach((s) => {
       const thumbId = sessionThumbId(s.sessionId);
       loadPictureImage(thumbId);
@@ -2437,7 +2591,7 @@
         ],
         score: libraryScoreFor("saved:" + s.sessionId + ":" + s.updatedAt, s),
         name: (s.vehicle.name || "Unnamed vehicle") + (isOpen ? " (open)" : ""),
-        date: "Saved " + new Date(s.updatedAt).toLocaleString(),
+        date: "Saved " + new Date(s.updatedAt).toLocaleString() + (s.vehicle.server ? " · online " + s.vehicle.server.digitalNumber : ""),
         actions: [
           el("button", { class: "btn small", onclick: openSelected(() => loadSession(s.sessionId)) }, ["Load"]),
           el("button", { class: "btn small secondary", disabled: state.pdfReportStatus === "generating", onclick: () => pdfReportForSaved(s.sessionId) }, [state.pdfReportStatus === "generating" ? "Generating…" : "PDF report"]),
@@ -2511,7 +2665,10 @@
       editingSomething()
         ? el("div", { class: "library-section library-section-current" }, [el("h3", { class: "library-section-heading" }, ["Currently editing"]), renderLibraryCurrent()])
         : el("div", { class: "element-desc" }, ["Select a saved " + NOUN + " or template below to see what you can do with it."]),
-      el("div", { class: "library-section library-section-saved" }, [el("h3", { class: "library-section-heading" }, ["Saved " + NOUN + "s"]), list]),
+      el("div", { class: "library-section library-section-saved" }, [
+        el("h3", { class: "library-section-heading" }, ["Saved " + NOUN + "s" + (words.length ? " (" + sessions.length + " of " + allSessions.length + ")" : "")]),
+        searchBox, list,
+      ]),
       ...TEMPLATE_GROUPS.filter((g) => templates.some((t) => groupOf(t) === g)).map((g) =>
         el("div", { class: "library-section library-section-templates library-section-" + g.id }, [el("h3", { class: "library-section-heading" }, [g.label]), groupLists[g.id]])),
     ]);
@@ -3579,8 +3736,9 @@
   // whole-cage context shots -- matching the FIA/ARA logbook's own front
   // 3/4, rear 3/4, and side overview photos -- and is also the fallback
   // for anyone who doesn't categorize at all. The other categories are
-  // deliberately narrow: welds, junction distances, and mounting-point
-  // detail stay out of scope (those need a borescope, not a photo), and a
+  // deliberately narrow: welds and junction distances stay out of scope
+  // (those need a borescope, not a photo) -- the mounting feet have their
+  // own category, one photo per foot, tagged with its design -- and a
   // few elements (dash bar, windshield/temple reinforcement, transverse
   // members) are only reachable via "overview" since they're rarely
   // identifiable from a close-up angle but are fair game from a full
@@ -3588,8 +3746,8 @@
   // Order here drives both the on-screen section order (renderPictures)
   // and the PDF report's picture pages (buildReportPictures/
   // renderPictures in pdf_report.js) -- front-to-back around the car:
-  // whole-cage context, then main rollbar, backstay, roof, and finally
-  // the doors.
+  // whole-cage context, then main rollbar, backstay, roof, the doors, and
+  // finally the mounting feet.
   const PICTURE_CATEGORIES = [
     // Overview gets a higher cap than the close-up categories -- it covers
     // several genuinely different whole-cage shots (front 3/4, rear 3/4,
@@ -3623,7 +3781,22 @@
       elementIds: ["door_bars_right", "a_pillar_reinforcement", "windshield_reinforcement_present"],
       sillBar: "right",
     },
+    // One photo per mounting foot (6 at most), each tagged with that foot's
+    // design -- its row in the mounting feet table (see FOOT_TAG_PREFIX).
+    { id: "mounting_feet", label: "Mounting feet", limit: 6, elementIds: [], feet: true },
   ];
+  // A mounting foot's picture tag: its row's answer key in the mounting
+  // feet table, "mounting_feet_design__<row>__design" -- like a gusset's.
+  const FOOT_TAG_PREFIX = "mounting_feet_design__";
+  function footTagRow(elementId) {
+    return elementId.indexOf(FOOT_TAG_PREFIX) === 0 && elementId.endsWith(GUSSET_TAG_SUFFIX)
+      ? elementId.slice(FOOT_TAG_PREFIX.length, -GUSSET_TAG_SUFFIX.length) : null;
+  }
+  // The designs a foot row offers (a backstay foot has fewer).
+  function footRowOptions(feetElm, row) {
+    const options = (feetElm.columns.find((c) => c.key === "design") || {}).options || [];
+    return row && row.restrictOptionIds ? options.filter((o) => row.restrictOptionIds.includes(o.id)) : options;
+  }
   // Which picture category a gusset junction belongs to -- the photo of
   // that area is where it shows (and where the vision model is asked
   // about it).
@@ -3697,6 +3870,20 @@
         });
       }
     }
+    // Mounting feet: in their own category, each foot's design.
+    if (categoryDef.feet) {
+      const feetElm = path.elements.find((e) => e.id === "mounting_feet_design");
+      if (feetElm) {
+        resolveRows(feetElm).forEach((row) => {
+          flat.push({
+            id: FOOT_TAG_PREFIX + row.id + GUSSET_TAG_SUFFIX,
+            name: "Mounting foot -- " + row.label,
+            description: "The plate where this cage leg meets the car's floor or sill. Work out which foot the photo shows (front/windscreen-pillar leg, main hoop leg, or backstay; left or right) from what's around it, and only answer for that foot -- omit every foot that isn't clearly in the photo. Designs: a single flat plate on one surface = single plane (253-50/51/52); a plate bent over two surfaces (e.g. the floor and the sill or a side wall) = double plane (253-53); a box-shaped plate wrapping several faces = multiplane box (253-54); a plate spanning the sill/rocker panel and the floor = multiplane rocker (253-55/56); a backstay plate following the floor's curve = flat or curved (253-57).",
+            options: footRowOptions(feetElm, row).map((o) => ({ id: o.id, label: o.label })),
+          });
+        });
+      }
+    }
     return flat;
   }
 
@@ -3732,6 +3919,15 @@
     return label;
   }
   function resolvePictureTagTarget(path, elementId) {
+    const footRow = footTagRow(elementId);
+    if (footRow) {
+      const feetElm = path.elements.find((e) => e.id === "mounting_feet_design");
+      if (!feetElm) return null;
+      const row = resolveRows(feetElm).find((r) => r.id === footRow);
+      // (A front foot tagged on a half rollcage, which has none: still named.)
+      const label = row ? row.label : footRow.replace(/_/g, " ");
+      return { name: "Mounting foot — " + label.charAt(0).toLowerCase() + label.slice(1), evaluationType: "choice", options: footRowOptions(feetElm, row), unexpected: !row };
+    }
     if (elementId.indexOf(GUSSET_TAG_PREFIX) === 0 && elementId.endsWith(GUSSET_TAG_SUFFIX)) {
       const gussetElm = path.elements.find((e) => e.id === "gusset_design");
       if (!gussetElm) return null;
@@ -3867,7 +4063,7 @@
       const catalog = [{
         id: "photo_category",
         name: "Which part of the cage does this photo show?",
-        description: "\"overview\" = a wide shot showing most/all of the cage (front 3/4, rear 3/4, side, or a full blueprint/diagram), not a close-up of one bar. \"roof_bars\" = a close-up of the bar(s) across the roof/ceiling. \"door_bars_left\"/\"door_bars_right\" = a close-up of the diagonal/cross bars between the main hoop and the door sill on that side -- use whichever side is actually visible, pick either if you can't tell left from right. \"main_rollbar\" = a close-up of the rearmost/tallest hoop showing its diagonal cross-bracing. \"backstay_diagonals\" = a close-up from a rear-interior angle showing the two backstays and any bracing between them. Pick the single best match for what this specific photo actually shows.",
+        description: "\"overview\" = a wide shot showing most/all of the cage (front 3/4, rear 3/4, side, or a full blueprint/diagram), not a close-up of one bar. \"roof_bars\" = a close-up of the bar(s) across the roof/ceiling. \"door_bars_left\"/\"door_bars_right\" = a close-up of the diagonal/cross bars between the main hoop and the door sill on that side -- use whichever side is actually visible, pick either if you can't tell left from right. \"main_rollbar\" = a close-up of the rearmost/tallest hoop showing its diagonal cross-bracing. \"backstay_diagonals\" = a close-up from a rear-interior angle showing the two backstays and any bracing between them. \"mounting_feet\" = a close-up of where a cage leg meets the floor or sill: its mounting plate (foot). Pick the single best match for what this specific photo actually shows.",
         options: PICTURE_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
       }];
       const suggestions = await callAnalyzeCageApi(
@@ -4728,6 +4924,16 @@
         const id = GUSSET_TAG_PREFIX + row.id + GUSSET_TAG_SUFFIX;
         if (!getAnswer(id).value) return; // no gusset there
         items.push({ id, name: row.label, covered: tagged.has(id) });
+      });
+    }
+    // Every mounting foot the cage has, once its design is answered.
+    const feetElm = path.elements.find((e) => e.id === "mounting_feet_design");
+    if (feetElm && elementVisible(feetElm)) {
+      resolveRows(feetElm).forEach((row) => {
+        const id = FOOT_TAG_PREFIX + row.id + GUSSET_TAG_SUFFIX;
+        const design = getAnswer(id).value;
+        if (!design || design === "none") return;
+        items.push({ id, name: "Mounting foot — " + row.label.toLowerCase(), covered: tagged.has(id) });
       });
     }
     return items;
@@ -6677,7 +6883,10 @@
     if (CFG.logbook) {
       panel.appendChild(el("div", { class: "category-heading" }, ["Logbook details"]));
       appendLogbookFields(panel);
-      renderLogbookEvents(panel);
+      // A logbook being prepared has no events yet: they come once it's
+      // issued (the logbook app's CFG.eventsOnlyWhenIssued -- vehicle.server
+      // links an issued one to its online copy).
+      if (!CFG.eventsOnlyWhenIssued || state.vehicle.server) renderLogbookEvents(panel);
     }
 
     root.appendChild(panel);
@@ -6984,6 +7193,16 @@
   // extra) instead of only the current one.
   function filesForElementValue(elementId, value, extra) {
     if (!value) return [];
+    const footRow = footTagRow(elementId);
+    if (footRow) {
+      // The same parts computeCageColors shows for that design.
+      const loc = FOOT_LOCATIONS.find((l) => l.row === footRow);
+      if (!loc || value === "none") return [];
+      if (value === "multiplane_box") return [footCubeFile(footRow)];
+      if (value === "double_plane") return [loc.plateFile, doublePlaneFile(footRow)];
+      if (value === "multiplane_rocker") return [loc.plateFile, doublePlaneFile(footRow), rockerBaseFile(footRow), rockerFoldFile(footRow)];
+      return [loc.plateFile];
+    }
     if (elementId.indexOf(GUSSET_TAG_PREFIX) === 0 && elementId.endsWith(GUSSET_TAG_SUFFIX)) {
       const rowId = elementId.slice(GUSSET_TAG_PREFIX.length, -GUSSET_TAG_SUFFIX.length);
       const loc = GUSSET_LOCATIONS.find((l) => l.row === rowId);
@@ -8376,6 +8595,11 @@
       // current designs leave out -- a photo showing it is the evidence.
       GUSSET_FILE_TO_ROW.forEach((row, f) => { if (colors[f] === "hidden") delete colors[f]; });
       state.pictureSelectMode.selected.forEach((tag, elementId) => {
+        // A tagged foot shows its tagged design's parts only (not the
+        // answered design's), as each design is drawn with different parts.
+        const footRow = footTagRow(elementId);
+        const loc = footRow && FOOT_LOCATIONS.find((l) => l.row === footRow);
+        if (loc) [loc.plateFile, footCubeFile(footRow), doublePlaneFile(footRow), rockerBaseFile(footRow), rockerFoldFile(footRow)].forEach((f) => { colors[f] = "hidden"; });
         filesForElementValue(elementId, tag.value, tag.extra).forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
       });
     }
@@ -9131,7 +9355,9 @@
   // every candidate sharing the same category.
   function resolvePictureTagForFile(file) {
     const gussetRow = GUSSET_FILE_TO_ROW.get(file);
-    const elmId = gussetRow ? GUSSET_TAG_PREFIX + gussetRow + GUSSET_TAG_SUFFIX : CAGE_FILE_OWNER[file];
+    const footRow = footRowForFile(file);
+    const elmId = gussetRow ? GUSSET_TAG_PREFIX + gussetRow + GUSSET_TAG_SUFFIX
+      : footRow ? FOOT_TAG_PREFIX + footRow + GUSSET_TAG_SUFFIX : CAGE_FILE_OWNER[file];
     if (!elmId) return null;
     return { elementId: elmId, value: getAnswer(elmId).value || null };
   }
@@ -9149,6 +9375,8 @@
   // an empty list and keep their existing dedicated click/double-click
   // handling instead (see footRowForFile/gussetRowForFile).
   function elementValueCycle(path, elementId) {
+    const footRow = footTagRow(elementId);
+    if (footRow) return (FRONT_FOOT_ROWS.has(footRow) ? FRONT_FOOT_DESIGN_CYCLE : REAR_FOOT_DESIGN_CYCLE).filter(Boolean);
     if (elementId.indexOf(GUSSET_TAG_PREFIX) === 0 && elementId.endsWith(GUSSET_TAG_SUFFIX)) {
       const gussetElm = path.elements.find((e) => e.id === "gusset_design");
       return gussetElm ? gussetElm.columns[0].options.map((o) => o.id) : [];
@@ -9683,7 +9911,9 @@
     // First visit: show the app tour once (remembered per browser).
     let tourSeen = true;
     try { tourSeen = localStorage.getItem(APP_TOUR_SEEN_KEY) === "1"; localStorage.setItem(APP_TOUR_SEEN_KEY, "1"); } catch (e) { /* storage blocked -- skip */ }
-    if (!tourSeen) setTimeout(() => { if (!state.tour) startTour("app"); }, 800);
+    // (Not over a start screen that keeps the editor hidden -- CFG.startHidden.)
+    if (!tourSeen && !CFG.startHidden) setTimeout(() => { if (!state.tour) startTour("app"); }, 800);
+    if (CFG.startHidden) setWorkspaceShown(false);
     const tutorialLink = document.getElementById("tutorialVideoLink");
     if (tutorialLink) {
       tutorialLink.addEventListener("click", (e) => {
@@ -9700,8 +9930,9 @@
       loadSession(latest.sessionId);
     } else {
       // Nothing saved yet (a first visit): open on the library, where the
-      // templates give a complete cage to start playing with.
-      state.libraryOpen = true;
+      // templates give a complete cage to start playing with -- unless the
+      // app starts on its own screen (CFG.startHidden).
+      state.libraryOpen = !CFG.startHidden;
       state.librarySelectedId = null;
       startNew();
     }
