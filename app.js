@@ -283,6 +283,8 @@
   let pictureUiState = {};
   // Picture cards whose (long) tagged-element list is expanded -- UI only.
   const pictureTagsOpen = new Set();
+  // Picture cards opened from their photo (renderPictureCard) -- UI-only.
+  const pictureCardsOpen = new Set();
   // Above this many tags a card's element list starts collapsed.
   const PICTURE_TAGS_COLLAPSE_AT = 3;
   let pictureTriageState = {};
@@ -2649,7 +2651,8 @@
     const dialog = el("div", { class: "load-dialog", id: "library-dialog", role: "dialog", "aria-modal": "true", "aria-label": CFG.libraryName }, [
       el("div", { class: "load-dialog-header" }, [
         el("h2", {}, [CFG.libraryName]),
-        el("button", { class: "btn small secondary", onclick: close }, ["Close"]),
+        // "Back to editing" when there's a rollcage open to go back to.
+        el("button", { class: "btn small secondary", onclick: close }, [editingSomething() ? "Back to editing" : "Close"]),
       ]),
       el("div", { class: "element-desc" }, ["Saved in this browser only."]),
       state.libraryNotice ? el("div", { class: "library-notice" }, [state.libraryNotice]) : null,
@@ -2732,7 +2735,8 @@
         el("div", { class: "load-dialog-date" + (state.dirty ? " library-current-unsaved" : "") }, [status]),
       ]),
       el("div", { class: "library-current-actions" }, [
-        el("button", { class: "btn small", onclick: saveWithFlash }, [state.justSaved ? "Saved ✓" : "Save"]),
+        el("button", { class: "btn small", onclick: () => { state.libraryOpen = false; state.libraryNotice = null; libraryCurrentShot = null; render(); } }, ["Back to editing"]),
+        el("button", { class: "btn small" + (state.dirty ? "" : " secondary"), onclick: saveWithFlash }, [state.justSaved ? "Saved ✓" : "Save"]),
         el("button", { class: "btn small secondary", title: "Save as a new " + NOUN + ", leaving the original as it was last saved", onclick: startSaveAs }, ["Save as…"]),
         el("button", { class: "btn small secondary", disabled: state.pdfReportStatus === "generating" || !state.pathId, onclick: generatePdfReport },
           [state.pdfReportStatus === "generating" ? "Generating report…" : "PDF report"]),
@@ -2886,6 +2890,7 @@
           {
             class: "btn small secondary",
             onclick: () => {
+              if (!confirm("Delete this vehicle photo? This can't be undone.")) return;
               deletePictureRecord(photo.id);
               delete pictureImageCache[photo.id];
               state.vehiclePhotos[slotKey] = null;
@@ -3496,7 +3501,7 @@
             : el("div", { class: "picture-card-loading" }, ["…"]),
           el("button", {
             type: "button", title: "Delete photo",
-            onclick: () => { ev.damage.photos = photos.filter((x) => x !== p); deletePictureRecord(p.id); delete pictureImageCache[p.id]; markDirty(); render(); },
+            onclick: () => { if (!confirm("Delete this damage photo? This can't be undone.")) return; ev.damage.photos = photos.filter((x) => x !== p); deletePictureRecord(p.id); delete pictureImageCache[p.id]; markDirty(); render(); },
           }, ["×"]),
         ]));
       });
@@ -3781,6 +3786,16 @@
       elementIds: ["door_bars_right", "a_pillar_reinforcement", "windshield_reinforcement_present"],
       sillBar: "right",
     },
+    // Optional bars rarely sit in a close-up of one of the areas above (a
+    // dash bar under the dashboard, a harness bar, 253-25 anti-intrusion
+    // bars low in the doors...): their own category.
+    {
+      id: "optional_bars",
+      label: "Optional bars (dash bar, harness bar...)",
+      limit: 5,
+      elementIds: ["dash_bar_present", "harness_bar_present", "lower_main_hoop_bar_present", "rear_transversal_present", "rear_lower_x_present",
+        "rear_lateral_reinforcement_present", "anti_intrusion_present", "temple_bar_present", "windshield_reinforcement_present"],
+    },
     // One photo per mounting foot (6 at most), each tagged with that foot's
     // design -- its row in the mounting feet table (see FOOT_TAG_PREFIX).
     { id: "mounting_feet", label: "Mounting feet", limit: 6, elementIds: [], feet: true },
@@ -4063,7 +4078,7 @@
       const catalog = [{
         id: "photo_category",
         name: "Which part of the cage does this photo show?",
-        description: "\"overview\" = a wide shot showing most/all of the cage (front 3/4, rear 3/4, side, or a full blueprint/diagram), not a close-up of one bar. \"roof_bars\" = a close-up of the bar(s) across the roof/ceiling. \"door_bars_left\"/\"door_bars_right\" = a close-up of the diagonal/cross bars between the main hoop and the door sill on that side -- use whichever side is actually visible, pick either if you can't tell left from right. \"main_rollbar\" = a close-up of the rearmost/tallest hoop showing its diagonal cross-bracing. \"backstay_diagonals\" = a close-up from a rear-interior angle showing the two backstays and any bracing between them. \"mounting_feet\" = a close-up of where a cage leg meets the floor or sill: its mounting plate (foot). Pick the single best match for what this specific photo actually shows.",
+        description: "\"overview\" = a wide shot showing most/all of the cage (front 3/4, rear 3/4, side, or a full blueprint/diagram), not a close-up of one bar. \"roof_bars\" = a close-up of the bar(s) across the roof/ceiling. \"door_bars_left\"/\"door_bars_right\" = a close-up of the diagonal/cross bars between the main hoop and the door sill on that side -- use whichever side is actually visible, pick either if you can't tell left from right. \"main_rollbar\" = a close-up of the rearmost/tallest hoop showing its diagonal cross-bracing. \"backstay_diagonals\" = a close-up from a rear-interior angle showing the two backstays and any bracing between them. \"optional_bars\" = a close-up of an optional bar not covered above: the dash bar under the dashboard, a harness bar, anti-intrusion bars low in a door, a 253-31 corner brace. \"mounting_feet\" = a close-up of where a cage leg meets the floor or sill: its mounting plate (foot). Pick the single best match for what this specific photo actually shows.",
         options: PICTURE_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
       }];
       const suggestions = await callAnalyzeCageApi(
@@ -4526,17 +4541,45 @@
   // One picture card: photo, delete, a "Move to" control (any category
   // other than the one it's already in), tagged-element chips, and the
   // Edit/AI-analysis actions. Shared by every category section below.
+  // A picture card is just its photo until clicked (pictureCardsOpen), with
+  // the number of elements tagged in its corner -- hovering the number
+  // shows the tagged parts on the 3D model. It's open while being edited,
+  // during the tour, or while waiting to be sorted (it needs "Move to").
   function renderPictureCard(pic, path, tourAnchors) {
     loadPictureImage(pic.id);
     const cached = pictureImageCache[pic.id] || {};
-    const card = el("div", { class: "picture-card" });
+    const editingThis = state.pictureSelectMode && state.pictureSelectMode.pictureId === pic.id;
+    const expanded = editingThis || (tourAnchors && !!state.tour) || pic.category === UNSORTED_PICTURES || pictureCardsOpen.has(pic.id);
+    const card = el("div", { class: "picture-card" + (expanded ? "" : " picture-card-collapsed") });
     if (tourAnchors) card.id = "tour-picture-card";
     if (pic.videoFrame) card.appendChild(el("div", { class: "picture-video-frame", title: pic.videoFrame.name }, ["Video frame " + formatVideoTime(pic.videoFrame.t)]));
-    card.appendChild(
+    const tagged = editingThis ? [...state.pictureSelectMode.selected.keys()] : (pic.elements || []).map((t) => t.elementId);
+    const tagNames = tagged.map((id) => { const target = resolvePictureTagTarget(path, id); return target ? target.name : id; });
+    const count = el("span", {
+      class: "picture-tag-count" + (tagged.length ? "" : " none"),
+      title: tagged.length ? (pic.hasScreenshot && cached.screenshot ? "" : tagNames.join("\n")) : "No elements tagged yet",
+    }, [
+      String(tagged.length),
+      // The tagged parts on the 3D model, shown while hovering the number.
+      tagged.length && pic.hasScreenshot && cached.screenshot
+        ? el("span", { class: "picture-tag-preview" }, [el("img", { src: cached.screenshot, alt: "Tagged parts" }), el("span", { class: "picture-tag-preview-names" }, [tagNames.join(" · ")])])
+        : null,
+    ]);
+    const toggle = () => { if (pictureCardsOpen.has(pic.id)) pictureCardsOpen.delete(pic.id); else pictureCardsOpen.add(pic.id); render(); };
+    card.appendChild(el("div", { class: "picture-card-photo-wrap" }, [
       cached.photo
-        ? el("img", { class: "picture-card-photo zoomable", src: cached.photo, alt: "", title: "Click to view full screen", onclick: () => openPictureGallery(pic.id) })
-        : el("div", { class: "picture-card-photo picture-card-loading" }, ["Loading..."])
-    );
+        ? el("img", {
+            class: "picture-card-photo zoomable", src: cached.photo, alt: "",
+            title: expanded ? "Click to view full screen" : "Click for its tags and actions",
+            onclick: () => (expanded ? openPictureGallery(pic.id) : toggle()),
+          })
+        : el("div", { class: "picture-card-photo picture-card-loading" }, ["Loading..."]),
+      count,
+    ]));
+    if (!expanded) return card;
+    if (pictureCardsOpen.has(pic.id) && !editingThis) {
+      card.appendChild(el("button", { type: "button", class: "picture-card-collapse", title: "Show just the photo", onclick: toggle }, ["▴ Less"]));
+    }
     card.appendChild(
       el(
         "button",
@@ -4544,6 +4587,7 @@
           class: "btn small secondary picture-card-delete",
           disabled: !!state.pictureSelectMode,
           onclick: () => {
+            if (!confirm("Delete this photo" + (pic.elements && pic.elements.length ? " and its " + pic.elements.length + " tagged element" + (pic.elements.length === 1 ? "" : "s") : "") + "? This can't be undone.")) return;
             state.pictures = state.pictures.filter((p) => p.id !== pic.id);
             delete pictureImageCache[pic.id];
             delete pictureUiState[pic.id];

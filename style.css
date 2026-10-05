@@ -582,7 +582,7 @@ textarea { resize: vertical; min-height: 50px; }
   border: none; width: 18px; height: 18px; font-size: 11px; line-height: 1; cursor: pointer;
 }
 
-.pictures-grid { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; }
+.pictures-grid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; margin-top: 10px; }
 .picture-card {
   width: 220px;
   border: 1px solid var(--border);
@@ -608,6 +608,29 @@ textarea { resize: vertical; min-height: 50px; }
   color: var(--muted);
 }
 .picture-card-delete { align-self: flex-start; }
+/* Just the photo until clicked (renderPictureCard): a smaller tile. */
+.picture-card.picture-card-collapsed { width: 150px; padding: 4px; }
+.picture-card-collapsed .picture-card-photo { height: 110px; cursor: pointer; }
+.picture-card-photo-wrap { position: relative; }
+/* The number of elements tagged, over the photo's top-left corner;
+   hovering it shows the tagged parts on the 3D model. */
+.picture-tag-count {
+  position: absolute; top: 6px; left: 6px; z-index: 2;
+  min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border-radius: 11px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff; font-size: 0.75rem; font-weight: 700; cursor: default;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.picture-tag-count.none { background: rgba(0, 0, 0, 0.55); }
+.picture-tag-preview {
+  display: none; position: absolute; top: 26px; left: 0; z-index: 30; width: 240px;
+  padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); color: var(--ink); font-weight: 400; text-align: left;
+}
+.picture-tag-preview img { display: block; width: 100%; border-radius: 6px; background: var(--bg); }
+.picture-tag-preview-names { display: block; margin-top: 4px; font-size: 0.72rem; line-height: 1.3; color: var(--muted); }
+.picture-tag-count:hover .picture-tag-preview { display: block; }
+.picture-card-collapse { align-self: flex-end; background: none; border: none; padding: 0; font: inherit; font-size: 0.8rem; color: var(--accent); cursor: pointer; }
 .picture-category-select {
   width: 100%;
   min-width: 0;
