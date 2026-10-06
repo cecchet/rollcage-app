@@ -51,6 +51,7 @@
     answers: {}, // elementId -> { value, note, photos: [{name, dataUrl}] }
     pictures: [], // { id, elements: [{elementId, value}], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot } -- image bytes live in IndexedDB, see picture storage below
     homologationPhotos: [], // { id } -- FIA homologation paperwork photos (only relevant/shown when homologation_route === "homologated"); image bytes in the SAME IndexedDB store as pictures above, just a separate id list
+    paperLogbookPhotos: [], // { id, sha256? } -- the logbook app's photos of the car's paper logbook pages (same store)
     vehiclePhotos: { front: null, rear: null }, // { id } | null per slot -- 3/4 front & rear vehicle photos on the Vehicle description panel; image bytes in the SAME IndexedDB store as pictures above
     events: [], // logbook app only: one entry per event the car entered -- see renderLogbookEvents
     expandedEvents: {}, // UI-only: event id -> true while that event's entry is open for editing
@@ -97,6 +98,7 @@
       answers: state.answers,
       pictures: state.pictures,
       homologationPhotos: state.homologationPhotos,
+      paperLogbookPhotos: state.paperLogbookPhotos,
       vehiclePhotos: state.vehiclePhotos,
       events: state.events,
       updatedAt: new Date().toISOString(),
@@ -140,6 +142,7 @@
     state.answers = {};
     state.pictures = [];
     state.homologationPhotos = [];
+    state.paperLogbookPhotos = [];
     state.vehiclePhotos = { front: null, rear: null };
     state.events = [];
     state.expandedEvents = {};
@@ -169,6 +172,7 @@
       elements: (p.elements || []).map((t) => (typeof t === "string" ? { elementId: t, value: null } : t)),
     }));
     state.homologationPhotos = s.homologationPhotos || [];
+    state.paperLogbookPhotos = s.paperLogbookPhotos || [];
     state.vehiclePhotos = s.vehiclePhotos || { front: null, rear: null };
     state.events = s.events || [];
     state.expandedEvents = {};
@@ -301,10 +305,94 @@
   // when there's nothing to derive it from yet.
   function derivedAnswer(id) {
     const gf = state.vehicle && state.vehicle.logbookPath === "grandfathered" ? grandfatheredPath() : null;
-    const elm = gf && gf.elements.find((e) => e.id === id);
+    if (!gf) return null;
+    const helpers = { mainHoopTopCornerSupported, allWeldsComplete, meetsCurrentRules, tubingMeetsCurrentRules, currentRulesPass, toInches };
+    // A tubing sub-spec's pick ("<item>__tubing_<n>"): its item's deriveTubing.
+    const sub = /^(.+)__tubing_(\d+)$/.exec(id);
+    if (sub) {
+      const owner = gf.elements.find((e) => e.id === sub[1]);
+      const t = owner && owner.deriveTubing && owner.deriveTubing(storedAnswer, helpers, +sub[2]);
+      return t && t.value != null ? { value: t.value, note: "", photos: [], extra: {}, derivedFrom: t.from || [] } : null;
+    }
+    const elm = gf.elements.find((e) => e.id === id);
     if (!elm || !elm.derive) return null;
-    const d = elm.derive(storedAnswer, { mainHoopTopCornerSupported });
-    return d && d.value != null ? { value: d.value, note: "", photos: [], extra: {}, derivedFrom: d.from || [] } : null;
+    const d = elm.derive(storedAnswer, helpers);
+    return d && d.value != null ? { value: d.value, note: "", photos: [], extra: {}, derivedFrom: d.from || [], derivedNote: d.note || "" } : null;
+  }
+  // Whether the design checklist says the cage is fully welded: every
+  // "Complete weld" row answered, and every mounting foot welded. true
+  // when all are yes / welded, false as soon as one is no / bolted, null
+  // while some are still unanswered. { value, from } -- from: the items read.
+  function allWeldsComplete(getAnswer) {
+    const rules = RULES[state.vehicle.org];
+    const path = rules && rules.paths.new_construction;
+    if (!path) return null;
+    const values = [], from = [];
+    path.elements.forEach((elm) => {
+      if (elm.evaluationType !== "table" || !elementVisible(elm)) return;
+      const weld = (elm.columns || []).some((c) => c.key === "weld");
+      const mount = elm.id === "mounting_feet_design";
+      if (!weld && !mount) return;
+      from.push(elm.id);
+      resolveRows(elm).forEach((row) => {
+        if ((row.notApplicableColumns || []).includes("weld")) return;
+        if (weld) values.push(getAnswer(elm.id + "__" + row.id + "__weld").value);
+        if (mount) {
+          const t = getAnswer(elm.id + "__" + row.id + "__mount_type").value;
+          values.push(t === "welded" ? "yes" : t === "bolted" ? "no" : "");
+        }
+      });
+    });
+    if (!values.length) return null;
+    if (values.includes("no")) return { value: false, from };
+    return values.every((v) => v === "yes") ? { value: true, from } : null;
+  }
+  // The body's current (new construction) rules, judged as such even while
+  // its grandfathered path is the one picked (complianceJudged then only
+  // judges the grandfathered items).
+  let judgeCurrentRules = false;
+  function withCurrentRules(fn) {
+    const rules = RULES[state.vehicle.org];
+    const path = rules && rules.paths.new_construction;
+    if (!path) return null;
+    const was = judgeCurrentRules;
+    judgeCurrentRules = true;
+    try { return fn(path); } finally { judgeCurrentRules = was; }
+  }
+  // Whether the cage meets the current rules: true once their verdict is
+  // a pass, null otherwise.
+  function meetsCurrentRules() {
+    return withCurrentRules((path) => (computeResults(path).verdict.level === "pass"
+      ? { value: true, from: [], note: "it meets the current " + (path.label || "new construction") + " rules" } : null));
+  }
+  // Whether the current rules' items picked by match(elm) are all green:
+  // true when every one passes, false as soon as one fails, null while
+  // some are unanswered. { value, from }.
+  function currentRulesPass(match, getAnswer) {
+    return withCurrentRules((path) => {
+      const statuses = [], from = [];
+      path.elements.filter((elm) => elementVisible(elm) && match(elm)).forEach((elm) => {
+        const s = elementStatus(elm, getAnswer(elm.id));
+        if (s !== "neutral") { statuses.push(s); from.push(elm.id); }
+      });
+      if (!statuses.length) return null;
+      if (statuses.includes("fail")) return { value: false, from };
+      return statuses.every((s) => s === "pass") ? { value: true, from } : null;
+    });
+  }
+  // Whether the tubing entered meets the current tubing table (the new
+  // construction tubing items, and any bar's own tubing sub-spec).
+  function tubingMeetsCurrentRules(getAnswer) {
+    return withCurrentRules((path) => {
+      const statuses = [], from = [];
+      path.elements.filter(elementVisible).forEach((elm) => {
+        if (/^tubing3/.test(elm.evaluationType)) { statuses.push(elementStatus(elm, getAnswer(elm.id))); from.push(elm.id); }
+        (elm.tubing || []).forEach((sub, idx) => { statuses.push(tubingStatus(sub, getAnswer(elm.id + "__tubing_" + idx))); if (!from.includes(elm.id)) from.push(elm.id); });
+      });
+      if (!statuses.length) return null;
+      if (statuses.includes("fail")) return { value: false, from };
+      return statuses.every((s) => s === "pass") ? { value: true, from } : null;
+    });
   }
   // Some rule names/descriptions follow the current answers (see
   // rules-data.js's useAnswers).
@@ -401,9 +489,16 @@
   // questions (answered in Part 6) are judged -- the design checklist
   // isn't held to the new-construction rules. elm omitted: a design
   // checklist item (e.g. tubing).
+  // The logbook app's existing logbook: already issued (on paper), so
+  // there are no rules to check -- its paper pages and past events are
+  // recorded instead. (A logbook saved before as "grandfathered" was one.)
+  function isExistingLogbook() {
+    return !!CFG.logbook && (state.vehicle.logbookPath === "existing" || state.vehicle.logbookPath === "grandfathered");
+  }
   function complianceJudged(elm) {
     const rules = RULES[state.vehicle.org];
-    if (!rules || rules.agnostic) return false;
+    if (!rules || rules.agnostic || isExistingLogbook()) return false;
+    if (judgeCurrentRules) return true;
     const gf = grandfatheredPath();
     return gf ? !!elm && gf.elements.includes(elm) : true;
   }
@@ -412,7 +507,7 @@
   // new construction.
   function grandfatheredPath() {
     const rules = RULES[state.vehicle.org];
-    return rules && !rules.agnostic && state.vehicle.logbookPath === "grandfathered" && rules.paths.grandfathered ? rules.paths.grandfathered : null;
+    return rules && !rules.agnostic && !CFG.logbook && state.vehicle.logbookPath === "grandfathered" && rules.paths.grandfathered ? rules.paths.grandfathered : null;
   }
   function compliancePath(path) { return grandfatheredPath() || path; }
   // Falls back to no sanctioning body for a saved/imported org this build
@@ -1313,6 +1408,7 @@
     state.vehicle = { ...vehicle, name };
     state.pictures = state.pictures.map((p) => ({ ...p, id: cloneStoredPicture(p.id) }));
     state.homologationPhotos = state.homologationPhotos.map((p) => ({ ...p, id: cloneStoredPicture(p.id) }));
+    state.paperLogbookPhotos = state.paperLogbookPhotos.map((p) => ({ ...p, id: cloneStoredPicture(p.id) }));
     const vp = state.vehiclePhotos || {};
     state.vehiclePhotos = {
       front: vp.front ? { ...vp.front, id: cloneStoredPicture(vp.front.id) } : null,
@@ -1341,6 +1437,7 @@
     return {
       pictures: remap(s.pictures),
       homologationPhotos: remap(s.homologationPhotos),
+      paperLogbookPhotos: remap(s.paperLogbookPhotos),
       vehiclePhotos: { front: one(vp.front), rear: one(vp.rear) },
       events: (s.events || []).map((ev) => ({
         ...ev,
@@ -1362,7 +1459,7 @@
   function exportCurrentSessionToFile() {
     exportSessionToFile({
       sessionId: state.sessionId, vehicle: state.vehicle, pathId: state.pathId, answers: state.answers,
-      pictures: state.pictures, homologationPhotos: state.homologationPhotos, vehiclePhotos: state.vehiclePhotos, events: state.events,
+      pictures: state.pictures, homologationPhotos: state.homologationPhotos, paperLogbookPhotos: state.paperLogbookPhotos, vehiclePhotos: state.vehiclePhotos, events: state.events,
     });
   }
   // For an app built on this one to read the open rollcage (the logbook
@@ -1373,6 +1470,7 @@
       vehicle: state.vehicle, pathId: state.pathId, answers: state.answers, events: state.events,
       // The photos' entries (ids, tags...); their images: getPhoto(id).
       pictures: state.pictures, vehiclePhotos: state.vehiclePhotos, homologationPhotos: state.homologationPhotos,
+      paperLogbookPhotos: state.paperLogbookPhotos,
     })),
     // The editor (3D model + checklist), hidden at start with CFG.startHidden.
     workspaceShown: () => !document.body.classList.contains("workspace-hidden"),
@@ -1446,6 +1544,13 @@
         { label: "Owner's name and email", done: !!(v("vehicle_owner_name") && /^[^@\s]+@[^@\s]+$/.test(v("vehicle_owner_email"))), where: "logbook" },
         { label: "Logbook number", done: !!v("vehicle_logbook_number"), where: "logbook" },
       ];
+      // An existing logbook was already issued: its paper pages (and its
+      // original issue date) stand in for checking the cage against the rules.
+      if (isExistingLogbook()) {
+        items.push({ label: "Original issue date", done: !!state.vehicle.logbookDate, where: "logbook" });
+        items.push({ label: "Photos of the paper logbook pages", done: state.paperLogbookPhotos.length > 0, where: "logbook" });
+        return items;
+      }
       const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
       if (path) {
         const { phases } = computeUsedPhases(path);
@@ -1457,6 +1562,8 @@
       }
       return items;
     },
+    // An existing (already issued, paper) logbook rather than a new one.
+    isExistingLogbook: () => isExistingLogbook(),
     // The session bar's library button (and its "Unsaved changes" tag) call
     // this instead of the library window, when set -- the logbook app's own
     // library.
@@ -1474,6 +1581,7 @@
           ? Object.assign({}, p, { sha256: shaById[p.id] }, shaById[p.id + ":shot"] ? { screenshotSha256: shaById[p.id + ":shot"] } : {}) : p));
         const vp = state.vehiclePhotos || {};
         ["front", "rear"].forEach((slot) => { if (vp[slot] && shaById[vp[slot].id]) vp[slot] = Object.assign({}, vp[slot], { sha256: shaById[vp[slot].id] }); });
+        state.paperLogbookPhotos = state.paperLogbookPhotos.map((p) => (shaById[p.id] ? Object.assign({}, p, { sha256: shaById[p.id] }) : p));
       }
       state.vehicle = Object.assign({}, state.vehicle, { server });
       saveCurrent();
@@ -1510,6 +1618,7 @@
       pictures: refs.pictures, homologationPhotos: refs.homologationPhotos, vehiclePhotos: refs.vehiclePhotos,
       images,
     };
+    if (refs.paperLogbookPhotos.length) data.paperLogbookPhotos = refs.paperLogbookPhotos;
     if (refs.events.length) data.events = refs.events;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1561,7 +1670,7 @@
       const images = data.images && typeof data.images === "object" ? data.images : {};
       const newIds = {};
       const refs = mapSessionPictureIds(
-        { pictures: data.pictures, homologationPhotos: data.homologationPhotos, vehiclePhotos: data.vehiclePhotos, events: Array.isArray(data.events) ? data.events : [] },
+        { pictures: data.pictures, homologationPhotos: data.homologationPhotos, paperLogbookPhotos: data.paperLogbookPhotos, vehiclePhotos: data.vehiclePhotos, events: Array.isArray(data.events) ? data.events : [] },
         (id) => {
           if (!id || !images[id] || !images[id].photo) return null;
           return newIds[id] || (newIds[id] = picUid());
@@ -1578,6 +1687,7 @@
         answers: data.answers || {},
         pictures: refs.pictures,
         homologationPhotos: refs.homologationPhotos,
+        paperLogbookPhotos: refs.paperLogbookPhotos,
         vehiclePhotos: refs.vehiclePhotos,
         events: refs.events,
         updatedAt: new Date().toISOString(),
@@ -2952,14 +3062,42 @@
   // compressImageToDataUrl, pictureImageCache/loadPictureImage) since a
   // photo is a photo regardless of which list its id lives in.
   function renderHomologationPhotosField() {
+    return renderPhotoListField("homologationPhotos", "FIA homologation paperwork photos",
+      "Upload up to " + HOMOLOGATION_PHOTO_LIMIT + " photos of the homologation papers -- included in the \"Logbook application PDF\" below.",
+      HOMOLOGATION_PHOTO_LIMIT);
+  }
+  // The logbook app: photos of the car's paper logbook pages (an existing
+  // logbook's, or the paper one issued alongside a new digital logbook).
+  const PAPER_LOGBOOK_PHOTO_LIMIT = 40;
+  function renderPaperLogbookField() {
+    const wrap = el("div", {});
+    const existing = isExistingLogbook();
+    if (!existing) {
+      const paper = getAnswer("vehicle_paper_logbook").value;
+      wrap.appendChild(el("div", { class: "field" }, [
+        el("label", {}, ["Was a paper logbook issued?"]),
+        el("div", { class: "radio-group" }, [
+          radioOption("paperLogbook", "yes", "Yes", paper === "yes", () => setAnswer("vehicle_paper_logbook", { value: "yes" })),
+          radioOption("paperLogbook", "no", "No", paper === "no", () => setAnswer("vehicle_paper_logbook", { value: "no" })),
+        ]),
+      ]));
+      if (paper !== "yes") return wrap;
+    }
+    wrap.appendChild(renderPhotoListField("paperLogbookPhotos", "Paper logbook pages",
+      (existing
+        ? "Photos of every page of the existing logbook: its issue page and every event entry (required). "
+        : "Photos of the paper logbook's pages (optional). ")
+        + "Up to " + PAPER_LOGBOOK_PHOTO_LIMIT + " -- uploaded with the logbook, seen by the owner and scrutineers only.",
+      PAPER_LOGBOOK_PHOTO_LIMIT));
+    return wrap;
+  }
+  // A list of plain photos (no tags) kept in state[key] as { id }: upload,
+  // view, delete.
+  function renderPhotoListField(key, label, description, limit) {
     const wrap = el("div", { class: "field" });
-    wrap.appendChild(el("label", {}, ["FIA homologation paperwork photos"]));
-    wrap.appendChild(
-      el("div", { class: "element-desc" }, [
-        "Upload up to " + HOMOLOGATION_PHOTO_LIMIT + " photos of the homologation papers -- included in the \"Logbook application PDF\" below.",
-      ])
-    );
-    const remaining = HOMOLOGATION_PHOTO_LIMIT - state.homologationPhotos.length;
+    wrap.appendChild(el("label", {}, [label]));
+    wrap.appendChild(el("div", { class: "element-desc" }, [description]));
+    const remaining = limit - state[key].length;
     const fileInput = el("input", {
       type: "file",
       accept: "image/*",
@@ -2971,7 +3109,7 @@
         Promise.all(files.map((f) => compressImageToDataUrl(f, 2048, 0.85))).then((dataUrls) => {
           dataUrls.forEach((dataUrl) => {
             const id = picUid();
-            state.homologationPhotos.push({ id });
+            state[key].push({ id });
             putPictureRecord(id, { photo: dataUrl, screenshot: null });
           });
           markDirty();
@@ -2980,12 +3118,12 @@
       },
     });
     const fieldChildren = [fileInput];
-    if (remaining <= 0) fieldChildren.push(el("div", { class: "ai-status" }, ["Photo limit reached (" + HOMOLOGATION_PHOTO_LIMIT + ")."]));
+    if (remaining <= 0) fieldChildren.push(el("div", { class: "ai-status" }, ["Photo limit reached (" + limit + ")."]));
     wrap.appendChild(el("div", { class: "field" }, fieldChildren));
 
-    if (state.homologationPhotos.length) {
+    if (state[key].length) {
       const row = el("div", { class: "photo-row" });
-      state.homologationPhotos.forEach((p) => {
+      state[key].forEach((p) => {
         loadPictureImage(p.id);
         const cached = pictureImageCache[p.id] || {};
         row.appendChild(
@@ -2993,8 +3131,10 @@
             cached.photo ? el("img", { src: cached.photo, alt: "" }) : null,
             el("button", {
               type: "button",
+              title: "Delete this photo",
               onclick: () => {
-                state.homologationPhotos = state.homologationPhotos.filter((x) => x.id !== p.id);
+                if (!confirm("Delete this photo? This can't be undone.")) return;
+                state[key] = state[key].filter((x) => x.id !== p.id);
                 delete pictureImageCache[p.id];
                 deletePictureRecord(p.id);
                 markDirty();
@@ -3074,7 +3214,20 @@
     // A body with grandfathering rules: which ones apply depends on when
     // the logbook was (or will be) issued.
     const orgRules = RULES[state.vehicle.org];
-    if (orgRules && !orgRules.agnostic && orgRules.paths.grandfathered) {
+    if (CFG.logbook && orgRules && !orgRules.agnostic) {
+      // The logbook app: a new logbook is checked against the current
+      // rules; an existing one was already issued -- nothing to check, its
+      // paper pages and past events are recorded instead.
+      const existing = isExistingLogbook();
+      const pick = (v) => { state.vehicle.logbookPath = v; markDirty(); render(); };
+      children.push(el("div", { class: "field" }, [
+        el("label", {}, ["Logbook"]),
+        el("div", { class: "radio-group" }, [
+          radioOption("logbookPath", "new_construction", "New logbook -- a new construction, checked against the current rules", !existing, () => pick("new_construction")),
+          radioOption("logbookPath", "existing", "Existing logbook -- already issued: upload its pages and past events, no rules to check", existing, () => pick("existing")),
+        ]),
+      ]));
+    } else if (orgRules && !orgRules.agnostic && orgRules.paths.grandfathered) {
       const nc = orgRules.paths.new_construction, gf = orgRules.paths.grandfathered;
       const current = state.vehicle.logbookPath === "grandfathered" ? "grandfathered" : "new_construction";
       const when = (p) => (p.appliesWhen ? " -- " + p.appliesWhen.charAt(0).toLowerCase() + p.appliesWhen.slice(1) : "");
@@ -3326,7 +3479,7 @@
     logbookPanel.appendChild(el("div", { class: "field" }, [el("label", {}, ["Inspection notes"]), inspectionNotesInput]));
 
     const dateField = el("div", { class: "field" }, [
-      el("label", {}, ["Logbook issue date"]),
+      el("label", {}, [isExistingLogbook() ? "Original issue date" : "Logbook issue date"]),
       el("input", {
         type: "date",
         value: state.vehicle.logbookDate || "",
@@ -3346,6 +3499,7 @@
       }),
     ]);
     logbookPanel.appendChild(el("div", { class: "field-row" }, [dateField, logbookNumberField]));
+    if (CFG.logbook) logbookPanel.appendChild(renderPaperLogbookField());
 
     const notesAnswer = getAnswer("vehicle_description_notes");
     const notesInput = el("textarea", {
@@ -5369,6 +5523,8 @@
           [partName(elementPhase(src)) + ": " + src.name + " (" + elementSummary(src, getAnswer(src.id)) + ")"]));
       });
       card.appendChild(el("div", { class: "derived-source" }, ["From the rollcage design — "].concat(links)));
+    } else if (answer.derivedNote) {
+      card.appendChild(el("div", { class: "derived-source" }, ["From the rollcage design — " + answer.derivedNote]));
     }
     return card;
   }
@@ -5379,6 +5535,7 @@
       return opt ? opt.label : String(answer.value);
     }
     if (elm.evaluationType === "boolean" || (elm.evaluationType === "attestation" && (answer.value === "yes" || answer.value === "no"))) {
+      if (elm.yesNoLabels) return answer.value === "yes" ? elm.yesNoLabels[0] : elm.yesNoLabels[1];
       return answer.value === "yes" ? "Yes" : "No";
     }
     if (elm.evaluationType === "numeric" && elm.fields) {
@@ -6863,6 +7020,9 @@
   // verdict (computeResults), a PassTech body's rollover rule, or nothing.
   function complianceSummary(path) {
     const rules = RULES[state.vehicle.org];
+    if (isExistingLogbook() && rules && !rules.agnostic) {
+      return { kind: "existing", verdict: { level: "neutral", label: "Existing logbook -- already issued, not checked against the rules" }, summary: state.paperLogbookPhotos.length + " paper page photo" + (state.paperLogbookPhotos.length === 1 ? "" : "s") };
+    }
     if (rules && rules.passTech) {
       const { checks } = evaluatePassTechRollover(rules.passTech);
       const verdict = passTechVerdict(rules.passTech, checks);
@@ -6918,7 +7078,12 @@
       panel.appendChild(el("div", { class: "category-heading" }, ["Sanctioning body"]));
     }
     panel.appendChild(renderSanctioningBodyField());
-    if (compliance.kind === "doc") {
+    if (compliance.kind === "existing") {
+      panel.appendChild(el("div", { class: "verdict neutral" }, [compliance.verdict.label]));
+      panel.appendChild(el("div", { class: "element-desc" }, [
+        "Its cage was accepted when the logbook was issued. Record the car and its cage as they are, add photos of the paper logbook's pages below, and its past events -- they're all uploaded with it when it's issued.",
+      ]));
+    } else if (compliance.kind === "doc") {
       panel.appendChild(el("div", { class: "verdict neutral" }, [compliance.verdict.label]));
       panel.appendChild(el("div", { class: "element-desc" }, [RULES[state.vehicle.org].docNote || ""]));
     } else if (compliance.kind === "none") {
@@ -6945,10 +7110,11 @@
     if (CFG.logbook) {
       panel.appendChild(el("div", { class: "category-heading" }, ["Logbook details"]));
       appendLogbookFields(panel);
-      // A logbook being prepared has no events yet: they come once it's
+      // A new logbook being prepared has no events yet: they come once it's
       // issued (the logbook app's CFG.eventsOnlyWhenIssued -- vehicle.server
-      // links an issued one to its online copy).
-      if (!CFG.eventsOnlyWhenIssued || state.vehicle.server) renderLogbookEvents(panel);
+      // links an issued one to its online copy). An existing one brings its
+      // past events along, entered before it's issued.
+      if (!CFG.eventsOnlyWhenIssued || state.vehicle.server || isExistingLogbook()) renderLogbookEvents(panel);
     }
 
     root.appendChild(panel);
@@ -9917,6 +10083,10 @@
     // scrollBelowViewer's callers) still wins since it runs its own
     // window.scrollTo after this function returns.
     const scrollY = window.scrollY;
+    // Same for the results panel's own scroll (it scrolls inside a capped
+    // height -- the logbook's owner fields live there).
+    const resultsPanel = document.getElementById("compliance-panel");
+    const resultsScroll = resultsPanel ? resultsPanel.scrollTop : 0;
     const root = document.getElementById("app");
     root.innerHTML = "";
 
@@ -9947,6 +10117,8 @@
     if (!CFG.safetyScorePart) renderSafetyScore(root, path);
     else if (state.activeTab !== SAFETY_PHASE) renderSafetyScore(root, path, { summaryOnly: true });
     syncCageView();
+    const newResultsPanel = document.getElementById("compliance-panel");
+    if (newResultsPanel && resultsScroll) newResultsPanel.scrollTop = resultsScroll;
     window.scrollTo(0, scrollY);
   }
 

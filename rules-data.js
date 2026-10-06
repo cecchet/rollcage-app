@@ -3392,6 +3392,7 @@
               reference: "Appendix B condition 6",
               description: "Bolt-together cages, and cages that were previously welded-then-converted to bolt-together, are no longer accepted as of December 31, 2024.",
               evaluationType: "boolean",
+              yesNoLabels: ["No bolt-together", "Yes, bolt-in elements"],
               visuallyVerifiable: true,
               hardFail: true,
               hardFailMessage: "Cage uses bolt-together construction -- no longer accepted since Dec 31, 2024.",
@@ -3494,6 +3495,37 @@
     return main === undefined || back === undefined ? null : { main, back, from: ["main_hoop_diagonals", "backstay_diagonals"] };
   };
   const ROOF_BAR_COUNT = { "253-12-1": 2, "253-12-2": 2, "253-13": 2, "253-14": 2, "single-center": 1, "single-front-left": 1, "single-front-right": 1, none: 0 };
+  // Part 4's installation constraint measurements (in mm, null when not
+  // entered) through check(m) -> true / false / null; the quick check
+  // ("all limits confirmed") passes it outright.
+  const installationRows = (getAnswer, check) => {
+    const from = ["installation_constraints"];
+    if (val(getAnswer, "installation_constraints__quick") === "yes") return { value: "yes", from };
+    const mm = (row) => {
+      const v = val(getAnswer, "installation_constraints__" + row + "__value");
+      const n = v && typeof v === "object" ? parseFloat(v.value) : NaN;
+      return isNaN(n) ? null : n * (v.unit === "in" ? 25.4 : v.unit === "cm" ? 10 : 1);
+    };
+    const r = check({ a: mm("a"), b: mm("b"), c: mm("c"), e: mm("e"), h: mm("h"), r1: mm("r1"), r2: mm("r2") });
+    return r == null ? null : { value: r ? "yes" : "no", from };
+  };
+  // CARS's grandfathered tubing picks from the tubing entered in Part 3
+  // (primary_tubing / secondary_tubing): CDS/DOM at least the FIA-event
+  // size, else the 1.75" x 0.12" flat spec, else too small.
+  const carsGfTubing = (getAnswer, helpers, idx) => {
+    const id = idx === 0 ? "primary_tubing" : "secondary_tubing";
+    const v = val(getAnswer, id);
+    if (!v || typeof v !== "object" || !v.material) return null;
+    const od = helpers.toInches(v.diameter), wall = helpers.toInches(v.thickness);
+    if (od == null || wall == null) return null;
+    const ok = (d, t) => od >= d - 1e-6 && wall >= t - 1e-6;
+    const steel = v.material === "cds_dom";
+    const sizes = idx === 0 ? [[1.75, 0.095], [1.98, 0.08]] : [[1.5, 0.095], [1.58, 0.08]];
+    const value = steel && sizes.some(([d, t]) => ok(d, t)) ? (idx === 0 ? "1.75x0.095_or_1.98x0.08" : "1.5x0.095_or_1.58x0.08")
+      : steel && ok(1.75, 0.12) ? "flat_1.75x0.12"
+      : steel ? "smaller_or_unknown" : null;
+    return value ? { value, from: [id] } : null;
+  };
   const GF_DERIVED = {
     cars: {
       base_structure_present: fullCage,
@@ -3516,24 +3548,36 @@
         return n === undefined ? null : { value: n >= 2 ? "two_bars" : n === 1 ? "one_bar" : "none", from: ["roof_bars"] };
       },
       door_bars_present_gf: doorBarsBothSides,
-      // Every leg needs a foot -- one answered "None" fails it (plate size,
-      // thickness and bolts are left to the user).
-      mounting_feet_gf: (getAnswer) => {
+      // Every leg needs a foot -- one answered "None" fails it. Otherwise
+      // the feet as the current rules judge them: all green, a pass.
+      mounting_feet_gf: (getAnswer, helpers) => {
         const none = ["front_left", "front_right", "main_hoop_left", "main_hoop_right", "backstay_left", "backstay_right"]
           .some((row) => val(getAnswer, "mounting_feet_design__" + row + "__design") === "none");
-        return none ? { value: "no", from: ["mounting_feet_design"] } : null;
+        if (none) return { value: "no", from: ["mounting_feet_design"] };
+        const r = helpers.currentRulesPass((elm) => elm.category === "Mounting feet" || /^mounting_feet/.test(elm.id), getAnswer);
+        return r ? { value: r.value ? "yes" : "no", from: r.from } : null;
       },
-      // A, B, C and E are Part 4's installation constraints -- one over its
-      // limit fails it; D isn't measured there, so a pass is left to the user.
-      door_aperture_gf: (getAnswer) => {
-        const mm = (row) => {
-          const v = val(getAnswer, "installation_constraints__" + row + "__value");
-          const n = v && typeof v === "object" ? parseFloat(v.value) : NaN;
-          return isNaN(n) ? null : n * (v.unit === "in" ? 25.4 : v.unit === "cm" ? 10 : 1);
-        };
-        const a = mm("a"), b = mm("b"), c = mm("c"), e = mm("e"), h = mm("h");
-        const fails = (a != null && a < 300) || (b != null && b > 250) || (c != null && c > 300) || (e != null && h != null && e > h / 2);
-        return fails ? { value: "no", from: ["installation_constraints"] } : null;
+      // The gussets as the current rules judge them.
+      gusset_bends_joints_gf: (getAnswer, helpers) => {
+        const r = helpers.currentRulesPass((elm) => elm.category === "Gussets", getAnswer);
+        return r ? { value: r.value ? "yes" : "no", from: r.from } : null;
+      },
+      // Part 4's installation constraints: A, B, C and E (with H) for the
+      // door aperture, R1/R2 for the windscreen -- or its "all confirmed"
+      // quick check.
+      door_aperture_gf: (getAnswer) => installationRows(getAnswer, (m) => {
+        if ([m.a, m.b, m.c, m.e, m.h].includes(null)) return (m.a != null && m.a < 300) || (m.b != null && m.b > 250) || (m.c != null && m.c > 300) || (m.e != null && m.h != null && m.e > m.h / 2) ? false : null;
+        return m.a >= 300 && m.b <= 250 && m.c <= 300 && m.e <= m.h / 2;
+      }),
+      windscreen_aperture_gf: (getAnswer) => installationRows(getAnswer, (m) => {
+        if (m.r1 == null || m.r2 == null) return (m.r1 != null && m.r1 > 100) || (m.r2 != null && m.r2 > 70) ? false : null;
+        return m.r1 <= 100 && m.r2 <= 70;
+      }),
+      // Both tubing picks made (see carsGfTubing): a pass unless one is too small.
+      tubing_gf: (getAnswer, helpers) => {
+        const picks = [0, 1].map((i) => carsGfTubing(getAnswer, helpers, i));
+        if (picks.includes(null)) return null;
+        return { value: picks.some((p) => p.value === "smaller_or_unknown") ? "no" : "yes", from: ["primary_tubing", "secondary_tubing"] };
       },
     },
     nasa: {
@@ -3551,8 +3595,37 @@
       },
       a_pillar_reinforcement_grandfathered: aPillarBars,
       sill_bar_note: sillBarsBothSides,
+      // A cage that meets the current rules was compliant.
+      prior_compliance: (getAnswer, helpers) => {
+        const m = helpers.meetsCurrentRules();
+        return m ? { value: "yes", from: m.from, note: m.note } : null;
+      },
+      // Fully welded (every weld complete, every foot welded): no
+      // bolt-together; a weld not complete or a bolted foot: bolt-in elements.
+      no_bolt_together: (getAnswer, helpers) => {
+        const w = helpers.allWeldsComplete(getAnswer);
+        return w ? { value: w.value ? "yes" : "no", from: w.from } : null;
+      },
+      // Tubing that meets the current NRS table (the SCCA exception is
+      // left to the user otherwise).
+      tubing_size_scca_exception: (getAnswer, helpers) => {
+        const t = helpers.tubingMeetsCurrentRules(getAnswer);
+        return t && t.value ? { value: "meets_nrs_table", from: t.from } : null;
+      },
     },
     ara: {
+      // Any 253-1/2/3 full cage meets the 2006 Rally America-spec structure
+      // (anything else is left to the user).
+      base_structure_2006_ra: (getAnswer) => {
+        const v = val(getAnswer, "main_structure_layout");
+        return FULL_CAGES.includes(v) ? { value: "yes", from: ["main_structure_layout"] } : null;
+      },
+      // Fully welded: every weld complete and every foot welded, once the
+      // design checklist says so -- a weld not complete or a bolted foot fails it.
+      mounting_method: (getAnswer, helpers) => {
+        const w = helpers.allWeldsComplete(getAnswer);
+        return w ? { value: w.value ? "yes" : "no", from: w.from } : null;
+      },
       // A sill bar and a door bar on each side.
       sill_and_extra_door_bar: (getAnswer) => {
         const doors = doorBarsBothSides(getAnswer), sills = sillBarsBothSides(getAnswer);
@@ -3574,6 +3647,10 @@
     if (!gf) return;
     gf.elements.forEach((elm) => { if (items[elm.id]) elm.derive = items[elm.id]; });
   });
+  // A grandfathered item's tubing sub-spec picks (deriveTubing(getAnswer,
+  // helpers, index)).
+  const carsTubingGf = window.RULES_DATA.cars && window.RULES_DATA.cars.paths.grandfathered.elements.find((e) => e.id === "tubing_gf");
+  if (carsTubingGf) carsTubingGf.deriveTubing = carsGfTubing;
 
   // Not an org -- kept out of RULES_DATA's own keys, which the app lists
   // the sanctioning bodies from.
