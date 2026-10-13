@@ -60,7 +60,12 @@ body {
 .app-header-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .app-header-row h1 { margin-right: auto; }
 .app-header-actions { display: flex; gap: 8px; margin-bottom: 6px; }
+.app-header-actions { align-items: center; }
 .app-header-actions a.btn { text-decoration: none; }
+/* The FIA tutorial video: PassTech's frog-on-YouTube logo (its title shows on hover). */
+.header-video-link { display: block; height: 30px; flex: 0 0 auto; border-radius: 6px; overflow: hidden; background: #fff; border: 1px solid var(--border); }
+.header-video-link img { display: block; height: 100%; width: auto; }
+.header-video-link:hover { border-color: var(--accent); }
 .app-header h1 .app-logo { height: 1.8em; width: auto; vertical-align: middle; margin: -0.2em 0.35em 0 0; }
 .brand-link {
   font-size: 0.9rem;
@@ -1066,8 +1071,8 @@ img.zoomable, #cageViewerPictureModeThumb { cursor: zoom-in; }
 .footer-affiliate img { display: block; border: 0; }
 .footer-affiliate-disclosure { max-width: 30rem; font-size: 0.72rem; opacity: 0.75; }
 @media print { .footer-affiliate { display: none; } }
-.video-walkaround-row { align-items: flex-end; }
-.video-frame-count { min-width: 5rem; }
+.video-walkaround-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.video-walkaround-anim { width: 96px; height: 72px; border-radius: 8px; border: 1px solid var(--border); flex: 0 0 auto; }
 .picture-video-frame { font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
 .video-review-head { margin: 6px 0; }
 .video-review-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 8px 0; }

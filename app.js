@@ -2226,7 +2226,7 @@
       {
         target: "headerHelpLinks",
         onEnter: () => { state.activeTab = 1; },
-        text: "Take this tour again any time with How it works, or read the User manual for every part in detail. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
+        text: "Take this tour again any time with How it works, or read the User manual for every part in detail. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video (the YouTube logo) explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
       },
     ]),
   };
@@ -2249,7 +2249,7 @@
       {
         target: "headerHelpLinks",
         onEnter: () => { state.activeTab = LOGBOOK_PHASE; },
-        text: "Take this tour again any time with How it works. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
+        text: "Take this tour again any time with How it works. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video (the YouTube logo) explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
       },
     ]),
   };
@@ -2263,7 +2263,7 @@
         { target: "pictures-panel", text: "Photos help document the cage -- they're saved with this " + NOUN + " and included in the PDF report. Nothing here changes the checklist by itself." },
         { target: "pictures-video", text: "Video walk-around (beta): record a slow walk-around of the car and its cage, and every clear frame is pulled out of it. Some are preselected, spread over the whole video. Mark the best outside shots as the 3/4 front and 3/4 rear vehicle pictures, discard the other outside frames and duplicates, and the rest are added as rollcage pictures to be sorted. A video shows how the bars connect and which side is which; close-up photos are still best for gussets, feet and welds." },
         { target: "pictures-vehicle", text: "Vehicle pictures: one 3/4 front and one 3/4 rear shot of the car itself -- from the walk-around, or uploaded here directly." },
-        { target: "pictures-autosort", text: "Rollcage pictures: not sure where a photo belongs? Automatic AI sorting (beta) takes up to 20 photos at once. Each one waits here until a vision model places it in a category below; one it can't place stays here for you to move." },
+        { target: "pictures-autosort", text: "Rollcage pictures: not sure where a photo belongs? Bulk upload with automatic AI sorting (beta) takes up to 20 photos at once. Each one waits here until a vision model places it in a category below; one it can't place stays here for you to move." },
         { target: "pictures-cat-overview", text: "Overview is for whole-cage or blueprint shots -- front 3/4, rear 3/4, side, a diagram. It holds more photos than the close-up categories, since those are genuinely different views." },
         { target: "pictures-cat-main_rollbar", text: "Each close-up category holds a few photos of one specific area, so AI analysis only has to consider the designs possible there -- a smaller, more accurate list than the whole cage." },
         { target: "tour-picture-move", fallback: "pictures-cat-overview", text: "Photo in the wrong spot? Use its \"Move to\" menu to put it in the right category." },
@@ -4335,7 +4335,10 @@
   const VIDEO_THUMB_WIDTH = 320;
   const VIDEO_DUPLICATE_DIFF = 7; // mean abs difference (0-255) of tiny grayscale copies
   const VIDEO_MAX_CANDIDATES = 80;
-  let videoFramesWanted = 12; // UI-only: the "Frames to take" preselection size
+  // How many frames to preselect for a video: one per 5 seconds -- 12 for a
+  // one-minute walk-around -- at least 4 (and never more than the pictures
+  // left; see preselectVideoFrames' callers).
+  const videoFramesFor = (duration) => Math.max(4, Math.min(30, Math.round(duration / 5)));
   let videoExtraction = null; // UI-only: { status: "scanning"|"review"|"saving"|"done"|"error", progress, message }
   let videoReview = null; // UI-only: { file, url, video, duration, candidates: [{t, score, thumb, selected, full?}] } during phase 2
   let videoFrameViewer = null; // UI-only: { index, zoomed } while a frame is open full-size (renderVideoFrameViewer)
@@ -4583,7 +4586,7 @@
       const candidates = clear.map((x) => ({ t: x.t, score: x.score, thumb: x.thumb, selected: false }));
       videoReview = { file, url, video, duration, candidates };
       const remaining = PICTURE_LIMIT - state.pictures.length;
-      preselectVideoFrames(candidates, duration, Math.max(0, Math.min(videoFramesWanted, remaining)));
+      preselectVideoFrames(candidates, duration, Math.max(0, Math.min(videoFramesFor(duration), remaining)));
       setStatus("review", 1, candidates.length + " clear frame" + (candidates.length === 1 ? "" : "s") + " found in " + formatVideoTime(duration) + " of video.");
     } catch (e) {
       URL.revokeObjectURL(url);
@@ -4670,15 +4673,14 @@
       ]),
     ];
     if (!videoReview) {
-      const countSelect = el("select", { class: "video-frame-count", disabled: busy, onchange: (e) => { videoFramesWanted = Number(e.target.value); render(); } });
-      [4, 6, 8, 10, 12, 16, 20].forEach((n) => { const o = el("option", { value: String(n) }, [String(n)]); if (n === videoFramesWanted) o.selected = true; countSelect.appendChild(o); });
       const input = el("input", {
         type: "file", accept: "video/*", disabled: busy || max <= 0 || !!state.pictureSelectMode,
         onchange: (e) => { const file = e.target.files && e.target.files[0]; e.target.value = ""; if (file) scanVideoFrames(file); },
       });
-      children.push(el("div", { class: "field-row video-walkaround-row" }, [
-        el("div", { class: "field" }, [el("label", {}, ["Frames to preselect"]), countSelect]),
-        el("div", { class: "field" }, [el("label", {}, ["Video"]), input]),
+      // A little looping walk-around beside the file picker, in place of an icon.
+      children.push(el("div", { class: "video-walkaround-row" }, [
+        el("img", { class: "video-walkaround-anim", src: "images/walkaround.gif", alt: "", width: "96", height: "72" }),
+        input,
       ]));
       if (max <= 0) children.push(el("div", { class: "ai-status" }, ["Picture limit reached (" + PICTURE_LIMIT + ") -- delete some photos to take frames from a video."]));
     } else {
@@ -4718,7 +4720,7 @@
         ]),
         el("button", { class: "btn small secondary", disabled: busy, onclick: () => { cands.forEach((c) => { c.selected = true; }); render(); } }, ["Select all"]),
         el("button", { class: "btn small secondary", disabled: busy, onclick: () => { cands.forEach((c) => { c.selected = false; }); render(); } }, ["Select none"]),
-        el("button", { class: "btn small secondary", disabled: busy, onclick: () => { preselectVideoFrames(cands, videoReview.duration, Math.min(videoFramesWanted, max)); render(); } }, ["Reset preselection"]),
+        el("button", { class: "btn small secondary", disabled: busy, onclick: () => { preselectVideoFrames(cands, videoReview.duration, Math.min(videoFramesFor(videoReview.duration), max)); render(); } }, ["Reset preselection"]),
         el("button", { class: "btn small secondary", disabled: busy, onclick: () => { releaseVideoReview(); videoExtraction = null; render(); } }, ["Cancel"]),
       ]));
     }
@@ -5057,7 +5059,7 @@
     });
     const unsorted = picturesInCategory(UNSORTED_PICTURES);
     const sortSection = el("div", { class: "picture-category-section picture-autosort-field", id: "pictures-autosort" }, [
-      el("h3", { class: "picture-category-heading" }, ["Automatic AI sorting (beta)" + (unsorted.length ? " (" + unsorted.length + " waiting)" : "")]),
+      el("h3", { class: "picture-category-heading" }, ["Bulk upload with automatic AI sorting (beta)" + (unsorted.length ? " (" + unsorted.length + " waiting)" : "")]),
       el("div", { class: "picture-autosort-label" }, ["Upload up to " + PICTURE_LIMIT + " photos at once -- each waits here until it's placed in a category below."]),
       el("div", { class: "field" }, [sortInput].concat(totalRemaining <= 0 ? [el("div", { class: "ai-status" }, ["Picture limit reached (" + PICTURE_LIMIT + ")."])] : [])),
     ]);

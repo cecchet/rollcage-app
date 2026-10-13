@@ -21,7 +21,7 @@ export default async function (a) {
   await a.eval(`${wait(500)} const exit = [...document.querySelectorAll('button')].find(b => /Exit the tutorial/.test(b.textContent)); if (exit) exit.click();
     ${wait(500)} if (!document.getElementById('library-dialog')) ${click("/^Rollcage library$/")} ${wait(3000)}`);
   await a.shot("01-library");
-  await a.eval(`[...document.querySelectorAll('.load-dialog-card')].find(c => /RS4 Rally car/.test(c.textContent)).click(); ${wait(500)}
+  await a.eval(`[...document.querySelectorAll('.library-section-sample .load-dialog-card')].find(c => /RS4 Rally car/.test(c.textContent)).click(); ${wait(500)}
     document.querySelector('.load-dialog-card.selected').scrollIntoView({ block: 'center' }); ${wait(800)}`);
   await a.shot("02-library-samples");
   await a.eval(`${click("/^Start from template$/")} ${wait(3500)}`);
