@@ -67,7 +67,7 @@
     picturesExpanded: true, // UI-only: Pictures panel (its own part now) starts open -- collapsiblePanelHeader toggle
     expandedIds: {}, // UI-only: elementId -> true once a completed question has been manually re-opened
     showModel: true, // UI-only: the session bar's "3D Model" toggle
-    activeTab: CFG.logbook ? 6 : 1, // UI-only: which phase tab is shown (6 = LOGBOOK_PHASE, first in the logbook app) -- see PHASE_ORDER
+    activeTab: CFG.logbook ? 6 : 8, // UI-only: which phase tab is shown -- the first part: 6 = LOGBOOK_PHASE in the logbook app, 8 = VEHICLE_PHASE (Part 1) here; see PHASE_ORDER
     justSaved: false, // UI-only: briefly true right after the Save button is clicked
     dirty: false, // UI-only: true once something has changed since the last explicit Save -- see markDirty/confirmDiscardIfDirty. Nothing auto-persists anymore; this is what gates switching/starting a rollcage with unsaved work.
     showGhostBars: true, // UI-only: whether bars not yet confirmed show dimmed for context, or are hidden entirely
@@ -135,7 +135,21 @@
     else render();
   }
 
+  // What belongs to the rollcage that was open, not to the next one: a
+  // video walk-around in progress, opened cards and photos, AI picks -- and
+  // the part shown goes back to the first one.
+  function resetRollcageUi() {
+    resetVideoWalkaround();
+    videoOverviewEdit = null;
+    pictureCardsOpen.clear();
+    state.expandedIds = {};
+    state.aiAnalysis = { accepted: {} };
+    state.mediaViewer = null;
+    state.activeTab = PHASE_ORDER[0];
+  }
+
   function startNew() {
+    resetRollcageUi();
     state.sessionId = uid();
     state.vehicle = { name: "", org: "none", logbookDate: "" };
     state.pathId = "new_construction";
@@ -157,6 +171,7 @@
     const all = loadAll();
     const s = all[id];
     if (!s) return;
+    resetRollcageUi();
     state.sessionId = s.sessionId;
     state.vehicle = Object.assign({}, s.vehicle, { org: knownOrg(s.vehicle && s.vehicle.org) });
     // Older saves could have pathId: null (from the now-removed "Existing
@@ -2211,7 +2226,7 @@
       {
         target: "headerHelpLinks",
         onEnter: () => { state.activeTab = 1; },
-        text: "Take this quick tutorial again any time from here. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
+        text: "Take this tour again any time with How it works, or read the User manual for every part in detail. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
       },
     ]),
   };
@@ -2234,13 +2249,13 @@
       {
         target: "headerHelpLinks",
         onEnter: () => { state.activeTab = LOGBOOK_PHASE; },
-        text: "Take this quick tutorial again any time from here. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
+        text: "Take this tour again any time with How it works. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
       },
     ]),
   };
   const TOURS = {
     // First-visit tour of the main features (auto-started once, see boot;
-    // "Quick tutorial" in the header reruns it).
+    // "How it works" in the header reruns it).
     app: CFG.logbook ? LOGBOOK_APP_TOUR : ROLLCAGE_APP_TOUR,
     pictures: {
       onStart: () => { state.activeTab = PICTURES_PHASE; state.picturesExpanded = true; },
@@ -4361,10 +4376,13 @@
   }
   function seekVideo(video, t) {
     return new Promise((resolve, reject) => {
-      const done = () => { video.removeEventListener("seeked", done); video.removeEventListener("error", fail); resolve(); };
-      const fail = () => { video.removeEventListener("seeked", done); video.removeEventListener("error", fail); reject(new Error("seek failed")); };
+      // (emptied: the video was unloaded -- releaseVideoReview -- mid-seek.)
+      const off = () => { ["seeked", "error", "emptied"].forEach((ev, i) => video.removeEventListener(ev, i ? fail : done)); };
+      const done = () => { off(); resolve(); };
+      const fail = () => { off(); reject(new Error("seek failed")); };
       video.addEventListener("seeked", done);
       video.addEventListener("error", fail);
+      video.addEventListener("emptied", fail);
       video.currentTime = t;
     });
   }
@@ -4456,6 +4474,16 @@
     // Warm up the neighbours so stepping through feels instant.
     if (cands[i + 1]) grabFullVideoFrame(cands[i + 1]);
   }
+  // Another rollcage opened (resetRollcageUi): the walk-around goes, and a
+  // scan or save still running stops (each checks videoGeneration after
+  // every wait) instead of finishing into the new rollcage.
+  let videoGeneration = 0;
+  function resetVideoWalkaround() {
+    videoGeneration++;
+    releaseVideoReview();
+    videoExtraction = null;
+    videoSeekQueue = Promise.resolve();
+  }
   function releaseVideoReview() {
     videoFrameViewer = null;
     if (!videoReview) return;
@@ -4482,6 +4510,7 @@
   // Phase 1.
   async function scanVideoFrames(file) {
     releaseVideoReview();
+    const gen = videoGeneration;
     const url = URL.createObjectURL(file);
     const video = document.createElement("video");
     video.muted = true;
@@ -4489,6 +4518,8 @@
     video.preload = "auto";
     video.src = url;
     const setStatus = (status, progress, message) => { videoExtraction = { status, progress, message }; render(); };
+    // Another rollcage was opened meanwhile: drop the scan.
+    const stale = () => gen !== videoGeneration;
     try {
       await new Promise((resolve, reject) => {
         video.addEventListener("loadeddata", resolve, { once: true });
@@ -4514,6 +4545,7 @@
       for (let i = 0; i < count; i++) {
         const t = Math.min(duration - 0.05, (i + 0.5) * duration / count);
         await seekVideo(video, t);
+        if (stale()) throw new Error("stale");
         sctx.drawImage(video, 0, 0, sw, sh);
         const { score, dark } = videoFrameScore(sctx, sw, sh);
         const sample = { t, score, dark, sig: videoFrameSignature(small) };
@@ -4557,6 +4589,7 @@
       URL.revokeObjectURL(url);
       video.removeAttribute("src");
       video.load();
+      if (e.message === "stale" || stale()) return;
       setStatus("error", 0, e.message === "unreadable"
         ? "This browser can't read that video. iPhone videos (HEVC) may need Safari, or Settings > Camera > Formats > Most Compatible."
         : e.message === "no clear frames" ? "No clear frames found in that video -- try a slower, steadier walk-around with more light."
@@ -4567,8 +4600,10 @@
   async function saveSelectedVideoFrames() {
     const review = videoReview;
     if (!review) return;
+    const gen = videoGeneration;
     videoFrameViewer = null;
     await videoSeekQueue;
+    if (gen !== videoGeneration) return;
     const vehiclePicks = review.candidates.filter((c) => c.selected && frameRole(c) !== "rollcage");
     const picks = review.candidates.filter((c) => c.selected && frameRole(c) === "rollcage").slice(0, Math.max(0, PICTURE_LIMIT - state.pictures.length));
     if (!picks.length && !vehiclePicks.length) return;
@@ -4587,6 +4622,7 @@
         videoExtraction = { status: "saving", progress: 0, message: "Saving the 3/4 " + slot + " photo…" };
         render();
         await seekVideo(video, c.t);
+        if (gen !== videoGeneration) return; // another rollcage opened meanwhile
         fctx.drawImage(video, 0, 0, full.width, full.height);
         const id = picUid();
         const dataUrl = full.toDataURL("image/jpeg", 0.85);
@@ -4600,6 +4636,7 @@
         videoExtraction = { status: "saving", progress: i / picks.length, message: "Saving frame " + (i + 1) + " of " + picks.length + "…" };
         render();
         await seekVideo(video, picks[i].t);
+        if (gen !== videoGeneration) return;
         fctx.drawImage(video, 0, 0, full.width, full.height);
         const id = picUid();
         const dataUrl = full.toDataURL("image/jpeg", 0.85);
@@ -4614,6 +4651,7 @@
         ids.length ? ids.length + " rollcage frame" + (ids.length === 1 ? "" : "s") + " added from the video -- they're being sorted below." : "",
       ].filter(Boolean).join(" ") };
     } catch (e) {
+      if (gen !== videoGeneration) return;
       videoExtraction = { status: "error", progress: 0, message: "Couldn't save the frames (" + e.message + ")." };
     }
     releaseVideoReview();
@@ -10142,6 +10180,8 @@
     }
     const tourLink = document.getElementById("appTourLink");
     if (tourLink) tourLink.addEventListener("click", (e) => { e.preventDefault(); startTour("app"); });
+    // The user manual covers the rollcage app only (the logbook app gets its own).
+    if (CFG.logbook) { const manual = document.getElementById("userManualLink"); if (manual) manual.remove(); }
     // First visit: show the app tour once (remembered per browser).
     let tourSeen = true;
     try { tourSeen = localStorage.getItem(APP_TOUR_SEEN_KEY) === "1"; localStorage.setItem(APP_TOUR_SEEN_KEY, "1"); } catch (e) { /* storage blocked -- skip */ }

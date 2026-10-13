@@ -56,6 +56,11 @@ body {
 }
 
 .app-header h1 { margin-bottom: 6px; font-size: 1.5rem; }
+/* The title, and How it works / User manual at its right (wrapping under it on a phone). */
+.app-header-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.app-header-row h1 { margin-right: auto; }
+.app-header-actions { display: flex; gap: 8px; margin-bottom: 6px; }
+.app-header-actions a.btn { text-decoration: none; }
 .app-header h1 .app-logo { height: 1.8em; width: auto; vertical-align: middle; margin: -0.2em 0.35em 0 0; }
 .brand-link {
   font-size: 0.9rem;
