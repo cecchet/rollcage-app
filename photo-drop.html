@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Send photos to the laptop</title>
+<!-- The phone side of photo-capture.js: opened from the QR code a laptop shows
+     (photo-drop.html#<session>). Photos taken here are resized and posted to the
+     photo drop relay (photo_drop_put); the laptop picks them up. -->
+<style>
+  :root { --bg: #f4f6f8; --panel: #fff; --ink: #1d2329; --muted: #5f6b76; --line: #d6dce1; --accent: #1f5fbf; --ok: #1e7e34; --err: #c0392b; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #121619; --panel: #1c2127; --ink: #e8edf2; --muted: #9aa7b3; --line: #36404a; --accent: #6ea8ff; --ok: #5cc27a; --err: #ff7b6b; } }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 1.3rem; margin: 0 0 6px; }
+  p { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .big { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 18px; margin-top: 14px;
+    border-radius: 14px; border: none; background: var(--accent); color: #fff; font: inherit; font-size: 1.15rem; font-weight: 700; cursor: pointer; }
+  .big.secondary { background: var(--panel); color: var(--accent); border: 2px solid var(--accent); font-size: 1rem; padding: 14px; }
+  input[type=file] { display: none; }
+  #status { margin-top: 16px; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+  #status.ok { border-color: var(--ok); color: var(--ok); }
+  #status.err { border-color: var(--err); color: var(--err); }
+  #sent { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  #sent img { width: 76px; height: 76px; object-fit: cover; border-radius: 8px; border: 2px solid var(--ok); }
+</style>
+</head>
+<body>
+<main>
+  <h1>📷 Send photos to the laptop</h1>
+  <p class="muted">Take each photo here: it shows up on the laptop a few seconds later. Keep this page open until you're done.</p>
+  <label class="big" for="camera">📸 Take a photo</label>
+  <input id="camera" type="file" accept="image/*" capture="environment">
+  <label class="big secondary" for="library">🖼️ Send photos already on this phone</label>
+  <input id="library" type="file" accept="image/*" multiple>
+  <div id="status">Ready.</div>
+  <div id="sent"></div>
+</main>
+<script>
+  // The relay: the same project and public anon key as photo-capture.js.
+  const RELAY = {
+    url: "https://opltqtjxrzlgucrgznft.supabase.co",
+    key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wbHRxdGp4cnpsZ3Vjcmd6bmZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExNjk0NTAsImV4cCI6MjEwNjc0NTQ1MH0.zp9-mI7BUpjIltkZLa707tayiQ-9SvdOomYONU36wPI",
+  };
+  const session = location.hash.slice(1);
+  const status = document.getElementById("status");
+  const say = (text, kind) => { status.textContent = text; status.className = kind || ""; };
+  if (!/^[0-9a-f-]{36}$/i.test(session)) say("This link is incomplete: scan the QR code on the laptop again.", "err");
+  let sent = 0;
+
+  // A phone photo can be 12 MP or more: sent at 2000 px on its long side (plenty for a tech sheet).
+  async function shrink(file) {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error("that file isn't a photo the browser can read"));
+      i.src = URL.createObjectURL(file);
+    });
+    const scale = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * scale);
+    c.height = Math.round(img.naturalHeight * scale);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(img.src);
+    return c.toDataURL("image/jpeg", 0.85);
+  }
+  async function send(files) {
+    for (const file of files) {
+      try {
+        say("Sending photo " + (sent + 1) + "…");
+        const dataUrl = await shrink(file);
+        const r = await fetch(RELAY.url + "/rest/v1/rpc/photo_drop_put", {
+          method: "POST",
+          headers: { "content-type": "application/json", apikey: RELAY.key, authorization: "Bearer " + RELAY.key },
+          body: JSON.stringify({ p_session: session, p_data: dataUrl }),
+        });
+        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || "HTTP " + r.status); }
+        sent++;
+        const thumb = document.createElement("img");
+        thumb.src = dataUrl; thumb.alt = "";
+        document.getElementById("sent").append(thumb);
+        say("✓ " + sent + " photo" + (sent === 1 ? "" : "s") + " sent to the laptop. Take another, or put the phone down.", "ok");
+      } catch (e) {
+        say("Couldn't send it: " + e.message, "err");
+        return;
+      }
+    }
+  }
+  for (const id of ["camera", "library"]) {
+    const input = document.getElementById(id);
+    input.addEventListener("change", () => { const files = [...input.files]; input.value = ""; send(files); });
+  }
+</script>
+</body>
+</html>
