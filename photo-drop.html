@@ -6,7 +6,10 @@
 <title>Send photos to the laptop</title>
 <!-- The phone side of photo-capture.js: opened from the QR code a laptop shows
      (photo-drop.html#<session>). Photos taken here are resized and posted to the
-     photo drop relay (photo_drop_put); the laptop picks them up. -->
+     photo drop relay (photo_drop_put); the laptop picks them up. For a walk-around
+     video (#<session>&video): the video is recorded here, its clearest frame of
+     each second is picked here, and only those frames are sent -- a whole video
+     is far too big for the relay. -->
 <style>
   :root { --bg: #f4f6f8; --panel: #fff; --ink: #1d2329; --muted: #5f6b76; --line: #d6dce1; --accent: #1f5fbf; --ok: #1e7e34; --err: #c0392b; }
   @media (prefers-color-scheme: dark) { :root { --bg: #121619; --panel: #1c2127; --ink: #e8edf2; --muted: #9aa7b3; --line: #36404a; --accent: #6ea8ff; --ok: #5cc27a; --err: #ff7b6b; } }
@@ -28,12 +31,22 @@
 </head>
 <body>
 <main>
-  <h1>📷 Send photos to the laptop</h1>
-  <p class="muted">Take each photo here: it shows up on the laptop a few seconds later. Keep this page open until you're done.</p>
-  <label class="big" for="camera">📸 Take a photo</label>
-  <input id="camera" type="file" accept="image/*" capture="environment">
-  <label class="big secondary" for="library">🖼️ Send photos already on this phone</label>
-  <input id="library" type="file" accept="image/*" multiple>
+  <section id="photos">
+    <h1>📷 Send photos to the laptop</h1>
+    <p class="muted">Take each photo here: it shows up on the laptop a few seconds later. Keep this page open until you're done.</p>
+    <label class="big" for="camera">📸 Take a photo</label>
+    <input id="camera" type="file" accept="image/*" capture="environment">
+    <label class="big secondary" for="library">🖼️ Send photos already on this phone</label>
+    <input id="library" type="file" accept="image/*" multiple>
+  </section>
+  <section id="walkaround" hidden>
+    <h1>🎥 Send a walk-around to the laptop</h1>
+    <p class="muted">Record a slow walk-around of the car and its cage (outside for the vehicle shots, then doors open, inside the cage). This phone picks the clearest frame of each second and sends those to the laptop, where you choose the ones to keep. Keep this page open until it says it's done.</p>
+    <label class="big" for="record">🎥 Record the walk-around</label>
+    <input id="record" type="file" accept="video/*" capture="environment">
+    <label class="big secondary" for="pickvideo">🎞️ Send a video already on this phone</label>
+    <input id="pickvideo" type="file" accept="video/*">
+  </section>
   <div id="status">Ready.</div>
   <div id="sent"></div>
 </main>
@@ -43,7 +56,8 @@
     url: "https://opltqtjxrzlgucrgznft.supabase.co",
     key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wbHRxdGp4cnpsZ3Vjcmd6bmZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExNjk0NTAsImV4cCI6MjEwNjc0NTQ1MH0.zp9-mI7BUpjIltkZLa707tayiQ-9SvdOomYONU36wPI",
   };
-  const session = location.hash.slice(1);
+  const [session, mode] = location.hash.slice(1).split("&");
+  if (mode === "video") { document.getElementById("photos").hidden = true; document.getElementById("walkaround").hidden = false; document.title = "Send a walk-around to the laptop"; }
   const status = document.getElementById("status");
   const say = (text, kind) => { status.textContent = text; status.className = kind || ""; };
   if (!/^[0-9a-f-]{36}$/i.test(session)) say("This link is incomplete: scan the QR code on the laptop again.", "err");
@@ -65,21 +79,33 @@
     URL.revokeObjectURL(img.src);
     return c.toDataURL("image/jpeg", 0.85);
   }
+  // One photo (a data URL) to the laptop; waits a moment if too many are waiting there.
+  async function put(dataUrl) {
+    for (let attempt = 0; ; attempt++) {
+      const r = await fetch(RELAY.url + "/rest/v1/rpc/photo_drop_put", {
+        method: "POST",
+        headers: { "content-type": "application/json", apikey: RELAY.key, authorization: "Bearer " + RELAY.key },
+        body: JSON.stringify({ p_session: session, p_data: dataUrl }),
+      });
+      if (r.ok) return;
+      const e = await r.json().catch(() => ({}));
+      if (/too many photos waiting/.test(e.message || "") && attempt < 30) { await new Promise((ok) => setTimeout(ok, 2000)); continue; }
+      throw new Error(e.message || "HTTP " + r.status);
+    }
+  }
+  function showSent(dataUrl) {
+    const thumb = document.createElement("img");
+    thumb.src = dataUrl; thumb.alt = "";
+    document.getElementById("sent").append(thumb);
+  }
   async function send(files) {
     for (const file of files) {
       try {
         say("Sending photo " + (sent + 1) + "…");
         const dataUrl = await shrink(file);
-        const r = await fetch(RELAY.url + "/rest/v1/rpc/photo_drop_put", {
-          method: "POST",
-          headers: { "content-type": "application/json", apikey: RELAY.key, authorization: "Bearer " + RELAY.key },
-          body: JSON.stringify({ p_session: session, p_data: dataUrl }),
-        });
-        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || "HTTP " + r.status); }
+        await put(dataUrl);
         sent++;
-        const thumb = document.createElement("img");
-        thumb.src = dataUrl; thumb.alt = "";
-        document.getElementById("sent").append(thumb);
+        showSent(dataUrl);
         say("✓ " + sent + " photo" + (sent === 1 ? "" : "s") + " sent to the laptop. Take another, or put the phone down.", "ok");
       } catch (e) {
         say("Couldn't send it: " + e.message, "err");
@@ -90,6 +116,82 @@
   for (const id of ["camera", "library"]) {
     const input = document.getElementById(id);
     input.addEventListener("change", () => { const files = [...input.files]; input.value = ""; send(files); });
+  }
+
+  // ---- A walk-around video: its clearest frame of each second, sent as photos ----
+  const seek = (video, t) => new Promise((ok, fail) => {
+    const done = () => { video.removeEventListener("seeked", done); video.removeEventListener("error", bad); ok(); };
+    const bad = () => { video.removeEventListener("seeked", done); video.removeEventListener("error", bad); fail(new Error("seek failed")); };
+    video.addEventListener("seeked", done); video.addEventListener("error", bad);
+    video.currentTime = t;
+  });
+  // Sharpness (variance of the Laplacian) of a small grayscale copy; a near-black frame is useless.
+  function score(ctx, w, h) {
+    const d = ctx.getImageData(0, 0, w, h).data, g = new Float32Array(w * h);
+    let sum = 0;
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) { g[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; sum += g[j]; }
+    let ls = 0, lq = 0, n = 0;
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const k = y * w + x, l = g[k - w] + g[k + w] + g[k - 1] + g[k + 1] - 4 * g[k]; ls += l; lq += l * l; n++; }
+    return { sharp: lq / n - (ls / n) * (ls / n), dark: sum / (w * h) < 20, sig: g };
+  }
+  const diff = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; };
+  async function sendWalkaround(file) {
+    const video = document.createElement("video");
+    video.muted = true; video.playsInline = true; video.preload = "auto";
+    video.src = URL.createObjectURL(file);
+    try {
+      say("Reading the video…");
+      await new Promise((ok, fail) => { video.addEventListener("loadeddata", ok, { once: true }); video.addEventListener("error", () => fail(new Error("this phone's browser can't read that video")), { once: true }); });
+      let duration = video.duration;
+      if (!isFinite(duration)) { await seek(video, 1e9).catch(() => {}); duration = video.duration; }
+      if (!isFinite(duration) || !video.videoWidth) throw new Error("this phone's browser can't read that video");
+      const sw = 160, sh = Math.max(1, Math.round(sw * video.videoHeight / video.videoWidth));
+      const small = document.createElement("canvas"); small.width = sw; small.height = sh;
+      const sctx = small.getContext("2d", { willReadFrequently: true });
+      // Each second: 3 tries, the sharpest clear one kept.
+      const best = [];
+      const seconds = Math.max(1, Math.floor(duration));
+      for (let s = 0; s < seconds; s++) {
+        let top = null;
+        for (const f of [0.2, 0.5, 0.8]) {
+          const t = Math.min(duration - 0.05, s + f);
+          await seek(video, t);
+          sctx.drawImage(video, 0, 0, sw, sh);
+          const r = score(sctx, sw, sh);
+          if (!r.dark && (!top || r.sharp > top.sharp)) top = Object.assign(r, { t });
+        }
+        if (top) best.push(top);
+        say("Picking the clearest frames… " + Math.round((100 * (s + 1)) / seconds) + "%");
+      }
+      // Near-identical neighbours (standing still): the sharper one.
+      const kept = [];
+      best.forEach((x) => { const p = kept[kept.length - 1]; if (p && diff(p.sig, x.sig) < 7) { if (x.sharp > p.sharp) kept[kept.length - 1] = x; } else kept.push(x); });
+      // At most 80, evenly through the video.
+      const frames = kept.length > 80 ? kept.filter((_, i) => i % Math.ceil(kept.length / 80) === 0) : kept;
+      if (!frames.length) throw new Error("no clear frames -- try a slower, steadier walk-around with more light");
+      const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
+      const big = document.createElement("canvas");
+      big.width = Math.round(video.videoWidth * scale); big.height = Math.round(video.videoHeight * scale);
+      const bctx = big.getContext("2d");
+      for (let i = 0; i < frames.length; i++) {
+        say("Sending frame " + (i + 1) + " of " + frames.length + " to the laptop…");
+        await seek(video, frames[i].t);
+        bctx.drawImage(video, 0, 0, big.width, big.height);
+        const dataUrl = big.toDataURL("image/jpeg", 0.85);
+        await put(dataUrl);
+        sent++;
+        showSent(dataUrl);
+      }
+      say("✓ Done: " + frames.length + " frames sent. On the laptop, click \"Use " + frames.length + " frames\" and pick the ones to keep.", "ok");
+    } catch (e) {
+      say("Couldn't send the walk-around: " + e.message, "err");
+    } finally {
+      URL.revokeObjectURL(video.src);
+    }
+  }
+  for (const id of ["record", "pickvideo"]) {
+    const input = document.getElementById(id);
+    input.addEventListener("change", () => { const file = input.files[0]; input.value = ""; if (file) sendWalkaround(file); });
   }
 </script>
 </body>

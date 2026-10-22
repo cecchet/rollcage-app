@@ -11,6 +11,11 @@
 // On a phone or tablet: Take a photo (the camera itself -- some Android
 // browsers only offer the gallery otherwise) or Choose from my photos.
 // A picker with its own capture attribute (it already opens the camera) is left alone.
+// A video picker (accept="video/...", the rollcage walk-around) gets the same
+// chooser for a video: on a phone Record a video / Choose from my videos; on a
+// laptop Use my phone (the phone records the walk-around and sends its clearest
+// frames -- a "photocapture:frames" event on the picker, detail { frames: [data
+// URL...], name }), Laptop camera (records) or Choose a file.
 // The photos taken are handed to the picker itself (its files, then its
 // input/change events), so the page handles them as if they'd been chosen --
 // nothing else needs to know. Shared by the rollcage app, Digital logbooks and
@@ -30,7 +35,9 @@
   // A laptop or desktop: a mouse or trackpad and no touch screen as the main pointer.
   const isDesktop = () => window.matchMedia("(hover: hover) and (pointer: fine)").matches &&
     !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-  const isPhotoInput = (t) => t instanceof HTMLInputElement && t.type === "file" && /image/.test(t.accept || "") && !t.disabled;
+  const isPhotoInput = (t) => t instanceof HTMLInputElement && t.type === "file" && /image|video/.test(t.accept || "") && !t.disabled;
+  // A video picker (only videos), or a photo one.
+  const kindOf = (t) => (/video/.test(t.accept || "") && !/image/.test(t.accept || "") ? "video" : "photo");
 
   async function rpc(fn, args) {
     const r = await fetch(RELAY.url + "/rest/v1/rpc/" + fn, {
@@ -119,32 +126,43 @@
   function openChooser(input) {
     if (open) open.close();
     if (!document.getElementById("pc-style")) document.head.appendChild(el("style", { id: "pc-style" }, [CSS]));
+    const kind = kindOf(input);
+    const video = kind === "video";
     const multiple = input.multiple;
     const taken = []; // { file, url }
+    const frames = []; // a video from the phone: its frames (data URLs)
     let mode = null, stopMode = () => {};
     const pane = el("div", { class: "pc-pane" });
     const thumbs = el("div", { class: "pc-thumbs" });
-    const useBtn = el("button", { type: "button", class: "pc-btn", disabled: true, onclick: () => finish() }, ["Use the photos"]);
+    const useBtn = el("button", { type: "button", class: "pc-btn", disabled: true, onclick: () => finish() }, [video ? "Use the frames" : "Use the photos"]);
     const choice = (id, icon, title, sub, fn) => el("button", { type: "button", class: "pc-choice", "data-mode": id, onclick: fn }, [el("i", {}, [icon]), el("b", {}, [title]), el("span", {}, [sub])]);
     const pickFile = () => { close(); bypass = input; input.click(); bypass = null; };
     const choices = el("div", { class: "pc-choices" + (isDesktop() ? "" : " two") }, isDesktop() ? [
-      choice("phone", "📱", "Use my phone", "Scan a QR code, take the photo on the phone", () => setMode("phone")),
-      choice("camera", "💻", "Laptop camera", "Webcam, USB camera, or a phone as a webcam", () => setMode("camera")),
-      choice("file", "📁", "Choose a file", "A photo already on this computer", pickFile),
+      choice("phone", "📱", "Use my phone", video ? "Scan a QR code, record on the phone: its clearest frames come here" : "Scan a QR code, take the photo on the phone", () => setMode("phone")),
+      choice("camera", "💻", "Laptop camera", video ? "Record from a webcam, USB camera, or a phone as a webcam" : "Webcam, USB camera, or a phone as a webcam", () => setMode("camera")),
+      choice("file", "📁", "Choose a file", video ? "A video already on this computer" : "A photo already on this computer", pickFile),
     ] : [
-      choice("take", "📷", "Take a photo", "With this device's camera", () => { close(); takeWithCamera(input); }),
-      choice("file", "🖼️", "Choose from my photos", "A photo already on this device", pickFile),
+      choice("take", video ? "🎥" : "📷", video ? "Record a video" : "Take a photo", "With this device's camera", () => { close(); takeWithCamera(input); }),
+      choice("file", video ? "🎞️" : "🖼️", video ? "Choose from my videos" : "Choose from my photos", video ? "A video already on this device" : "A photo already on this device", pickFile),
     ]);
-    const box = el("div", { class: "pc-box", role: "dialog", "aria-modal": "true", "aria-label": "Add a photo" }, [
-      el("div", { class: "pc-head" }, [el("h2", {}, [multiple ? "Add photos" : "Add a photo"]), el("button", { type: "button", class: "pc-x", "aria-label": "Close", onclick: () => close() }, ["×"])]),
+    const title = video ? "Add a video" : multiple ? "Add photos" : "Add a photo";
+    const box = el("div", { class: "pc-box", role: "dialog", "aria-modal": "true", "aria-label": title }, [
+      el("div", { class: "pc-head" }, [el("h2", {}, [title]), el("button", { type: "button", class: "pc-x", "aria-label": "Close", onclick: () => close() }, ["×"])]),
       choices, pane, thumbs,
-      el("div", { class: "pc-foot" }, [el("button", { type: "button", class: "pc-btn secondary", onclick: () => close() }, ["Cancel"]), multiple ? useBtn : null]),
+      el("div", { class: "pc-foot" }, [el("button", { type: "button", class: "pc-btn secondary", onclick: () => close() }, ["Cancel"]), multiple || video ? useBtn : null]),
     ]);
     const overlay = el("div", { class: "pc-overlay", onclick: (e) => { if (e.target === overlay) close(); } }, [box]);
     const onKey = (e) => { if (e.key === "Escape") close(); };
     document.addEventListener("keydown", onKey);
     document.body.appendChild(overlay);
 
+    // A frame of the phone's walk-around: kept until "Use the frames".
+    function addFrame(dataUrl) {
+      frames.push(dataUrl);
+      thumbs.append(el("img", { src: dataUrl, alt: "" }));
+      useBtn.disabled = false;
+      useBtn.textContent = "Use " + frames.length + " frame" + (frames.length === 1 ? "" : "s");
+    }
     function add(file) {
       const url = URL.createObjectURL(file);
       taken.push({ file, url });
@@ -156,7 +174,8 @@
     function finish() {
       const files = taken.map((t) => t.file);
       close();
-      deliver(input, files);
+      if (frames.length) input.dispatchEvent(new CustomEvent("photocapture:frames", { bubbles: true, detail: { frames: frames.slice(), name: "Phone walk-around" } }));
+      else deliver(input, files);
     }
     function close() {
       stopMode();
@@ -171,7 +190,8 @@
       mode = m;
       choices.querySelectorAll(".pc-choice").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
       pane.replaceChildren();
-      stopMode = m === "phone" ? phonePane(pane, add) : cameraPane(pane, add);
+      stopMode = m === "phone" ? phonePane(pane, video ? addFrame : async (dataUrl, n) => add(await dataUrlToFile(dataUrl, "phone-photo-" + n + ".jpg")), video)
+        : cameraPane(pane, add, video);
     }
     open = { close };
   }
@@ -185,7 +205,8 @@
   }
 
   // ---- Use my phone ---------------------------------------------------------
-  function phonePane(pane, add) {
+  // got(dataUrl, n): each photo (or, for a video, each frame) as it arrives.
+  function phonePane(pane, got, video) {
     let session = null, stopped = false, timer = null, received = 0;
     const status = el("p", { class: "pc-note" }, ["Getting a link for your phone…"]);
     pane.append(status);
@@ -193,13 +214,15 @@
       try {
         session = await rpc("photo_drop_open");
         if (stopped) { rpc("photo_drop_close", { p_session: session }).catch(() => {}); return; }
-        const link = new URL("photo-drop.html", HERE).href + "#" + session;
+        const link = new URL("photo-drop.html", HERE).href + "#" + session + (video ? "&video" : "");
         const qr = (await loadQr())(0, "M");
         qr.addData(link); qr.make();
         const img = el("div", { class: "pc-qr-img" });
         img.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
-        status.textContent = "Scan this with your phone's camera, then take the photos there: they appear here a few seconds later. Both need an internet connection.";
-        pane.replaceChildren(el("div", { class: "pc-qr" }, [img, el("div", { style: "flex:1;min-width:180px" }, [status, el("p", { class: "pc-note", id: "pc-count" }, ["Waiting for photos…"]), el("p", { class: "pc-link" }, [link])])]));
+        status.textContent = video
+          ? "Scan this with your phone's camera, then record the walk-around there: the phone picks its clearest frames and sends them here. Both need an internet connection."
+          : "Scan this with your phone's camera, then take the photos there: they appear here a few seconds later. Both need an internet connection.";
+        pane.replaceChildren(el("div", { class: "pc-qr" }, [img, el("div", { style: "flex:1;min-width:180px" }, [status, el("p", { class: "pc-note", id: "pc-count" }, [video ? "Waiting for frames…" : "Waiting for photos…"]), el("p", { class: "pc-link" }, [link])])]));
         poll();
       } catch (e) {
         status.replaceWith(el("p", { class: "pc-err" }, ["Couldn't set up the phone link (" + e.message + "). Without internet, use the laptop camera or choose a file."]));
@@ -211,11 +234,12 @@
         const r = await rpc("photo_drop_take", { p_session: session });
         for (const dataUrl of r.photos || []) {
           received++;
-          add(await dataUrlToFile(dataUrl, "phone-photo-" + received + ".jpg"));
+          await got(dataUrl, received);
           if (stopped) return;
         }
         const count = pane.querySelector("#pc-count");
-        if (count) count.textContent = received ? received + " photo" + (received === 1 ? "" : "s") + " received -- keep going, or use them below." : "Waiting for photos…";
+        const what = video ? "frame" : "photo";
+        if (count) count.textContent = received ? received + " " + what + (received === 1 ? "" : "s") + " received -- " + (video ? "use them below once the phone says it's done." : "keep going, or use them below.") : "Waiting for " + what + "s…";
         if (r.open === false) { if (count) count.textContent = "This link has expired: close and choose Use my phone again."; return; }
       } catch (e) { /* a dropped connection: try again */ }
       timer = setTimeout(poll, 2000);
@@ -228,11 +252,11 @@
   }
 
   // ---- Laptop camera --------------------------------------------------------
-  function cameraPane(pane, add) {
-    let stream = null, stopped = false;
+  function cameraPane(pane, add, recordVideo) {
+    let stream = null, stopped = false, recorder = null, chunks = [], started = 0, tick = null;
     const video = el("video", { class: "pc-video", autoplay: true, playsinline: true, muted: true });
     const pick = el("select", { "aria-label": "Camera", onchange: () => start(pick.value) });
-    const shoot = el("button", { type: "button", class: "pc-btn", disabled: true, onclick: snap }, ["📸 Take photo"]);
+    const shoot = el("button", { type: "button", class: "pc-btn", disabled: true, onclick: () => (recordVideo ? toggleRecording() : snap()) }, [recordVideo ? "⏺ Record" : "📸 Take photo"]);
     const note = el("p", { class: "pc-note" }, ["Starting the camera…"]);
     pane.append(video, el("div", { class: "pc-row" }, [pick, shoot]), note);
     async function start(deviceId) {
@@ -265,8 +289,28 @@
       c.toBlob((blob) => { if (blob) add(new File([blob], "camera-" + Date.now() + ".jpg", { type: "image/jpeg", lastModified: Date.now() })); }, "image/jpeg", 0.9);
       video.animate([{ opacity: 0.3 }, { opacity: 1 }], 250);
     }
+    // Recording (a video picker): Record / Stop, then the recording goes to the page like a chosen file.
+    function toggleRecording() {
+      if (recorder) { recorder.stop(); return; }
+      const type = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+      if (!type) { note.textContent = "This browser can't record video -- choose a file instead."; return; }
+      chunks = [];
+      recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 8000000 });
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      recorder.onstop = () => {
+        clearInterval(tick);
+        const blob = new Blob(chunks, { type: type.split(";")[0] });
+        recorder = null;
+        shoot.textContent = "⏺ Record";
+        if (!stopped && blob.size) add(new File([blob], "walkaround-" + Date.now() + (/mp4/.test(type) ? ".mp4" : ".webm"), { type: blob.type, lastModified: Date.now() }));
+      };
+      recorder.start(1000);
+      started = Date.now();
+      shoot.textContent = "⏹ Stop (0:00)";
+      tick = setInterval(() => { const s = Math.round((Date.now() - started) / 1000); shoot.textContent = "⏹ Stop (" + Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") + ")"; }, 500);
+    }
     start();
-    return () => { stopped = true; if (stream) stream.getTracks().forEach((t) => t.stop()); };
+    return () => { stopped = true; clearInterval(tick); if (recorder) recorder.stop(); if (stream) stream.getTracks().forEach((t) => t.stop()); };
   }
 
   // A photo picker clicked opens the chooser instead of the file dialog.
@@ -289,12 +333,12 @@
   function addButtons(root) {
     const inputs = root.querySelectorAll ? root.querySelectorAll('input[type="file"]') : [];
     for (const input of inputs) {
-      if (input.dataset.pcButton || !/image/.test(input.accept || "") || input.hasAttribute("capture")) continue;
+      if (input.dataset.pcButton || !/image|video/.test(input.accept || "") || input.hasAttribute("capture")) continue;
       if (input.getBoundingClientRect().width < 20) continue; // hidden, or behind the page's own control
       input.dataset.pcButton = "1";
       if (!document.getElementById("pc-btn-style")) document.head.appendChild(el("style", { id: "pc-btn-style" }, [BUTTON_CSS]));
       const button = el("button", { type: "button", class: "pc-input-btn", disabled: input.disabled, onclick: () => input.click() },
-        ["📷 " + (input.multiple ? "Add photos" : "Add a photo")]);
+        [kindOf(input) === "video" ? "🎥 Add a video" : "📷 " + (input.multiple ? "Add photos" : "Add a photo")]);
       input.style.display = "none";
       input.before(button);
     }

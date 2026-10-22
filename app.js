@@ -4341,6 +4341,7 @@
   const videoFramesFor = (duration) => Math.max(4, Math.min(30, Math.round(duration / 5)));
   let videoExtraction = null; // UI-only: { status: "scanning"|"review"|"saving"|"done"|"error", progress, message }
   let videoReview = null; // UI-only: { file, url, video, duration, candidates: [{t, score, thumb, selected, full?}] } during phase 2
+  // (frames sent from a phone -- photo-capture.js -- have no video: url and video null, each candidate's full frame set)
   let videoFrameViewer = null; // UI-only: { index, zoomed } while a frame is open full-size (renderVideoFrameViewer)
   let videoSeekQueue = Promise.resolve(); // full-size grabs and saving share one <video>, one seek at a time
   function videoFrameScore(ctx, w, h) {
@@ -4490,9 +4491,8 @@
   function releaseVideoReview() {
     videoFrameViewer = null;
     if (!videoReview) return;
-    URL.revokeObjectURL(videoReview.url);
-    videoReview.video.removeAttribute("src");
-    videoReview.video.load();
+    if (videoReview.url) URL.revokeObjectURL(videoReview.url);
+    if (videoReview.video) { videoReview.video.removeAttribute("src"); videoReview.video.load(); }
     videoReview = null;
   }
   // The preselection: the sharpest clear frame of each of `wanted` equal
@@ -4599,6 +4599,40 @@
         : "Couldn't take frames from that video (" + e.message + ").");
     }
   }
+  // Phase 1, for a walk-around recorded on a phone (photo-capture.js's "Use my
+  // phone"): the phone sent its clearest frames, about one per second, in order.
+  async function loadPhoneFrames(frames, name) {
+    releaseVideoReview();
+    const gen = videoGeneration;
+    const setStatus = (status, progress, message) => { videoExtraction = { status, progress, message }; render(); };
+    try {
+      const candidates = [];
+      for (let i = 0; i < frames.length; i++) {
+        const img = await new Promise((resolve, reject) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = () => reject(new Error("unreadable frame")); im.src = frames[i]; });
+        if (gen !== videoGeneration) return;
+        const sw = VIDEO_SCORE_WIDTH, sh = Math.max(1, Math.round(sw * img.naturalHeight / img.naturalWidth));
+        const small = document.createElement("canvas");
+        small.width = sw; small.height = sh;
+        const sctx = small.getContext("2d", { willReadFrequently: true });
+        sctx.drawImage(img, 0, 0, sw, sh);
+        const { score } = videoFrameScore(sctx, sw, sh);
+        const thumb = document.createElement("canvas");
+        thumb.width = VIDEO_THUMB_WIDTH; thumb.height = Math.max(1, Math.round(VIDEO_THUMB_WIDTH * img.naturalHeight / img.naturalWidth));
+        thumb.getContext("2d").drawImage(img, 0, 0, thumb.width, thumb.height);
+        candidates.push({ t: i, score, thumb: thumb.toDataURL("image/jpeg", 0.75), full: frames[i], selected: false });
+        if (i % 4 === 0) setStatus("scanning", i / frames.length, "Reading the frames from the phone…");
+      }
+      if (!candidates.length) throw new Error("no frames");
+      const duration = candidates.length;
+      videoReview = { file: { name: name || "Phone walk-around" }, url: null, video: null, duration, candidates };
+      const remaining = PICTURE_LIMIT - state.pictures.length;
+      preselectVideoFrames(candidates, duration, Math.max(0, Math.min(videoFramesFor(duration), remaining)));
+      setStatus("review", 1, candidates.length + " clear frame" + (candidates.length === 1 ? "" : "s") + " received from the phone.");
+    } catch (e) {
+      if (gen !== videoGeneration) return;
+      setStatus("error", 0, "Couldn't read the frames from the phone (" + e.message + ").");
+    }
+  }
   // Phase 2 done: the chosen frames, at full photo resolution, into sorting.
   async function saveSelectedVideoFrames() {
     const review = videoReview;
@@ -4611,11 +4645,21 @@
     const picks = review.candidates.filter((c) => c.selected && frameRole(c) === "rollcage").slice(0, Math.max(0, PICTURE_LIMIT - state.pictures.length));
     if (!picks.length && !vehiclePicks.length) return;
     const video = review.video;
-    const scale = Math.min(1, 2048 / Math.max(video.videoWidth, video.videoHeight));
-    const full = document.createElement("canvas");
-    full.width = Math.round(video.videoWidth * scale);
-    full.height = Math.round(video.videoHeight * scale);
-    const fctx = full.getContext("2d");
+    // A frame at full photo resolution: grabbed from the video, or (sent from a phone) already one.
+    let full = null, fctx = null;
+    if (video) {
+      const scale = Math.min(1, 2048 / Math.max(video.videoWidth, video.videoHeight));
+      full = document.createElement("canvas");
+      full.width = Math.round(video.videoWidth * scale);
+      full.height = Math.round(video.videoHeight * scale);
+      fctx = full.getContext("2d");
+    }
+    async function frameDataUrl(c) {
+      if (!video) return c.full;
+      await seekVideo(video, c.t);
+      fctx.drawImage(video, 0, 0, full.width, full.height);
+      return full.toDataURL("image/jpeg", 0.85);
+    }
     const ids = [];
     try {
       // Vehicle photos first: straight into their slot, replacing any photo
@@ -4624,11 +4668,9 @@
         const slot = frameRole(c);
         videoExtraction = { status: "saving", progress: 0, message: "Saving the 3/4 " + slot + " photo…" };
         render();
-        await seekVideo(video, c.t);
+        const dataUrl = await frameDataUrl(c);
         if (gen !== videoGeneration) return; // another rollcage opened meanwhile
-        fctx.drawImage(video, 0, 0, full.width, full.height);
         const id = picUid();
-        const dataUrl = full.toDataURL("image/jpeg", 0.85);
         const old = state.vehiclePhotos[slot];
         if (old) { deletePictureRecord(old.id); delete pictureImageCache[old.id]; }
         putPictureRecord(id, { photo: dataUrl, screenshot: null });
@@ -4638,11 +4680,9 @@
       for (let i = 0; i < picks.length; i++) {
         videoExtraction = { status: "saving", progress: i / picks.length, message: "Saving frame " + (i + 1) + " of " + picks.length + "…" };
         render();
-        await seekVideo(video, picks[i].t);
+        const dataUrl = await frameDataUrl(picks[i]);
         if (gen !== videoGeneration) return;
-        fctx.drawImage(video, 0, 0, full.width, full.height);
         const id = picUid();
-        const dataUrl = full.toDataURL("image/jpeg", 0.85);
         putPictureRecord(id, { photo: dataUrl, screenshot: null });
         pictureImageCache[id] = { photo: dataUrl };
         state.pictures.push({ id, elements: [], aiSuggestions: [], hasScreenshot: false, category: UNSORTED_PICTURES, videoFrame: { name: review.file.name, t: picks[i].t } });
@@ -4676,6 +4716,8 @@
       const input = el("input", {
         type: "file", accept: "video/*", disabled: busy || max <= 0 || !!state.pictureSelectMode,
         onchange: (e) => { const file = e.target.files && e.target.files[0]; e.target.value = ""; if (file) scanVideoFrames(file); },
+        // A walk-around recorded on a phone (photo-capture.js): its clearest frames.
+        "onphotocapture:frames": (e) => { if (e.detail && e.detail.frames && e.detail.frames.length) loadPhoneFrames(e.detail.frames, e.detail.name); },
       });
       // A little looping walk-around beside the file picker, in place of an icon.
       children.push(el("div", { class: "video-walkaround-row" }, [
