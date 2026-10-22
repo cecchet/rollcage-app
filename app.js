@@ -3840,7 +3840,7 @@
     [INSTALLATION_PHASE]: "Installation constraints (angles, distances...)",
     [WELDS_PHASE]: "Welds",
     [SEATS_PHASE]: "Seats, belts & routing",
-    [LOGBOOK_PHASE]: CFG.logbook ? "Logbook information" : "Sanctioning body compliance",
+    [LOGBOOK_PHASE]: CFG.logbook ? "Logbook information and Pictures" : "Sanctioning body compliance",
     [SAFETY_PHASE]: "Frog Safety score",
   };
   // Display order (and so each part's number): the rollcage app opens on

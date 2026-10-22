@@ -1,13 +1,16 @@
-// Photos on a laptop. A phone's "take a photo" opens its camera, but a laptop's
-// browser just opens a file picker -- so on a laptop (a fine pointer, no touch
-// screen), clicking any photo picker (an <input type="file" accept="image/...">)
-// opens a chooser instead:
+// One way to add a photo, everywhere: clicking any photo picker (an <input
+// type="file" accept="image/...">) opens a chooser instead of the file dialog.
+// On a laptop (a fine pointer, no touch screen), whose browser can't take a
+// photo by itself:
 //   - Use my phone: a QR code; photos taken on the phone (photo-drop.html, next
 //     to this file) come back to the laptop through the photo drop relay (the
 //     photo_drop_* database functions -- a two-hour, unguessable session);
 //   - Laptop camera: a live view from any camera the computer has (built in,
 //     USB, or a phone set up as a wireless webcam), with a camera picker;
 //   - Choose a file: the usual picker.
+// On a phone or tablet: Take a photo (the camera itself -- some Android
+// browsers only offer the gallery otherwise) or Choose from my photos.
+// A picker with its own capture attribute (it already opens the camera) is left alone.
 // The photos taken are handed to the picker itself (its files, then its
 // input/change events), so the page handles them as if they'd been chosen --
 // nothing else needs to know. Shared by the rollcage app, Digital logbooks and
@@ -79,7 +82,8 @@
 .pc-head h2 { font-size: 1.1rem; margin: 0; }
 .pc-x { border: none; background: none; color: var(--pc-muted); font-size: 1.4rem; cursor: pointer; line-height: 1; }
 .pc-choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-@media (max-width: 520px) { .pc-choices { grid-template-columns: 1fr; } }
+.pc-choices.two { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 520px) { .pc-choices, .pc-choices.two { grid-template-columns: 1fr; } }
 .pc-choice { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 8px; border: 1px solid var(--pc-line); border-radius: 10px;
   background: var(--pc-bg); color: var(--pc-ink); font: inherit; cursor: pointer; text-align: center; }
 .pc-choice:hover, .pc-choice.on { border-color: var(--pc-accent); background: var(--pc-soft); }
@@ -122,10 +126,14 @@
     const thumbs = el("div", { class: "pc-thumbs" });
     const useBtn = el("button", { type: "button", class: "pc-btn", disabled: true, onclick: () => finish() }, ["Use the photos"]);
     const choice = (id, icon, title, sub, fn) => el("button", { type: "button", class: "pc-choice", "data-mode": id, onclick: fn }, [el("i", {}, [icon]), el("b", {}, [title]), el("span", {}, [sub])]);
-    const choices = el("div", { class: "pc-choices" }, [
+    const pickFile = () => { close(); bypass = input; input.click(); bypass = null; };
+    const choices = el("div", { class: "pc-choices" + (isDesktop() ? "" : " two") }, isDesktop() ? [
       choice("phone", "📱", "Use my phone", "Scan a QR code, take the photo on the phone", () => setMode("phone")),
       choice("camera", "💻", "Laptop camera", "Webcam, USB camera, or a phone as a webcam", () => setMode("camera")),
-      choice("file", "📁", "Choose a file", "A photo already on this computer", () => { close(); bypass = input; input.click(); bypass = null; }),
+      choice("file", "📁", "Choose a file", "A photo already on this computer", pickFile),
+    ] : [
+      choice("take", "📷", "Take a photo", "With this device's camera", () => { close(); takeWithCamera(input); }),
+      choice("file", "🖼️", "Choose from my photos", "A photo already on this device", pickFile),
     ]);
     const box = el("div", { class: "pc-box", role: "dialog", "aria-modal": "true", "aria-label": "Add a photo" }, [
       el("div", { class: "pc-head" }, [el("h2", {}, [multiple ? "Add photos" : "Add a photo"]), el("button", { type: "button", class: "pc-x", "aria-label": "Close", onclick: () => close() }, ["×"])]),
@@ -166,6 +174,14 @@
       stopMode = m === "phone" ? phonePane(pane, add) : cameraPane(pane, add);
     }
     open = { close };
+  }
+
+  // ---- Take a photo (a phone or tablet) ------------------------------------
+  function takeWithCamera(input) {
+    const cam = el("input", { type: "file", accept: input.accept || "image/*", capture: "environment", style: "display:none" });
+    cam.addEventListener("change", () => { const files = [...cam.files]; cam.remove(); deliver(input, files); });
+    document.body.appendChild(cam);
+    bypass = cam; cam.click(); bypass = null;
   }
 
   // ---- Use my phone ---------------------------------------------------------
@@ -253,14 +269,41 @@
     return () => { stopped = true; if (stream) stream.getTracks().forEach((t) => t.stop()); };
   }
 
-  // A photo picker clicked on a laptop opens the chooser instead of the file dialog.
+  // A photo picker clicked opens the chooser instead of the file dialog.
   document.addEventListener("click", (e) => {
     const t = e.target;
-    if (!isPhotoInput(t) || t === bypass || !isDesktop()) return;
+    if (!isPhotoInput(t) || t === bypass || t.hasAttribute("capture")) return;
     e.preventDefault();
     e.stopPropagation();
     openChooser(t);
   }, true);
+
+  // A visible photo picker shows the browser's own "Choose Files / No file
+  // chosen" box, which can't be relabelled: it's swapped for an "Add photos"
+  // button (the chooser's own title) that clicks it. Pickers the page already
+  // hides behind its own button or label are left as they are.
+  const BUTTON_CSS = `.pc-input-btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-weight: 600; padding: 7px 14px;
+  border-radius: 8px; border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer; }
+.pc-input-btn:hover { background: rgba(127, 127, 127, .15); }
+.pc-input-btn:disabled { opacity: .5; cursor: default; }`;
+  function addButtons(root) {
+    const inputs = root.querySelectorAll ? root.querySelectorAll('input[type="file"]') : [];
+    for (const input of inputs) {
+      if (input.dataset.pcButton || !/image/.test(input.accept || "") || input.hasAttribute("capture")) continue;
+      if (input.getBoundingClientRect().width < 20) continue; // hidden, or behind the page's own control
+      input.dataset.pcButton = "1";
+      if (!document.getElementById("pc-btn-style")) document.head.appendChild(el("style", { id: "pc-btn-style" }, [BUTTON_CSS]));
+      const button = el("button", { type: "button", class: "pc-input-btn", disabled: input.disabled, onclick: () => input.click() },
+        ["📷 " + (input.multiple ? "Add photos" : "Add a photo")]);
+      input.style.display = "none";
+      input.before(button);
+    }
+  }
+  let pending = false;
+  const scan = () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; addButtons(document); }); };
+  // New pickers, and ones shown by unfolding a section (a class, hidden or open changing).
+  new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "hidden", "open"] });
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", scan); else scan();
 
   window.PhotoCapture = { open: openChooser, isDesktop };
 })();
