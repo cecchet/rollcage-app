@@ -1415,7 +1415,7 @@
   // original's (removing a photo from one would otherwise break the other).
   function cloneStoredPicture(oldId) {
     const newId = picUid();
-    if (pictureImageCache[oldId]) pictureImageCache[newId] = pictureImageCache[oldId];
+    if (pictureImageCache[oldId] && pictureImageCache[oldId].photo) pictureImageCache[newId] = pictureImageCache[oldId];
     getPictureRecord(oldId).then((record) => { if (record) putPictureRecord(newId, record); });
     return newId;
   }
@@ -2565,17 +2565,25 @@
       Promise.all(vehicleSlots.map((slot) => fetchImage(t.vehiclePhotos[slot]).then((photo) => ({ slot, photo })))),
     ]).then(([pictures, vehicle]) => {
       if (state.sessionId !== sessionId) return;
-      pictures.filter((x) => x.photo).forEach(({ p, photo, screenshot }) => {
-        const id = picUid();
-        state.pictures.push({ id, elements: clone(p.elements), aiSuggestions: clone(p.aiSuggestions), hasScreenshot: !!screenshot, category: p.category });
-        putPictureRecord(id, { photo, screenshot: screenshot || null });
+      // Each on the rollcage once it's stored (a photo the browser couldn't store is left out).
+      const stored = (id, record) => putPictureRecord(id, record).then(() => { pictureImageCache[id] = record; return true; }, () => false);
+      return Promise.all([
+        Promise.all(pictures.filter((x) => x.photo).map(({ p, photo, screenshot }) => {
+          const id = picUid();
+          return stored(id, { photo, screenshot: screenshot || null }).then((ok) => (ok ? { id, elements: clone(p.elements), aiSuggestions: clone(p.aiSuggestions), hasScreenshot: !!screenshot, category: p.category } : null));
+        })),
+        Promise.all(vehicle.filter((x) => x.photo).map(({ slot, photo }) => {
+          const id = picUid();
+          return stored(id, { photo, screenshot: null }).then((ok) => (ok ? { slot, id } : null));
+        })),
+      ]).then(([pics, slots]) => {
+        if (state.sessionId !== sessionId) return;
+        pics.filter(Boolean).forEach((x) => state.pictures.push(x));
+        slots.filter(Boolean).forEach(({ slot, id }) => { state.vehiclePhotos = Object.assign({}, state.vehiclePhotos, { [slot]: { id } }); });
+        const lost = pics.filter((x) => !x).length + slots.filter((x) => !x).length;
+        if (lost) alert(lost + " of the template's photos couldn't be stored in this browser (is its storage full?).");
+        render();
       });
-      vehicle.filter((x) => x.photo).forEach(({ slot, photo }) => {
-        const id = picUid();
-        state.vehiclePhotos = Object.assign({}, state.vehiclePhotos, { [slot]: { id } });
-        putPictureRecord(id, { photo, screenshot: null });
-      });
-      render();
     });
   }
   // Templates have no saved snapshot, so each one's is rendered once per
@@ -3026,7 +3034,7 @@
       wrap.appendChild(
         cached.photo
           ? el("img", { class: "vehicle-photo-thumb zoomable", src: cached.photo, alt: label, title: "Click to view full screen", onclick: () => openImageViewer(cached.photo, label) })
-          : el("div", { class: "vehicle-photo-thumb picture-card-loading" }, ["Loading..."])
+          : el("div", { class: "vehicle-photo-thumb picture-card-loading" }, [cached.missing ? "Photo missing" : "Loading..."])
       );
       wrap.appendChild(
         el(
@@ -4300,12 +4308,19 @@
   // the first time its card renders, then re-renders once loaded -- same
   // "kick off async work, render() again on resolve" pattern used throughout
   // this file (e.g. analyzePictureElements above).
+  // A photo's record isn't there (missing: true) -- or couldn't be read: asked again a little later
+  // (a few times), rather than showing "Loading..." for good.
+  const pictureReadTries = {};
   function loadPictureImage(id) {
     if (pictureImageCache[id]) return;
     pictureImageCache[id] = {};
     getPictureRecord(id)
-      .then((rec) => { pictureImageCache[id] = rec || {}; render(); })
-      .catch(() => render());
+      .then((rec) => { pictureImageCache[id] = rec || { missing: true }; render(); })
+      .catch(() => {
+        pictureReadTries[id] = (pictureReadTries[id] || 0) + 1;
+        if (pictureReadTries[id] < 4) setTimeout(() => { delete pictureImageCache[id]; render(); }, 1500 * pictureReadTries[id]);
+        else { pictureImageCache[id] = { missing: true }; render(); }
+      });
   }
 
   const PICTURE_LIMIT = 20;
@@ -4831,7 +4846,8 @@
             title: expanded ? "Click to view full screen" : "Click for its tags and actions",
             onclick: () => (expanded ? openPictureGallery(pic.id) : toggle()),
           })
-        : el("div", { class: "picture-card-photo picture-card-loading" }, ["Loading..."]),
+        : el("div", { class: "picture-card-photo picture-card-loading", title: cached.missing ? "This photo isn't stored on this device (it couldn't be saved, or was removed): delete it, or add it again" : "",
+            onclick: cached.missing && !expanded ? toggle : null }, [cached.missing ? "Photo missing" : "Loading..."]),
       count,
     ]));
     if (!expanded) return card;
@@ -5318,7 +5334,7 @@
           type: "button", class: "coverage-picture" + (on ? " selected" : ""), "aria-pressed": on ? "true" : "false",
           onclick: () => toggle(pic),
         }, [
-          cached.photo ? el("img", { src: cached.photo, alt: "" }) : el("div", { class: "coverage-picture-loading" }, ["Loading..."]),
+          cached.photo ? el("img", { src: cached.photo, alt: "" }) : el("div", { class: "coverage-picture-loading" }, [cached.missing ? "Photo missing" : "Loading..."]),
           el("span", { class: "coverage-picture-label" }, [(on ? "✓ " : "") + pictureCategoryDef(pic.category).label]),
         ]),
         cached.photo ? el("button", {
