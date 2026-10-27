@@ -36,6 +36,10 @@
     startHidden: false,
     // Hide a logbook's events until it's issued (vehicle.server set).
     eventsOnlyWhenIssued: false,
+    // The header's "User manual": an app built on this one with a manual of
+    // its own gives its address; null keeps the rollcage manual, which an app
+    // with logbook features doesn't show.
+    manualUrl: null,
   }, window.APP_CONFIG || {});
   const NOUN = CFG.noun;
   const NOUN_CAP = NOUN.charAt(0).toUpperCase() + NOUN.slice(1);
@@ -10224,8 +10228,10 @@
     }
     const tourLink = document.getElementById("appTourLink");
     if (tourLink) tourLink.addEventListener("click", (e) => { e.preventDefault(); startTour("app"); });
-    // The user manual covers the rollcage app only (the logbook app gets its own).
-    if (CFG.logbook) { const manual = document.getElementById("userManualLink"); if (manual) manual.remove(); }
+    // The user manual covers the rollcage app only: an app with logbook features shows its own (CFG.manualUrl), or none.
+    const manual = document.getElementById("userManualLink");
+    if (manual && CFG.manualUrl) manual.setAttribute("href", CFG.manualUrl);
+    else if (manual && CFG.logbook) manual.remove();
     // First visit: show the app tour once (remembered per browser).
     let tourSeen = true;
     try { tourSeen = localStorage.getItem(APP_TOUR_SEEN_KEY) === "1"; localStorage.setItem(APP_TOUR_SEEN_KEY, "1"); } catch (e) { /* storage blocked -- skip */ }
