@@ -1108,3 +1108,7 @@ img.zoomable, #cageViewerPictureModeThumb { cursor: zoom-in; }
 .video-frame-viewer-actions { justify-content: center; }
 .picture-pairing-note { margin: 4px 0; padding: 6px 8px; border-radius: 6px; font-size: 0.78rem; background: var(--warn-bg); color: var(--warn); }
 .library-notice { margin: 6px 0; padding: 8px 10px; border-radius: 6px; background: var(--pass-bg); color: var(--pass); font-size: 0.85rem; }
+
+/* The 3D print dialog: its scale and occupants choices, each on its own line. */
+.print-scale, .print-occupants { display: block; margin: 8px 0; }
+.print-occupants input { margin-right: 6px; }

@@ -1839,7 +1839,36 @@
     renderer.render(scene, camera);
     return out.toDataURL("image/jpeg", 0.85);
   }
-  window.CageView = { setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot };
+  // The cage to 3D-print (print_3mf.js): every part showing in its own color -- not the ghost
+  // bars, not the occupants -- as it's placed right now (leans, angles, junction offsets), in
+  // world coordinates converted to mm (the model's own unit is the cm), Z up.
+  // [{ name, color: "#rrggbb", positions: Float32Array of triangles }]
+  // occupants: the driver/codriver mannequins, their seats and props instead (those showing).
+  function printParts(occupants) {
+    if (!ready) return [];
+    const out = [];
+    const v = new THREE.Vector3();
+    const hex = (x) => Math.round(Math.max(0, Math.min(1, x)) * 255).toString(16).padStart(2, "0");
+    Object.keys(meshes).forEach((file) => {
+      const m = meshes[file];
+      if (!m.visible || ghostFiles.has(file) || /^(Driver|Codriver)/.test(file) !== !!occupants) return;
+      m.updateMatrixWorld(true);
+      const pos = m.geometry.attributes.position;
+      const col = m.geometry.attributes.color;
+      const idx = m.geometry.index;
+      const count = idx ? idx.count : pos.count;
+      const positions = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        v.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(m.matrixWorld);
+        positions[i * 3] = v.x * 10; positions[i * 3 + 1] = v.y * 10; positions[i * 3 + 2] = v.z * 10;
+      }
+      const color = col ? "#" + hex(col.getX(0)) + hex(col.getY(0)) + hex(col.getZ(0)) : "#888888";
+      out.push({ file, name: file.replace(/\.stl$/i, ""), color, positions });
+    });
+    return out;
+  }
+
+  window.CageView = { setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, printParts };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");

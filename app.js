@@ -2163,6 +2163,7 @@
     renderLibrary(holder);
     renderUnsavedDialog(holder);
     renderSaveAsDialog(holder);
+    renderPrintDialog(holder);
     // Before the media viewer, so a photo opened from it shows on top.
     renderCoveragePictureDialog(holder);
     renderMediaViewer(holder);
@@ -2475,6 +2476,98 @@
     render();
   }
 
+  // ---- 3D print: the cage as a .3mf (print_3mf.js) ------------------------
+  // From the library: a saved rollcage's tubes (cage_view.js printParts, its design shown on the
+  // model for a moment), scaled down -- the dialog says how big it prints, and downloads the file.
+  // state.printDialog: { scale (1:scale), title, parts }.
+  const PRINT_SCALES = [5, 8, 10, 12, 15, 20, 25];
+  const PRINT_PLATE_MM = 256; // a Bambu X1 / P1 / A1 plate (an A1 mini's is 180)
+  function printModelSize(parts) {
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    parts.forEach((p) => { for (let i = 0; i < p.positions.length; i += 3) for (let k = 0; k < 3; k++) { const v = p.positions[i + k]; if (v < min[k]) min[k] = v; if (v > max[k]) max[k] = v; } });
+    return [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+  }
+  // A part's name in the slicer: its model part's ("Main diagonal 1"), with its FIA 253 drawing --
+  // from the name, else from the design picked for the checklist item it belongs to.
+  function printPartName(file) {
+    let name = file.replace(/\.(stl|virtual)$/i, "").replace(/_/g, " ").replace(/\s+/g, " ").replace(/\s*-\s*(253-\d+[a-z]?)$/i, " ($1)").trim();
+    const elmId = CAGE_FILE_OWNER[file];
+    const value = elmId && (getAnswer(elmId) || {}).value;
+    const drawing = typeof value === "string" && (value.match(/^253-\d+[a-z]?/i) || [])[0];
+    if (drawing && name.indexOf(drawing) < 0) name += " (" + drawing + ")";
+    return name;
+  }
+  // current: the rollcage open (unsaved changes included), not a saved one.
+  function openPrintDialog(cage, current) {
+    const named = (list) => list.map((p) => Object.assign(p, { name: printPartName(p.file) }));
+    // The tubes and, to add if asked, the occupants -- both taken now. (Named while its own answers
+    // are in place: the drawing numbers are its choices.)
+    const [parts, occupantParts] = window.CageView && window.CageView.printParts
+      ? withCageOnModel(cage, () => [named(window.CageView.printParts()), named(window.CageView.printParts(true))], true)
+      : [[], []];
+    state.printDialog = { scale: 10, title: ((cage.vehicle && cage.vehicle.name) || "").trim() || "Rollcage", parts, occupantParts, occupants: false, current: !!current };
+    render();
+  }
+  const printedParts = (dlg) => (dlg.occupants ? dlg.parts.concat(dlg.occupantParts) : dlg.parts);
+  async function downloadPrintModel(scale) {
+    const { title } = state.printDialog;
+    const parts = printedParts(state.printDialog);
+    if (!parts.length || !window.Print3MF) return;
+    state.printDialog.busy = true;
+    render();
+    try {
+      const blob = await window.Print3MF.build(parts, { title, scale: 1 / scale, application: CFG.appName });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = title.replace(/[\/:*?"<>|]+/g, "-") + " 1-" + scale + ".3mf";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      state.printDialog = null;
+    } catch (e) {
+      state.printDialog.busy = false;
+      state.printDialog.error = "Couldn't make the file: " + ((e && e.message) || e);
+    }
+    render();
+  }
+  function renderPrintDialog(holder) {
+    const dlg = state.printDialog;
+    if (!dlg) return;
+    const cancel = () => { state.printDialog = null; render(); };
+    const parts = printedParts(dlg);
+    const size = parts.length ? printModelSize(parts).map((d) => d / dlg.scale) : null;
+    const tooBig = size && Math.max(size[0], size[1]) > PRINT_PLATE_MM;
+    const dialog = el("div", { class: "load-dialog confirm-dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "printDialogTitle" }, [
+      el("h2", { id: "printDialogTitle" }, ["3D print " + dlg.title]),
+    ].concat(dlg.parts.length
+        ? [
+            el("p", {}, ["A .3mf file for Bambu Studio (or PrusaSlicer, OrcaSlicer, Cura): its " + parts.length + " parts " + (dlg.current ? "as it is now" : "as last saved") + ", as one object -- each part its own, named, in its color. Ghost bars aren't included."]),
+            dlg.occupantParts.length
+              ? el("label", { class: "print-occupants" }, [
+                  el("input", { type: "checkbox", checked: dlg.occupants, onchange: (e) => { dlg.occupants = e.target.checked; render(); } }),
+                  " Include the occupants -- the driver" + (dlg.occupantParts.some((p) => /^Codriver/.test(p.file)) ? " and codriver" : "") + ", with their seats" +
+                    (dlg.occupants ? " (they print inside the cage: they need supports, and can't be taken out after)" : ""),
+                ])
+              : null,
+            el("label", { class: "print-scale" }, ["Scale ",
+              el("select", { onchange: (e) => { dlg.scale = Number(e.target.value); render(); } },
+                PRINT_SCALES.map((s) => el("option", { value: String(s), selected: s === dlg.scale }, ["1:" + s])))]),
+            el("p", {}, ["About " + size.map((d) => Math.round(d)).join(" × ") + " mm (length × width × height); a 45 mm tube prints " + (45 / dlg.scale).toFixed(1) + " mm thick."]),
+            tooBig ? el("p", { class: "save-as-error" }, ["Bigger than a " + PRINT_PLATE_MM + " mm plate: pick a smaller scale (or split it in the slicer)."]) : null,
+            el("p", { class: "ai-status" }, ["The feet stand on the plate; the roof and door bars need supports."]),
+          ]
+        : [el("p", {}, ["This " + NOUN + " has no part in its design yet: answer its design questions first."])], [
+      dlg.error ? el("div", { class: "save-as-error" }, [dlg.error]) : null,
+      el("div", { class: "toolbar confirm-dialog-actions" }, [
+        dlg.parts.length ? el("button", { class: "btn small", disabled: !!dlg.busy, onclick: () => downloadPrintModel(dlg.scale) }, [dlg.busy ? "Making the file…" : "Download .3mf"]) : null,
+        el("button", { class: "btn small secondary", onclick: cancel }, ["Cancel"]),
+      ]),
+    ]));
+    const overlay = el("div", { class: "modal-overlay" }, [dialog]);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) cancel(); });
+    holder.appendChild(overlay);
+  }
+
   function renderSaveAsDialog(holder) {
     const dlg = state.saveAsDialog;
     if (!dlg) return;
@@ -2591,32 +2684,39 @@
   // the live 3D model and taking the same snapshot Save does -- then
   // restoring the open rollcage's own state and model. Cached in memory.
   const templateThumbCache = {};
-  function ensureTemplateThumbs() {
-    if (!state.libraryOpen || !window.CageView || !window.CageView.snapshot) return;
-    const missing = (window.ROLLCAGE_TEMPLATES || []).filter((t) => !templateThumbCache[t.templateId]);
-    if (!missing.length) return;
-    const saved = { vehicle: state.vehicle, pathId: state.pathId, answers: state.answers, pictureSelectMode: state.pictureSelectMode, activeTab: state.activeTab };
-    let made = false;
+  // Shows another rollcage's design on the 3D model ({ vehicle, pathId, answers }), runs fn, then
+  // puts the open one back -- for the library's snapshots and its 3D print.
+  // occupants: with the driver (and codriver, if it has one) showing, whatever the Occupants toggle says.
+  function withCageOnModel(cage, fn, occupants) {
+    const saved = { vehicle: state.vehicle, pathId: state.pathId, answers: state.answers, pictureSelectMode: state.pictureSelectMode, activeTab: state.activeTab, showDriver: state.showDriver };
     try {
-      missing.forEach((t) => {
-        state.vehicle = t.vehicle;
-        state.pathId = t.pathId || "new_construction";
-        state.answers = t.answers;
-        state.pictureSelectMode = null;
-        state.activeTab = 1;
-        window.CageView.applyState(computeCageColors(), false);
-        window.CageView.setMeshTransforms(computeCageTransforms());
-        if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value), mainHoopTwistDeg());
-        if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
-        if (window.CageView.setFrontRollbarAngle) window.CageView.setFrontRollbarAngle(parseFloat((getAnswer("front_rollbar_angle").value || {}).angle));
-        if (window.CageView.setJunctionOffsets) window.CageView.setJunctionOffsets(junctionOffsets());
-        const shot = window.CageView.snapshot(360);
-        if (shot) { templateThumbCache[t.templateId] = shot; made = true; }
-      });
+      if (occupants) state.showDriver = true;
+      state.vehicle = cage.vehicle;
+      state.pathId = cage.pathId || "new_construction";
+      state.answers = cage.answers || {};
+      state.pictureSelectMode = null;
+      state.activeTab = 1;
+      window.CageView.applyState(computeCageColors(), false);
+      window.CageView.setMeshTransforms(computeCageTransforms());
+      if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value), mainHoopTwistDeg());
+      if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
+      if (window.CageView.setFrontRollbarAngle) window.CageView.setFrontRollbarAngle(parseFloat((getAnswer("front_rollbar_angle").value || {}).angle));
+      if (window.CageView.setJunctionOffsets) window.CageView.setJunctionOffsets(junctionOffsets());
+      return fn();
     } finally {
       Object.assign(state, saved);
       syncCageView();
     }
+  }
+  function ensureTemplateThumbs() {
+    if (!state.libraryOpen || !window.CageView || !window.CageView.snapshot) return;
+    const missing = (window.ROLLCAGE_TEMPLATES || []).filter((t) => !templateThumbCache[t.templateId]);
+    if (!missing.length) return;
+    let made = false;
+    missing.forEach((t) => {
+      const shot = withCageOnModel(t, () => window.CageView.snapshot(360));
+      if (shot) { templateThumbCache[t.templateId] = shot; made = true; }
+    });
     if (made) render();
   }
 
@@ -2750,6 +2850,7 @@
           el("button", { class: "btn small", onclick: openSelected(() => loadSession(s.sessionId)) }, ["Load"]),
           el("button", { class: "btn small secondary", disabled: state.pdfReportStatus === "generating", onclick: () => pdfReportForSaved(s.sessionId) }, [state.pdfReportStatus === "generating" ? "Generating…" : "PDF report"]),
           el("button", { class: "btn small secondary", onclick: () => exportSavedSessionToFile(s.sessionId) }, ["Export to file"]),
+          el("button", { class: "btn small secondary", title: "Download it as a 3D-printable model (.3mf, for Bambu Studio, PrusaSlicer, OrcaSlicer...)", onclick: () => openPrintDialog(s) }, ["3D print"]),
           el("button", { class: "btn small secondary", onclick: () => deleteSavedRollcage(s.sessionId) }, ["Delete"]),
         ],
       }));
@@ -2893,6 +2994,8 @@
         el("button", { class: "btn small secondary", disabled: state.pdfReportStatus === "generating" || !state.pathId, onclick: generatePdfReport },
           [state.pdfReportStatus === "generating" ? "Generating report…" : "PDF report"]),
         el("button", { class: "btn small secondary", title: "Includes any unsaved changes", onclick: exportCurrentSessionToFile }, ["Export to file"]),
+        el("button", { class: "btn small secondary", title: "Download it as a 3D-printable model (.3mf, for Bambu Studio, PrusaSlicer, OrcaSlicer...) -- with any unsaved changes",
+          onclick: () => openPrintDialog({ vehicle: state.vehicle, pathId: state.pathId, answers: state.answers }, true) }, ["3D print"]),
       ]),
     ]);
   }
