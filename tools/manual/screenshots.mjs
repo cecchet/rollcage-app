@@ -79,6 +79,10 @@ export default async function (a) {
   await a.eval(`[...document.querySelectorAll('.library-section-saved .load-dialog-card')][0].click(); ${wait(1500)}`);
   await a.eval(mark(`document.querySelector('.library-section-saved')`, "shot-saved"));
   await a.shot("42-library-saved", "#shot-saved", 8);
+  // Its 3D print dialog.
+  await a.eval(`${click("/^3D print$/", "document.querySelector('.library-section-saved')")} ${wait(2500)}`);
+  await a.shot("45-print", ".confirm-dialog", 10);
+  await a.eval(`${click("/^Cancel$/", "document.querySelector('.confirm-dialog')")} ${wait(500)}`);
   // Save as.
   await a.eval(`${click("/^Save as/", "document.querySelector('#library-current')")} ${wait(600)}`);
   await a.shot("43-save-as", ".confirm-dialog", 10);
