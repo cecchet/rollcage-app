@@ -7839,8 +7839,8 @@
   // Driver/codriver mannequin meshes -- shared with applyPart3View() below,
   // which needs to tell them apart from cage-structure bars so it can keep
   // showing them for context while still hiding untracked structure.
-  const DRIVER_FILES = ["Driver seat.stl", "Driver.stl", "Driver wheel.stl"];
-  const CODRIVER_FILES = ["Codriver seat.stl", "Codriver.stl", "Codriver book.stl"];
+  const DRIVER_FILES = ["Driver.stl", "Driver wheel.stl"];
+  const CODRIVER_FILES = ["Codriver.stl", "Codriver book.stl"];
 
   // Maps each STL file to the row id it represents in the "Tube
   // classification" table (tubing_bar_classification), for the Part 2
@@ -8736,18 +8736,16 @@
     // resolved independently of everything below. The driver is always
     // shown (unless the "Hide driver" toggle is off); the codriver only
     // shows when actually running with one -- see vehicle_codriver in
-    // Vehicle description. Seat shell and body render dim/ghosted (context,
+    // Vehicle description. The body (seated in its own seat) renders dim/ghosted (context,
     // not a compliance item); the held prop (steering wheel / book) gets a
     // bright highlight since it's the thing that has to swap sides for a
     // right-hand-drive car.
     if (!state.showDriver) {
       DRIVER_FILES.concat(CODRIVER_FILES).forEach((f) => { colors[f] = "hidden"; });
     } else {
-      colors["Driver seat.stl"] = CAGE_COLOR.occupantGhost;
       colors["Driver.stl"] = CAGE_COLOR.occupantGhost;
       colors["Driver wheel.stl"] = CAGE_COLOR.occupantProp;
       const hasCodriver = getAnswer("vehicle_codriver").value === "yes";
-      colors["Codriver seat.stl"] = hasCodriver ? CAGE_COLOR.occupantGhost : "hidden";
       colors["Codriver.stl"] = hasCodriver ? CAGE_COLOR.occupantGhost : "hidden";
       colors["Codriver book.stl"] = hasCodriver ? CAGE_COLOR.occupantProp : "hidden";
     }

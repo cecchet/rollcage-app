@@ -132,7 +132,8 @@
     "B-pillar gusset left.stl", "B-pillar gusset right.stl",
     // Occupant mannequins (2026-09-16) -- Driver (holding the steering
     // wheel) and Codriver (holding a book). Each is split into 3 separately
-    // colorable meshes (seat shell+cushions, mannequin body, held prop)
+    // colorable meshes (seat shell+cushions, mannequin body, held prop --
+    // the seats since dropped, see below)
     // rather than one merged mesh, so the seat/body can render dim/ghosted
     // while the steering wheel / book stays highlighted. Extracted
     // differently from everything else here: Driver/Codriver are their own
@@ -148,15 +149,14 @@
     // re-extracted (2026-09-16, second update) from "rollcage full
     // options.3mf"'s 2nd plate -- frog mannequins holding a floating
     // steering wheel / book, replacing the original human figures. That
-    // plate has no seat mesh of its own (frogs sit directly in the
-    // existing seat shells), so "Driver seat.stl"/"Codriver seat.stl" are
-    // untouched. Extracted with a freshly recalibrated MASTER_OFFSET (a
+    // frogs come with their own seats, so the old human figures' seats
+    // ("Driver seat.stl"/"Codriver seat.stl") are gone. Extracted with a freshly recalibrated MASTER_OFFSET (a
     // new 3mf save) and a residual against the 2nd plate's own Rollcage
     // COPY (build item id 67, a pure-translation duplicate of id 50 used
     // to lay out the 2 plates side by side) rather than id 50 itself, so
     // the frogs land in the same world frame as everything else.
-    "Driver seat.stl", "Driver.stl", "Driver wheel.stl",
-    "Codriver seat.stl", "Codriver.stl", "Codriver book.stl",
+    "Driver.stl", "Driver wheel.stl",
+    "Codriver.stl", "Codriver book.stl",
   ];
   // Re-extracted from an updated "all options rollcage.3mf" (2026-09-15) --
   // the 253-15 2-piece tube ("253-15 left/right upper/lower.stl") and its 8
@@ -1087,7 +1087,7 @@
   // extracted Y-centers, not the car's overall centerline, so the swap is
   // exact even if the two seats aren't perfectly symmetric about the car.
   const DRIVER_MIRROR_CENTER_Y = 156.25;
-  const DRIVER_MIRROR_FILES = ["Driver seat.stl", "Driver.stl", "Driver wheel.stl", "Codriver seat.stl", "Codriver.stl", "Codriver book.stl"];
+  const DRIVER_MIRROR_FILES = ["Driver.stl", "Driver wheel.stl", "Codriver.stl", "Codriver book.stl"];
   // The frog mannequins' legs are posed slightly asymmetrically in the
   // source model (independent of our mirroring -- each body's own raw mesh
   // reaches a bit further on one lateral side than the other): the
