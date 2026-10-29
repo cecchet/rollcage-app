@@ -1109,7 +1109,10 @@
       }
       const compareSpec = row && row.compare !== undefined ? row.compare : col.compare;
       if (col.type === "length" && compareSpec) {
-        const mm = toMM({ val: v.value, unit: v.unit || "mm" });
+        let mm = toMM({ val: v.value, unit: v.unit || "mm" });
+        // A junction distance can be entered negative (off the junction the
+        // other way, e.g. a 253-15 top behind the transverse member): judged by how far.
+        if (mm !== null && col.key === "distance") mm = Math.abs(mm);
         const ok = mm === null ? null : resolveCompare(mm, compareSpec, elm, col);
         return ok === null ? "warn" : ok ? "pass" : "fail";
       }
@@ -8227,7 +8230,9 @@
     if (!v || v.value === "" || v.value === undefined || v.value === null) return null;
     const mm = toMM({ val: v.value, unit: v.unit || "mm" });
     if (mm === null) return null;
-    return mm <= 100 ? CAGE_COLOR.statusPass : CAGE_COLOR.statusFail;
+    // (Negative: off its junction the other way -- e.g. a 253-15 top behind
+    // the transverse member -- judged by how far.)
+    return Math.abs(mm) <= 100 ? CAGE_COLOR.statusPass : CAGE_COLOR.statusFail;
   }
   // Whether the chosen main rollbar diagonal design has this end (a
   // main_diagonal_distances row id) -- see rules-data.js's MAIN_DIAG_END_IDS.
@@ -8259,15 +8264,20 @@
   // along its front pillar.
   function junctionOffsets() {
     const over = (elementId, rowId) => distanceValueColor(getAnswer(elementId + "__" + rowId + "__distance").value) === CAGE_COLOR.statusFail;
+    // The distance entered (mm, signed): cage_view.js moves the end that far.
+    const dist = (elementId, rowId) => {
+      const v = getAnswer(elementId + "__" + rowId + "__distance").value;
+      return v ? toMM({ val: v.value, unit: v.unit || "mm" }) : null;
+    };
     const out = [];
     ["left", "right"].forEach((side) => {
-      if (over("backstay_distance_upper_laterals", side)) out.push({ file: side === "left" ? "Left backstay.stl" : "Right backstay.stl", end: "top", move: "inward" });
+      if (over("backstay_distance_upper_laterals", side)) out.push({ file: side === "left" ? "Left backstay.stl" : "Right backstay.stl", end: "top", move: "inward", mm: dist("backstay_distance_upper_laterals", side) });
     });
     // MAIN_DIAG_TOP_RIGHT_FILE runs from the right backstay junction to the
     // left foot, MAIN_DIAG_TOP_LEFT_FILE from the left one to the right foot.
     [["foot_left", MAIN_DIAG_TOP_RIGHT_FILE, "bottom"], ["backstay_right", MAIN_DIAG_TOP_RIGHT_FILE, "top"],
       ["backstay_left", MAIN_DIAG_TOP_LEFT_FILE, "top"], ["foot_right", MAIN_DIAG_TOP_LEFT_FILE, "bottom"]].forEach(([rowId, file, end]) => {
-      if (mainDiagHasEnd(rowId) && over("main_diagonal_distances", rowId)) out.push({ file, end, move: "alongHoop" });
+      if (mainDiagHasEnd(rowId) && over("main_diagonal_distances", rowId)) out.push({ file, end, move: "alongHoop", mm: dist("main_diagonal_distances", rowId) });
     });
     // 253-20/21 the same way: "Rear diagonal 1.stl" runs from the left
     // backstay's top to the right one's foot, "Rear diagonal 2.stl" from
@@ -8276,7 +8286,7 @@
     const isX = backstayDiagVal === "253-21-1" || backstayDiagVal === "253-21-2";
     [["top_rear_diag_left", "Rear diagonal 1.stl", "top", "253-20"], ["bottom_rear_diag_right", "Rear diagonal 1.stl", "bottom", "253-20"],
       ["bottom_rear_diag_left", "Rear diagonal 2.stl", "bottom", "253-20-right"], ["top_rear_diag_right", "Rear diagonal 2.stl", "top", "253-20-right"]].forEach(([rowId, file, end, single]) => {
-      if ((isX || backstayDiagVal === single) && over("rear_diag_4_1_distances", rowId)) out.push({ file, end, move: "alongBackstay" });
+      if ((isX || backstayDiagVal === single) && over("rear_diag_4_1_distances", rowId)) out.push({ file, end, move: "alongBackstay", mm: dist("rear_diag_4_1_distances", rowId) });
     });
     // Roof bars (253-12 or a single diagonal): "Roof bar 1.stl" runs from
     // the front-left corner to the rear-right one, "Roof bar 2.stl" from
@@ -8285,15 +8295,18 @@
     const roofEnds = roofBarEnds();
     [["front_roof_left", "Roof bar 1.stl", "front"], ["rear_roof_right", "Roof bar 1.stl", "rear"],
       ["rear_roof_left", "Roof bar 2.stl", "rear"], ["front_roof_right", "Roof bar 2.stl", "front"]].forEach(([rowId, file, end]) => {
-      if (roofEnds.includes(rowId) && over("roof_4_1_distances", rowId)) out.push({ file, end, move: "inward", frac: 1 / 6 });
+      if (roofEnds.includes(rowId) && over("roof_4_1_distances", rowId)) out.push({ file, end, move: "inward", frac: 1 / 6, mm: dist("roof_4_1_distances", rowId) });
     });
     // 253-15 (either the one-piece bar or its 2 half bars -- only the
-    // chosen one is drawn): a top end off the transverse member slides
-    // down the pillar, a bottom end off the foot slides up the leg.
+    // chosen one is drawn): a top end off the transverse member slides by
+    // the distance entered -- down the pillar, or (entered negative) back
+    // along the roof, behind the transverse member; a bottom end off the
+    // foot slides up the leg.
     ["left", "right"].forEach((side) => {
       const cap = side === "left" ? "Left" : "Right";
-      if (over(WINDSHIELD_DIST_ID, "top_" + side)) ["253-15 " + cap + ".stl", "253-15 " + side + " upper.stl"].forEach((file) => out.push({ file, end: "top", move: "alongPillar", side }));
-      if (over(WINDSHIELD_DIST_ID, "bottom_" + side)) ["253-15 " + cap + ".stl", "253-15 " + side + " lower.stl"].forEach((file) => out.push({ file, end: "bottom", move: "alongPillar", side }));
+      const topMM = dist(WINDSHIELD_DIST_ID, "top_" + side), bottomMM = dist(WINDSHIELD_DIST_ID, "bottom_" + side);
+      if (over(WINDSHIELD_DIST_ID, "top_" + side)) ["253-15 " + cap + ".stl", "253-15 " + side + " upper.stl"].forEach((file) => out.push({ file, end: "top", move: "alongPillar", side, mm: topMM }));
+      if (over(WINDSHIELD_DIST_ID, "bottom_" + side)) ["253-15 " + cap + ".stl", "253-15 " + side + " lower.stl"].forEach((file) => out.push({ file, end: "bottom", move: "alongPillar", side, mm: bottomMM }));
     });
     // 253-14 (front corners back to a peak on the main hoop's top) and
     // 253-22 (backstays up to that same peak area).
@@ -8303,15 +8316,17 @@
       const diag22 = (side) => "Rear diagonal 253-22 " + side + ".stl";
       ["left", "right"].forEach((side) => {
         // Front end off the transverse member: inward along it.
-        if (over(ROOF_4_2_DIST_ID, "front_roof_" + side)) out.push({ file: roof14(side), end: "front", move: "inward", frac: 1 / 6 });
+        if (over(ROOF_4_2_DIST_ID, "front_roof_" + side)) out.push({ file: roof14(side), end: "front", move: "inward", frac: 1 / 6, mm: dist(ROOF_4_2_DIST_ID, "front_roof_" + side) });
         // V junction (253-14's rear end vs 253-22's top end) too far
         // apart: the 253-22 end slides outward along the hoop's top.
-        if (has22 && over(ROOF_4_2_DIST_ID, "top_rear_" + side)) out.push({ file: diag22(side), end: "top", move: "toward", toward: side, frac: 1 / 6 });
+        if (has22 && over(ROOF_4_2_DIST_ID, "top_rear_" + side)) out.push({ file: diag22(side), end: "top", move: "toward", toward: side, frac: 1 / 6, mm: dist(ROOF_4_2_DIST_ID, "top_rear_" + side) });
         // 253-22's lower end off the backstay: up along it.
-        if (has22 && over(ROOF_4_2_DIST_ID, "bottom_rear_" + side)) out.push({ file: diag22(side), end: "bottom", move: "alongBackstay" });
-        // Left and right halves too far apart: each moves toward its side.
-        if (over(ROOF_4_2_DIST_ID, "roof_peak")) out.push({ file: roof14(side), end: "rear", move: "toward", toward: side, frac: 1 / 12 });
-        if (has22 && over(ROOF_4_2_DIST_ID, "rear_diag_peak")) out.push({ file: diag22(side), end: "top", move: "toward", toward: side, frac: 1 / 12 });
+        if (has22 && over(ROOF_4_2_DIST_ID, "bottom_rear_" + side)) out.push({ file: diag22(side), end: "bottom", move: "alongBackstay", mm: dist(ROOF_4_2_DIST_ID, "bottom_rear_" + side) });
+        // Left and right halves too far apart: each moves toward its side,
+        // half the distance each.
+        const half = (rowId) => { const mm = dist(ROOF_4_2_DIST_ID, rowId); return mm == null ? null : mm / 2; };
+        if (over(ROOF_4_2_DIST_ID, "roof_peak")) out.push({ file: roof14(side), end: "rear", move: "toward", toward: side, frac: 1 / 12, mm: half("roof_peak") });
+        if (has22 && over(ROOF_4_2_DIST_ID, "rear_diag_peak")) out.push({ file: diag22(side), end: "top", move: "toward", toward: side, frac: 1 / 12, mm: half("rear_diag_peak") });
       });
     }
     return out;
@@ -8531,8 +8546,9 @@
     // member, bottom = front foot) -- windshield_distances has no concept
     // of the 1-piece/2-piece build's own center crossing point (that's a
     // weld-only joint, not a distance-to-another-bar measurement).
-    if (file === "253-15 Left.stl") return { rowIds: ["top_left", "center_top_left", "center_lower_left", "bottom_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID, distRowIds: ["top_left", "bottom_left"] };
-    if (file === "253-15 Right.stl") return { rowIds: ["top_right", "center_top_right", "center_lower_right", "bottom_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID, distRowIds: ["top_right", "bottom_right"] };
+    // (Z dominant, verified: listed bottom to top, as the band split runs.)
+    if (file === "253-15 Left.stl") return { rowIds: ["bottom_left", "center_lower_left", "center_top_left", "top_left"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID, distRowIds: ["bottom_left", "top_left"] };
+    if (file === "253-15 Right.stl") return { rowIds: ["bottom_right", "center_lower_right", "center_top_right", "top_right"], weldElementId: WINDSHIELD_WELD_ID, distElementId: WINDSHIELD_DIST_ID, distRowIds: ["bottom_right", "top_right"] };
     // Verified from real vertex positions (Z dominant, consistent both
     // sides): the upper piece's low-Z end is the crossing/center point
     // (where it meets the lower piece), not the topmost corner.
@@ -10507,6 +10523,18 @@
         state.showGhostBars = !state.showGhostBars;
         syncViewerToggles();
         syncCageView();
+      });
+    }
+    // Snapshot: the 3D view as it is now, downloaded as a PNG named after the rollcage.
+    const snapshotBtn = document.getElementById("cageViewerSnapshot");
+    if (snapshotBtn) {
+      snapshotBtn.addEventListener("click", () => {
+        const url = window.CageView && window.CageView.viewImage && window.CageView.viewImage();
+        if (!url) return;
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = ((state.vehicle.name || "").trim() || NOUN_CAP).replace(/[\/:*?"<>|]+/g, "-") + " 3D view.png";
+        a.click();
       });
     }
     const driverBtn = document.getElementById("cageViewerDriverToggle");

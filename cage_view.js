@@ -1260,8 +1260,13 @@
   //   pillar, a foot end up the leg by an eighth of the main hoop's height
   //   (a 253-15 bar).
   // The shift fades linearly to nothing at the bar's other end, so the bar
-  // stays straight.
+  // stays straight. With the distance entered (o.mm, in mm), the end moves
+  // exactly that far instead of the set amounts above (negative: the same
+  // distance; a 253-15 top then goes back along the roof).
   let junctionOffsets = [];
+  // How far (model units, cm) an offset moves its end: the distance entered,
+  // or `fallback` without one.
+  function offsetDist(o, fallback) { return o.mm != null && isFinite(o.mm) ? Math.abs(o.mm) / 10 : fallback; }
   let leanAnchors = null;
   function computeLeanAnchors() {
     const box = (file) => {
@@ -1378,6 +1383,27 @@
           prev = p;
           return { p, s };
         });
+        // Its roof run (from the transverse member's height up), front to
+        // rear: the mean of its vertices in 2-unit fore/aft slices. s = arc
+        // length from the front.
+        const roofBins = new Map();
+        for (let i = 0; i < pos.length; i += 3) {
+          const z = pos[i + 2] + mesh.position.z;
+          if (z < tz - 2) continue;
+          const key = Math.floor((pos[i] * a.dir) / 2);
+          const b = roofBins.get(key) || { x: 0, y: 0, z: 0, n: 0 };
+          b.x += pos[i]; b.y += pos[i + 1]; b.z += z; b.n++;
+          roofBins.set(key, b);
+        }
+        s = 0; prev = null;
+        a.roofCurves = a.roofCurves || {};
+        a.roofCurves[side] = [...roofBins.keys()].sort((p, q) => q - p).map((key) => {
+          const b = roofBins.get(key);
+          const p = new THREE.Vector3(b.x / b.n, b.y / b.n, b.z / b.n);
+          if (prev) s += p.distanceTo(prev);
+          prev = p;
+          return { p, s };
+        });
       });
     }
     // Which way along Y the car's left side is (from the left backstay).
@@ -1482,7 +1508,7 @@
       const c = a.hoopCurve;
       const phi = (Math.atan2(here.y - a.hoopCy, here.z - a.hoopCz) * 180) / Math.PI;
       const near = c.reduce((best, pt) => (Math.abs(pt.phi - phi) < Math.abs(best.phi - phi) ? pt : best));
-      const d = o.end === "top" ? a.hoopTopWidth / 6 : a.hoopHeight / 8;
+      const d = offsetDist(o, o.end === "top" ? a.hoopTopWidth / 6 : a.hoopHeight / 8);
       // Toward the middle of the top, never past it.
       const target = near.s < a.hoopCenterS ? Math.min(a.hoopCenterS, near.s + d) : Math.max(a.hoopCenterS, near.s - d);
       const at = (s) => {
@@ -1499,19 +1525,30 @@
     if (o.move === "alongPillar" && a.pillarCurves && a.pillarCurves[o.side] && a.pillarCurves[o.side].length > 1) {
       const c = a.pillarCurves[o.side];
       const near = c.reduce((best, pt) => (pt.p.distanceTo(here) < best.p.distanceTo(here) ? pt : best));
-      const d = a.hoopHeight / 8;
-      // A top end drops halfway down the windscreen pillar -- midway between
-      // its junction and the bend where the pillar stops following the
-      // windscreen; a bottom end rises a set distance up the leg.
-      const bend = a.legBendZ != null ? c.reduce((best, pt) => (Math.abs(pt.p.z - a.legBendZ) < Math.abs(best.p.z - a.legBendZ) ? pt : best)) : null;
-      const target = o.end === "top"
-        ? (bend && bend.s < near.s ? (near.s + bend.s) / 2 : Math.max(0, near.s - d))
-        : Math.min(c[c.length - 1].s, near.s + d);
-      let pt = c[c.length - 1].p.clone();
-      for (let i = 1; i < c.length; i++) {
-        if (c[i].s >= target) { pt = c[i - 1].p.clone().lerp(c[i].p, (target - c[i - 1].s) / Math.max(1e-6, c[i].s - c[i - 1].s)); break; }
+      const d = offsetDist(o, a.hoopHeight / 8);
+      const at = (curve, s) => {
+        for (let i = 1; i < curve.length; i++) {
+          if (curve[i].s >= s) return curve[i - 1].p.clone().lerp(curve[i].p, (s - curve[i - 1].s) / Math.max(1e-6, curve[i].s - curve[i - 1].s));
+        }
+        return curve[curve.length - 1].p.clone();
+      };
+      // A top end entered negative (o.mm, in mm) sits behind the transverse
+      // member: that far back along the roof run of the lateral.
+      const roof = a.roofCurves && a.roofCurves[o.side];
+      if (o.end === "top" && o.mm != null && o.mm < 0 && roof && roof.length > 1) {
+        const from = roof.reduce((best, pt) => (pt.p.distanceTo(here) < best.p.distanceTo(here) ? pt : best));
+        return deform(at(roof, Math.min(roof[roof.length - 1].s, from.s - o.mm / 10))).sub(deform(from.p));
       }
-      return deform(pt).sub(deform(near.p));
+      // A top end drops down the windscreen pillar by the distance entered
+      // (o.mm), never past the bend where the pillar stops following the
+      // windscreen (without a distance: halfway there); a bottom end rises a
+      // set distance up the leg.
+      const bend = a.legBendZ != null ? c.reduce((best, pt) => (Math.abs(pt.p.z - a.legBendZ) < Math.abs(best.p.z - a.legBendZ) ? pt : best)) : null;
+      const floor = bend && bend.s < near.s ? bend.s : 0;
+      const target = o.end === "top"
+        ? (o.mm != null ? Math.max(floor, near.s - Math.abs(o.mm) / 10) : bend && bend.s < near.s ? (near.s + bend.s) / 2 : Math.max(0, near.s - d))
+        : Math.min(c[c.length - 1].s, near.s + d);
+      return deform(at(c, target)).sub(deform(near.p));
     }
     if (o.move === "alongBackstay" && a.stayLines && a.stayLines.length) {
       // The backstay on this end's side of the car.
@@ -1521,15 +1558,17 @@
       const top = line.top.clone();
       if (junctionOffsets.some((j) => j.file === line.file && j.move === "inward")) {
         const j = junctionOffsets.find((x) => x.file === line.file && x.move === "inward");
-        top.y += (a.centerY - top.y >= 0 ? 1 : -1) * a.hoopTopWidth * (j.frac || 1 / 3);
+        top.y += (a.centerY - top.y >= 0 ? 1 : -1) * offsetDist(j, a.hoopTopWidth * (j.frac || 1 / 3));
       }
       // Where this end meets the backstay (as a fraction foot -> top), then
-      // the same backstay as drawn, a sixth of its length further from the
-      // junction: the end lands exactly on it, moved backstay or not.
+      // the same backstay as drawn, the distance entered (or a sixth of its
+      // length) further from the junction: the end lands exactly on it,
+      // moved backstay or not.
       const ab = line.top.clone().sub(line.foot);
       const tHere = Math.max(0, Math.min(1, here.clone().sub(line.foot).dot(ab) / ab.lengthSq()));
       const onHost = line.foot.clone().addScaledVector(ab, tHere);
-      const tTarget = Math.max(0, Math.min(1, tHere + (o.end === "top" ? -1 : 1) / 6));
+      const step = offsetDist(o, ab.length() / 6) / Math.max(1e-6, ab.length());
+      const tTarget = Math.max(0, Math.min(1, tHere + (o.end === "top" ? -1 : 1) * step));
       const footD = deform(line.foot), topD = deform(top);
       return footD.lerp(topD, tTarget).sub(deform(onHost));
     }
@@ -1561,7 +1600,7 @@
     // along a backstay (FOLLOWS_BACKSTAY) carry their ends with it.
     const hostMoves = (a.stayLines || []).map((line) => {
       const j = junctionOffsets.find((x) => x.file === line.file && x.move === "inward");
-      return j ? { line, sign: a.centerY - line.top.y >= 0 ? 1 : -1, amt: a.hoopTopWidth * (j.frac || 1 / 3) } : null;
+      return j ? { line, sign: a.centerY - line.top.y >= 0 ? 1 : -1, amt: offsetDist(j, a.hoopTopWidth * (j.frac || 1 / 3)) } : null;
     }).filter(Boolean);
     const hostKey = hostMoves.map((h) => h.line.file + ":" + h.amt.toFixed(2)).join(",");
     const hostShiftAt = (q) => {
@@ -1661,8 +1700,8 @@
           ends.forEach(({ o, lo, span, inwardSign, slide }) => {
             const f = (along(o, v) - lo) / span; // 0 at the low end, 1 at the high one
             const t = Math.max(0, Math.min(1, hiEnd(o) ? f : 1 - f));
-            if (o.move === "inward") v.y += inwardSign * a.hoopTopWidth * (o.frac || 1 / 3) * t;
-            else if (o.move === "toward") v.y += (o.toward === "left" ? a.leftSignY : -a.leftSignY) * a.hoopTopWidth * (o.frac || 1 / 6) * t;
+            if (o.move === "inward") v.y += inwardSign * offsetDist(o, a.hoopTopWidth * (o.frac || 1 / 3)) * t;
+            else if (o.move === "toward") v.y += (o.toward === "left" ? a.leftSignY : -a.leftSignY) * offsetDist(o, a.hoopTopWidth * (o.frac || 1 / 6)) * t;
             else if (slide) v.addScaledVector(slide, t);
           });
           v.x += dAngles;
@@ -1839,6 +1878,32 @@
     renderer.render(scene, camera);
     return out.toDataURL("image/jpeg", 0.85);
   }
+  // The view exactly as it is on screen (camera, parts showing), at twice
+  // the screen's resolution, with the Frog Racing logo in its corner like
+  // the viewer's watermark -- a PNG data URL, or null before the model has
+  // loaded or while it has no size.
+  function viewImage() {
+    if (!ready || !renderer || !renderer.domElement.width || !renderer.domElement.height) return null;
+    const ratio = renderer.getPixelRatio();
+    const k = 2;
+    renderer.setPixelRatio(k);
+    renderer.render(scene, camera);
+    const src = renderer.domElement;
+    const out = document.createElement("canvas");
+    out.width = src.width;
+    out.height = src.height;
+    const ctx = out.getContext("2d");
+    ctx.drawImage(src, 0, 0);
+    const logo = document.querySelector(".cage-viewer-watermark");
+    if (logo && logo.complete && logo.naturalWidth) {
+      ctx.globalAlpha = 0.8;
+      ctx.drawImage(logo, out.width - (8 + 44) * k, 8 * k, 44 * k, 44 * k);
+      ctx.globalAlpha = 1;
+    }
+    renderer.setPixelRatio(ratio);
+    renderer.render(scene, camera);
+    return out.toDataURL("image/png");
+  }
   // The cage to 3D-print (print_3mf.js): every part showing in its own color -- not the ghost
   // bars, not the occupants -- as it's placed right now (leans, angles, junction offsets), in
   // world coordinates converted to mm (the model's own unit is the cm), Z up.
@@ -1868,7 +1933,7 @@
     return out;
   }
 
-  window.CageView = { setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, printParts };
+  window.CageView = { setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
