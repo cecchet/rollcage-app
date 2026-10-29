@@ -745,15 +745,16 @@
     }
 
     // 253-55/56: a second 253-53 step, duplicated from the base plate and
-    // its fold, both shifted by the same (standHeight along normalAxisVec,
-    // standHeight along extAxisVec) offset -- up to sit at the top of the
-    // first fold, and out by the plate's own width. The duplicated base
+    // its fold, both shifted by the same (up along normalAxisVec, out along
+    // extAxisVec) offset -- up so the new tread sits on top of the first
+    // fold, and out so its inner edge lines up with that fold's inner face
+    // (the fold stands on the tread at its outer edge). The duplicated base
     // plate (same geometry/orientation as the real one, just translated)
     // becomes the horizontal tread linking the two folds' vertical risers.
-    function addRockerStep(row, plateGeometry, plateBasePosition, foldGeometry, foldPosition, foldQuat, normalAxisVec, extAxisVec, standHeight) {
+    function addRockerStep(row, plateGeometry, plateBasePosition, foldGeometry, foldPosition, foldQuat, normalAxisVec, extAxisVec, up, out) {
       const stepOffset = new THREE.Vector3()
-        .addScaledVector(normalAxisVec, standHeight)
-        .addScaledVector(extAxisVec, standHeight);
+        .addScaledVector(normalAxisVec, up)
+        .addScaledVector(extAxisVec, out);
       addProceduralPart(
         rockerBaseFile(row), plateGeometry.clone(),
         plateBasePosition.clone().add(stepOffset)
@@ -818,14 +819,14 @@
           const hingeY = isLeft ? bb.min.y : bb.max.y;
           const doublePosition = new THREE.Vector3(
             doubleCenterLen.x,
-            hingeY + (isLeft ? -1 : 1) * thickness / 2,
+            hingeY - (isLeft ? -1 : 1) * thickness / 2,
             doubleCenterLen.z + dz
           );
           addProceduralPart(doublePlaneFile(row), doubleGeometry, doublePosition, t.quat);
           addRockerStep(
             row, plateMesh.geometry, new THREE.Vector3(0, 0, dz),
             doubleGeometry, doublePosition, t.quat,
-            t.normalAxis, new THREE.Vector3(0, isLeft ? -1 : 1, 0), standHeight
+            t.normalAxis, new THREE.Vector3(0, isLeft ? -1 : 1, 0), t.thickness + standHeight, standHeight - thickness
           );
           return;
         }
@@ -837,8 +838,8 @@
         // plate's own flat mounting surface -- a real folded bracket
         // creases where that flat material continues into the new plane,
         // not partway inside its own thickness. The new plate is thin (its
-        // own material gauge, capped at 2 units) sitting just outside that
-        // edge, and stands up to the same height as the original plate's
+        // own material gauge, capped at 2 units) standing on that edge, its
+        // outer face flush with the plate's, as tall as the original plate's
         // own inward extent (size.y) -- so it reads as "that same plate,
         // folded 90 degrees at its outer edge" regardless of how chunky the
         // real base mesh actually is.
@@ -849,14 +850,14 @@
         const doubleGeometry = new THREE.BoxGeometry(size.x, thickness, standHeight);
         const doublePosition = new THREE.Vector3(
           center.x,
-          hingeY + (isLeft ? -1 : 1) * thickness / 2,
+          hingeY - (isLeft ? -1 : 1) * thickness / 2,
           hingeZ + standHeight / 2 + dz
         );
         addProceduralPart(doublePlaneFile(row), doubleGeometry, doublePosition);
         addRockerStep(
           row, plateMesh.geometry, new THREE.Vector3(0, 0, dz),
           doubleGeometry, doublePosition, null,
-          new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, isLeft ? -1 : 1, 0), standHeight
+          new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, isLeft ? -1 : 1, 0), hingeZ - bb.min.z + standHeight, standHeight - thickness
         );
       });
     }
