@@ -2758,7 +2758,7 @@
   const templateThumbCache = {};
   // Bump when the 3D model's look changes (parts, colors, lighting), so the
   // pre-rendered thumbnails count as stale until they're rebuilt.
-  const TEMPLATE_THUMB_REV = 1;
+  const TEMPLATE_THUMB_REV = 2;
   // What a template's thumbnail was drawn from: a hash of its design.
   function templateThumbKey(t) {
     const s = TEMPLATE_THUMB_REV + JSON.stringify([t.vehicle, t.pathId, t.answers]);
