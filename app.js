@@ -2749,11 +2749,28 @@
       });
     });
   }
-  // Templates have no saved snapshot, so each one's is rendered once per
-  // page load by briefly swapping its answers into state, applying them to
-  // the live 3D model and taking the same snapshot Save does -- then
-  // restoring the open rollcage's own state and model. Cached in memory.
+  // Templates have no saved snapshot. Each one's is a pre-rendered image
+  // (template-thumbs.js, made by tools/build-template-thumbs.mjs) while it
+  // still matches the template; otherwise it's rendered once per page load
+  // by briefly swapping its answers into state, applying them to the live 3D
+  // model and taking the same snapshot Save does -- then restoring the open
+  // rollcage's own state and model. Cached in memory.
   const templateThumbCache = {};
+  // Bump when the 3D model's look changes (parts, colors, lighting), so the
+  // pre-rendered thumbnails count as stale until they're rebuilt.
+  const TEMPLATE_THUMB_REV = 1;
+  // What a template's thumbnail was drawn from: a hash of its design.
+  function templateThumbKey(t) {
+    const s = TEMPLATE_THUMB_REV + JSON.stringify([t.vehicle, t.pathId, t.answers]);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return (h >>> 0).toString(16);
+  }
+  function templateThumb(t) {
+    if (templateThumbCache[t.templateId]) return templateThumbCache[t.templateId];
+    const pre = (window.TEMPLATE_MODEL_THUMBS || {})[t.templateId];
+    return pre && pre.key === templateThumbKey(t) ? pre.src : null;
+  }
   // Shows another rollcage's design on the 3D model ({ vehicle, pathId, answers }), runs fn, then
   // puts the open one back -- for the library's snapshots and its 3D print.
   // occupants: with the driver (and codriver, if it has one) showing, whatever the Occupants toggle says.
@@ -2778,16 +2795,20 @@
       syncCageView();
     }
   }
+  // The missing ones are drawn one at a time, each put straight into its
+  // card (no full re-render), so the library stays responsive meanwhile.
+  let templateThumbTimer = null;
   function ensureTemplateThumbs() {
-    if (!state.libraryOpen || !window.CageView || !window.CageView.snapshot) return;
-    const missing = (window.ROLLCAGE_TEMPLATES || []).filter((t) => !templateThumbCache[t.templateId]);
-    if (!missing.length) return;
-    let made = false;
-    missing.forEach((t) => {
-      const shot = withCageOnModel(t, () => window.CageView.snapshot(360));
-      if (shot) { templateThumbCache[t.templateId] = shot; made = true; }
-    });
-    if (made) render();
+    if (templateThumbTimer || !state.libraryOpen || !window.CageView || !window.CageView.snapshot) return;
+    const t = (window.ROLLCAGE_TEMPLATES || []).find((x) => !templateThumb(x));
+    if (!t) return;
+    const shot = withCageOnModel(t, () => window.CageView.snapshot(360));
+    // The model not loaded yet: try again shortly.
+    if (!shot) { templateThumbTimer = setTimeout(() => { templateThumbTimer = null; ensureTemplateThumbs(); }, 300); return; }
+    templateThumbCache[t.templateId] = shot;
+    const ph = document.querySelector('[data-template-thumb="' + t.templateId + '"]');
+    if (ph) ph.replaceWith(el("img", { class: "load-dialog-model", src: shot, alt: "3D model", "data-template-id": t.templateId, "data-thumb-key": templateThumbKey(t) }));
+    templateThumbTimer = setTimeout(() => { templateThumbTimer = null; ensureTemplateThumbs(); }, 30);
   }
 
   // "Rollcage library" window: every saved rollcage as a card (its 3D
@@ -2927,7 +2948,7 @@
     });
 
     // Built-in design templates (templates.js) -- read-only, no photos, so
-    // only a 3D snapshot rendered on the fly (see ensureTemplateThumbs).
+    // only a 3D snapshot (see templateThumb).
     // They're shown in 3 sections by their `group` (see tools/build-templates.js);
     // all of them start the same way.
     const templates = window.ROLLCAGE_TEMPLATES || [];
@@ -2941,14 +2962,14 @@
     const groupOf = (t) => TEMPLATE_GROUPS.find((g) => g.id === t.group) || TEMPLATE_GROUPS[0];
     templates.forEach((t) => {
       const selId = TEMPLATE_SELECTION_PREFIX + t.templateId;
-      const thumb = templateThumbCache[t.templateId];
+      const thumb = templateThumb(t);
       groupLists[groupOf(t).id].appendChild(libraryCard({
         selected: state.librarySelectedId === selId,
         onSelect: () => { state.librarySelectedId = selId; render(); },
         images: [
           thumb
-            ? el("img", { class: "load-dialog-model", src: thumb, alt: "3D model" })
-            : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
+            ? el("img", { class: "load-dialog-model", src: thumb, alt: "3D model", "data-template-id": t.templateId, "data-thumb-key": templateThumbKey(t) })
+            : el("div", { class: "load-dialog-model load-dialog-placeholder", "data-template-thumb": t.templateId }, ["Rendering 3D snapshot..."]),
           // The template's 3/4 front car photo, like a saved card -- or, for
           // a template based on a vendor's kit, a snapshot of its product page.
           // Small card-sized copies, loaded only as the card scrolls into view;

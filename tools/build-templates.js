@@ -5,6 +5,7 @@
 // images/templates/<id>/, used with the vendor's permission) -- they're
 // loaded into the new rollcage's Pictures when starting from it.
 // Run from anywhere:  node app/tools/build-templates.js
+// then rebuild the library thumbnails (see tools/template-thumbs.mjs).
 const fs = require("fs");
 const path = require("path");
 
