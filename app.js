@@ -155,7 +155,8 @@
   function startNew() {
     resetRollcageUi();
     state.sessionId = uid();
-    state.vehicle = { name: "", org: "none", logbookDate: "" };
+    // Checked against the FIA's own Article 253 to start with, where it's offered.
+    state.vehicle = { name: "", org: knownOrg("fia"), logbookDate: "" };
     state.pathId = "new_construction";
     state.answers = {};
     state.pictures = [];
@@ -1615,9 +1616,72 @@
   }
   function setWorkspaceShown(on) {
     document.body.classList.toggle("workspace-hidden", !on);
-    if (on && window.CageView && window.CageView.setVisible) window.CageView.setVisible(state.showModel !== false);
+    if (on && window.CageView && window.CageView.setVisible) window.CageView.setVisible(isWideLayout() || state.showModel !== false);
     // The 3D view was laid out hidden (0 x 0): fit it once it has a size.
     if (on && window.CageView && window.CageView.resize) requestAnimationFrame(() => window.CageView.resize());
+    syncWideLayout();
+  }
+  // A wide screen: the 3D model moves to a right column of its own, with
+  // Part 7 or 8 below it (renderSidePart) -- not while the editor is hidden.
+  const WIDE_LAYOUT_QUERY = window.matchMedia ? window.matchMedia("(min-width: 1400px)") : null;
+  function isWideLayout() { return document.body.classList.contains("wide-layout"); }
+  function syncWideLayout() {
+    const wide = !!(WIDE_LAYOUT_QUERY && WIDE_LAYOUT_QUERY.matches) && !document.body.classList.contains("workspace-hidden");
+    if (wide === isWideLayout()) return;
+    document.body.classList.toggle("wide-layout", wide);
+    const body = document.getElementById("cageViewerBody");
+    const home = document.getElementById(wide ? "sideViewerSlot" : "cage-viewer-panel");
+    if (body && home) home.appendChild(body);
+    if (window.CageView && window.CageView.setVisible) window.CageView.setVisible(wide || state.showModel !== false);
+    if (window.CageView && window.CageView.resize) requestAnimationFrame(() => window.CageView.resize());
+    if (state.sessionId) render();
+  }
+  if (WIDE_LAYOUT_QUERY) {
+    if (WIDE_LAYOUT_QUERY.addEventListener) WIDE_LAYOUT_QUERY.addEventListener("change", syncWideLayout);
+    else if (WIDE_LAYOUT_QUERY.addListener) WIDE_LAYOUT_QUERY.addListener(syncWideLayout);
+  }
+  // Which part shows below the model on a wide screen: Part 7 (compliance)
+  // and/or Part 8 (Frog Safety score) -- not the logbook app's own page.
+  function sidePartChoices() {
+    const choices = [];
+    if (!CFG.logbook) choices.push(LOGBOOK_PHASE);
+    if (CFG.safetyScorePart) choices.push(SAFETY_PHASE);
+    return choices;
+  }
+  const SIDE_PART_KEY = "rollcage-side-part";
+  let sidePart = null;
+  try { sidePart = Number(localStorage.getItem(SIDE_PART_KEY)) || null; } catch (e) { /* storage blocked */ }
+  function renderSidePart(path) {
+    const holder = document.getElementById("workspaceSidePart");
+    if (!holder) return;
+    holder.innerHTML = "";
+    sidePartShown = null;
+    const choices = sidePartChoices();
+    if (!isWideLayout() || !choices.length) return;
+    const picked = choices.includes(sidePart) ? sidePart : choices[choices.length - 1];
+    // The part open on the left isn't repeated here: the other one shows instead.
+    const shown = picked === state.activeTab && choices.length > 1 ? choices.find((p) => p !== picked) : picked;
+    sidePartShown = shown === state.activeTab ? null : shown;
+    if (!sidePartShown) return;
+    // (Its own scroll: back where it was, unless it's another part now.)
+    const keep = holder.dataset.part === String(shown) ? holder.scrollTop : 0;
+    holder.dataset.part = String(shown);
+    if (shown === SAFETY_PHASE) renderSafetyScore(holder, path, { asPart: true });
+    else renderResults(holder, path, { side: true });
+    holder.scrollTop = keep;
+  }
+  let sidePartShown = null;
+  // The Compliance / Frog Safety score badges on the model: on a wide screen
+  // they pick the part below it; otherwise they open that part.
+  function showPartFromBadge(phase) {
+    if (isWideLayout() && sidePartChoices().includes(phase)) {
+      sidePart = phase;
+      try { localStorage.setItem(SIDE_PART_KEY, String(phase)); } catch (e) { /* storage blocked */ }
+      // (Already open on the left: it stays there, the other one below.)
+      render();
+      return true;
+    }
+    return false;
   }
   // Hidden from the start, before any script after this one looks.
   if (CFG.startHidden) document.body.classList.add("workspace-hidden");
@@ -2115,8 +2179,9 @@
         ]),
         el("div", { class: "session-bar-group" }, [
           el("button", { class: "btn small secondary", title: "Save, Save as, PDF report and your saved " + NOUN + "s", onclick: openLibraryButton }, [CFG.libraryName]),
-          // A toggle: filled while the model shows, outlined while hidden.
-          el("button", {
+          // A toggle: filled while the model shows, outlined while hidden --
+          // none on a wide screen, where the model always has its own column.
+          isWideLayout() ? null : el("button", {
             class: "btn small" + (state.showModel ? "" : " secondary"), "aria-pressed": state.showModel ? "true" : "false",
             title: state.showModel ? "Hide the 3D model" : "Show the 3D model",
             onclick: () => { state.showModel = !state.showModel; if (window.CageView && window.CageView.setVisible) window.CageView.setVisible(state.showModel); render(); },
@@ -2357,7 +2422,7 @@
       const viewer = document.querySelector(".cage-viewer-row");
       if (target.closest(".app-header")) {
         window.scrollTo({ top: 0, behavior: "instant" });
-      } else if (!(viewer && viewer.contains(target))) {
+      } else if (!(viewer && viewer.contains(target)) && !target.closest(".workspace-side-viewer")) {
         // (A target inside the sticky viewer is always on screen -- no scroll.)
         const stickyH = viewer ? viewer.getBoundingClientRect().height : 0;
         const r0 = target.getBoundingClientRect();
@@ -2624,7 +2689,9 @@
   const TEMPLATE_SELECTION_PREFIX = "tpl:";
   function startFromTemplate(t) {
     startNew();
-    state.vehicle = Object.assign(JSON.parse(JSON.stringify(t.vehicle)), { org: knownOrg(t.vehicle.org) });
+    // (One with no sanctioning body of its own starts on the FIA's, as a new rollcage does.)
+    const org = t.vehicle.org && t.vehicle.org !== "none" ? t.vehicle.org : "fia";
+    state.vehicle = Object.assign(JSON.parse(JSON.stringify(t.vehicle)), { org: knownOrg(org) });
     // The template's walk-around video stays with the rollcage (saved with
     // its vehicle) -- shown at the top of its Pictures (renderPictures).
     if (t.video) state.vehicle.video = Object.assign({}, t.video);
@@ -6396,8 +6463,22 @@
     // Same as renderElementCard -- Parts 1-3 are pure capture, no
     // compliance judgment shown there (that's Part 4's job).
     const showReqBadge = false;
+    const complete = isElementComplete(elm);
+    // elm.setAllShortcut ({ col, value, label }): one click answers that
+    // column the same in every row (e.g. "All no") -- offered until it is.
+    const shortcut = elm.setAllShortcut;
+    const shortcutBtn = shortcut && !resolveRows(elm).every((row) => getAnswer(elm.id + "__" + row.id + "__" + shortcut.col).value === shortcut.value)
+      ? el("button", { type: "button", class: "btn small secondary collapse-btn", onclick: (e) => {
+          e.stopPropagation();
+          resolveRows(elm).forEach((row) => { const id = elm.id + "__" + row.id + "__" + shortcut.col; state.answers[id] = Object.assign({}, getAnswer(id), { value: shortcut.value }); });
+          failingGussetCache = null;
+          markDirty();
+          render();
+        } }, [shortcut.label])
+      : null;
 
-    if (isElementComplete(elm) && !state.expandedIds[elm.id]) {
+    // (elm.collapsedByDefault: folded even while unanswered, until opened.)
+    if ((complete || elm.collapsedByDefault) && !state.expandedIds[elm.id]) {
       const card = el("div", { class: "element-card collapsed-card state-" + status, id: "section-" + elm.id });
       card.appendChild(
         el(
@@ -6408,8 +6489,9 @@
           },
           [
             el("span", { class: "element-name" }, [elm.name]),
-            el("span", { class: "collapsed-summary" }, [elementSummary(elm, getAnswer(elm.id))]),
+            el("span", { class: "collapsed-summary" }, [complete ? elementSummary(elm, getAnswer(elm.id)) : "Not answered"]),
             showReqBadge ? el("span", { class: "badge " + reqBadgeClass }, [elm.requirement]) : null,
+            shortcutBtn,
           ]
         )
       );
@@ -6420,8 +6502,9 @@
     const headChildren = [
       el("span", { class: "element-name" }, [elm.name]),
       showReqBadge ? el("span", { class: "badge " + reqBadgeClass }, [elm.requirement]) : null,
+      shortcutBtn,
     ];
-    if (isElementComplete(elm)) {
+    if (complete || elm.collapsedByDefault) {
       headChildren.push(
         el("button", { class: "btn small secondary collapse-btn", onclick: () => { state.expandedIds[elm.id] = false; render(); } }, ["Collapse"])
       );
@@ -7244,10 +7327,13 @@
     return { kind: "rules", results, verdict: results.verdict,
       summary: results.requiredSatisfied + " / " + results.requiredTotal + " required items (" + results.scorePct + "%)" };
   }
-  function renderResults(root, path) {
+  // side: in the right column of a wide screen (renderSidePart) -- always
+  // expanded there.
+  function renderResults(root, path, opts) {
+    const side = !!(opts && opts.side);
     const compliance = complianceSummary(path);
 
-    if (!state.resultsExpanded) {
+    if (!state.resultsExpanded && !side) {
       const collapsed = el("div", { class: "panel results-panel results-panel-collapsed", id: "compliance-panel" }, [
         el("h2", {}, [PHASE_LABELS[LOGBOOK_PHASE]]),
         el("div", { class: "verdict compact " + compliance.verdict.level }, [compliance.verdict.label]),
@@ -7267,7 +7353,7 @@
     panel.appendChild(
       el("div", { class: "results-header" }, [
         el("h2", {}, [PHASE_LABELS[LOGBOOK_PHASE]]),
-        el(
+        side ? null : el(
           "button",
           { class: "btn secondary", onclick: () => { state.resultsExpanded = false; render(); } },
           ["Hide details ▴"]
@@ -7514,6 +7600,10 @@
     "253-15 gusset right lower front.stl", "253-15 gusset right lower rear.stl",
   ];
   const APILLAR_SIDE_GUSSET_FILES = ["253-15 side gusset left.stl", "253-15 side gusset right.stl"];
+  // Which side a 253-15 part is on, and that side's build (rules-data.js:
+  // one side can be 2 bars, the other 1 continuous bar).
+  const aPillarFileSide = (file) => (/left/i.test(file) ? "left" : "right");
+  const aPillarSideDesign = window.A_PILLAR_SIDE_DESIGN;
   const BACKSTAY_FILES = ["Left backstay.stl", "Right backstay.stl"];
   const ROOF_BAR_FILES = ["Roof bar 1.stl", "Roof bar 2.stl"];
 
@@ -7646,7 +7736,11 @@
       return map ? Object.keys(map) : [];
     }
     if (elementId === "a_pillar_reinforcement") {
-      return value === "continuous" ? APILLAR_FILES : value === "two_bars" ? APILLAR_2PIECE_FILES : [];
+      return ["left", "right"].reduce((files, side) => {
+        const design = aPillarSideDesign(value, side);
+        const pick = design === "continuous" ? APILLAR_FILES : design === "two_bars" ? APILLAR_2PIECE_FILES : [];
+        return files.concat(pick.filter((f) => aPillarFileSide(f) === side));
+      }, []);
     }
     const rule = ITEM_PART_RULES[elementId];
     if (!rule) return [];
@@ -8878,24 +8972,22 @@
     // answered, the chosen build's real geometry lights up and the other
     // build's tube + gussets are explicitly hidden (not just left to
     // default-ghost, which would otherwise clutter both builds together).
+    // Each side on its own: it can be built differently (aPillarSideDesign).
     const aPillarValue = getAnswer("a_pillar_reinforcement").value;
-    const aPillarPreview = aPillarValue || "continuous";
-    if (aPillarValue === "none") {
-      // No 253-15 at all: neither build, nor their gussets.
-      APILLAR_FILES.concat(APILLAR_2PIECE_FILES, APILLAR_SIDE_GUSSET_FILES, APILLAR_2PC_GUSSET_FILES).forEach((f) => { colors[f] = "hidden"; });
-    } else if (aPillarPreview === "continuous") {
-      APILLAR_2PIECE_FILES.forEach((f) => { colors[f] = "hidden"; });
-      APILLAR_2PC_GUSSET_FILES.forEach((f) => { colors[f] = "hidden"; });
-      if (aPillarValue === "continuous") {
-        APILLAR_FILES.forEach((f) => { colors[f] = CAGE_COLOR.aPillar; owner[f] = "a_pillar_reinforcement"; });
+    ["left", "right"].forEach((side) => {
+      const mine = (files) => files.filter((f) => aPillarFileSide(f) === side);
+      const design = aPillarSideDesign(aPillarValue, side);
+      if (design === "none") {
+        // No 253-15 at all: neither build, nor their gussets.
+        mine(APILLAR_FILES.concat(APILLAR_2PIECE_FILES, APILLAR_SIDE_GUSSET_FILES, APILLAR_2PC_GUSSET_FILES)).forEach((f) => { colors[f] = "hidden"; });
+      } else if ((design || "continuous") === "continuous") {
+        mine(APILLAR_2PIECE_FILES.concat(APILLAR_2PC_GUSSET_FILES)).forEach((f) => { colors[f] = "hidden"; });
+        if (design === "continuous") mine(APILLAR_FILES).forEach((f) => { colors[f] = CAGE_COLOR.aPillar; owner[f] = "a_pillar_reinforcement"; });
+      } else {
+        mine(APILLAR_FILES.concat(APILLAR_SIDE_GUSSET_FILES)).forEach((f) => { colors[f] = "hidden"; });
+        mine(APILLAR_2PIECE_FILES).forEach((f) => { colors[f] = CAGE_COLOR.aPillar; owner[f] = "a_pillar_reinforcement"; });
       }
-    } else {
-      APILLAR_FILES.forEach((f) => { colors[f] = "hidden"; });
-      APILLAR_SIDE_GUSSET_FILES.forEach((f) => { colors[f] = "hidden"; });
-      if (aPillarValue === "two_bars") {
-        APILLAR_2PIECE_FILES.forEach((f) => { colors[f] = CAGE_COLOR.aPillar; owner[f] = "a_pillar_reinforcement"; });
-      }
-    }
+    });
 
     // Gusset design: "Gusset design" table (rules-data.js) drives whether
     // each gusset shows at all -- Taco and Single plate both use the same
@@ -10079,6 +10171,7 @@
   // design-choice clicks already use, since the Safety score panel
   // itself always trails whichever Part is currently shown.
   function syncSafetyScoreBadge() {
+    syncComplianceBadge();
     const btn = document.getElementById("cageViewerSafetyScore");
     if (!btn) return;
     // Same top-left badge slot, repurposed while tagging a picture's
@@ -10108,9 +10201,10 @@
     btn.textContent = "Frog Safety score: " + (totalPoints > 0 ? "+" : "") + totalPoints + (lastSafetyScoreSummary.provisional ? " (Provisional)" : "");
     // Any Part 3 violation turns the badge red, whatever the total.
     const violated = lastSafetyScoreSummary.violations > 0;
-    btn.className = "cage-viewer-safety-score " + (violated || totalPoints < 0 ? "tier-red" : totalPoints > 0 ? "tier-green" : "tier-orange");
+    btn.className = "cage-viewer-safety-score " + (violated || totalPoints < 0 ? "tier-red" : totalPoints > 0 ? "tier-green" : "tier-orange") + (sidePartShown === SAFETY_PHASE ? " badge-current" : "");
     btn.title = violated ? VIOLATION_WARNING : "";
     btn.onclick = () => {
+      if (showPartFromBadge(SAFETY_PHASE)) return;
       if (CFG.safetyScorePart) {
         state.activeTab = SAFETY_PHASE;
         render();
@@ -10122,6 +10216,33 @@
       if (!target) return;
       scrollBelowViewer(target);
       flashCard(target);
+    };
+  }
+  // Part 7 at a glance, beside the Frog Safety score: the sanctioning body's
+  // verdict and the share of its required items met (complianceSummary,
+  // taken in render()). Clicking it shows Part 7.
+  let lastComplianceSummary = null;
+  function syncComplianceBadge() {
+    const btn = document.getElementById("cageViewerCompliance");
+    if (!btn) return;
+    const c = lastComplianceSummary;
+    if (!state.pathId || !c || state.pictureSelectMode || state.damageSelectMode) { btn.hidden = true; return; }
+    const rules = RULES[state.vehicle.org];
+    const name = rules && !rules.agnostic ? rules.org : "";
+    btn.hidden = false;
+    btn.textContent = c.kind === "rules" ? name + " compliance: " + c.results.scorePct + "%"
+      : c.kind === "passtech" ? name + " compliance: " + c.summary.replace(/ checked items met$/, "")
+      : c.kind === "none" ? "No sanctioning body"
+      : name + " compliance";
+    btn.title = c.verdict.label + (c.kind === "none" ? "" : " -- " + c.summary);
+    const tier = { pass: "tier-green", warn: "tier-orange", fail: "tier-red" }[c.verdict.level] || "";
+    btn.className = "cage-viewer-safety-score " + tier + (sidePartShown === LOGBOOK_PHASE ? " badge-current" : "");
+    btn.onclick = () => {
+      if (showPartFromBadge(LOGBOOK_PHASE)) return;
+      state.activeTab = LOGBOOK_PHASE;
+      state.resultsExpanded = true;
+      render();
+      window.scrollTo({ top: 0 });
     };
   }
   // Swaps the sticky viewer header between its normal buttons and the
@@ -10240,8 +10361,8 @@
   };
   function computeCageTransforms() {
     const transforms = {};
-    if (getAnswer("a_pillar_reinforcement").value !== "two_bars") return transforms;
     ["left", "right"].forEach((side) => {
+      if (aPillarSideDesign(getAnswer("a_pillar_reinforcement").value, side) !== "two_bars") return;
       const door = getAnswer("door_bars_" + side).value;
       if (door !== "253-10" && door !== "nascar") return;
       ["upper front", "upper rear", "lower front", "lower rear"].forEach((pos) => {
@@ -10319,6 +10440,8 @@
     // still needs its total).
     if (!CFG.safetyScorePart) renderSafetyScore(root, path);
     else if (state.activeTab !== SAFETY_PHASE) renderSafetyScore(root, path, { summaryOnly: true });
+    renderSidePart(path);
+    lastComplianceSummary = complianceSummary(path);
     syncCageView();
     const newResultsPanel = document.getElementById("compliance-panel");
     if (newResultsPanel && resultsScroll) newResultsPanel.scrollTop = resultsScroll;
@@ -10355,6 +10478,7 @@
     // (Not over a start screen that keeps the editor hidden -- CFG.startHidden.)
     if (!tourSeen && !CFG.startHidden) setTimeout(() => { if (!state.tour) startTour("app"); }, 800);
     if (CFG.startHidden) setWorkspaceShown(false);
+    syncWideLayout();
     const tutorialLink = document.getElementById("tutorialVideoLink");
     if (tutorialLink) {
       tutorialLink.addEventListener("click", (e) => {

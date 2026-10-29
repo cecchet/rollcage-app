@@ -937,6 +937,15 @@
   function aPillarNoJunctionSides(getAnswer) {
     return ["left", "right"].filter((s) => DOOR_BARS_WITHOUT_A_PILLAR_JUNCTION.indexOf(getAnswer("door_bars_" + s).value) !== -1);
   }
+  // 253-15 can be built differently on each side: one side as 2 bars, the
+  // other as 1 continuous bar. A side's own build from a_pillar_reinforcement's
+  // answer: "continuous", "two_bars", "none", or "" (unanswered).
+  const A_PILLAR_MIXED = {
+    mixed_left_two: { left: "two_bars", right: "continuous" },
+    mixed_right_two: { left: "continuous", right: "two_bars" },
+  };
+  function aPillarSideDesign(value, side) { return A_PILLAR_MIXED[value] ? A_PILLAR_MIXED[value][side] : value || ""; }
+  window.A_PILLAR_SIDE_DESIGN = aPillarSideDesign;
   function gussetJunctionRows(getAnswer) {
     const rows = [];
     // 253-7's X-crossing has 4 possible gusset positions (left/right/
@@ -1029,31 +1038,25 @@
       );
     }
     const aPillarValue = getAnswer("a_pillar_reinforcement").value;
-    // The 2 side gussets only apply to the single-continuous-bar build of
-    // 253-15 -- the 2-bar build (where it's split to meet the door bar) gets
-    // its own 4-gusset-per-side set instead (below). Always a taco. None on
-    // a side whose door bar doesn't cross the pillar bar (253-11, single
-    // bar, no door bar) -- there's no junction there to gusset.
-    if (aPillarValue === "continuous") {
-      const noJunction = aPillarNoJunctionSides(getAnswer);
-      ["left", "right"].forEach((side) => {
-        if (noJunction.indexOf(side) === -1) rows.push({ id: "a_pillar_side_" + side, label: "253-15: Windshield pillar reinforcement side gusset - " + side, restrictOptionIds: ["taco"] });
+    // The 2 side gussets only apply to a side built as a single continuous
+    // bar of 253-15 -- a 2-bar side (split to meet the door bar) gets its own
+    // 4-gusset set instead (below). Always a taco. None on a side whose door
+    // bar doesn't cross the pillar bar (253-11, single bar, no door bar) --
+    // there's no junction there to gusset.
+    const noJunction = aPillarNoJunctionSides(getAnswer);
+    ["left", "right"].forEach((side) => {
+      if (aPillarSideDesign(aPillarValue, side) === "continuous" && noJunction.indexOf(side) === -1) {
+        rows.push({ id: "a_pillar_side_" + side, label: "253-15: Windshield pillar reinforcement side gusset - " + side, restrictOptionIds: ["taco"] });
+      }
+    });
+    // A 2-bar side of 253-15 -- 4 gussets (upper/lower x front/rear) at the
+    // junctions where the split bar meets the door bar. Always a taco.
+    ["left", "right"].forEach((side) => {
+      if (aPillarSideDesign(aPillarValue, side) !== "two_bars") return;
+      ["upper_front", "upper_rear", "lower_front", "lower_rear"].forEach((pos) => {
+        rows.push({ id: "a_pillar_2pc_" + side + "_" + pos, label: "253-15: Windshield pillar reinforcement 2-piece gusset - " + side + " " + pos.replace("_", " "), restrictOptionIds: ["taco"] });
       });
-    }
-    // 2-bar build of 253-15 -- 4 gussets per side (upper/lower x front/rear)
-    // at the junctions where the split bar meets the door bar. Always a taco.
-    if (aPillarValue === "two_bars") {
-      rows.push(
-        { id: "a_pillar_2pc_left_upper_front", label: "253-15: Windshield pillar reinforcement 2-piece gusset - left upper front", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_left_upper_rear", label: "253-15: Windshield pillar reinforcement 2-piece gusset - left upper rear", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_left_lower_front", label: "253-15: Windshield pillar reinforcement 2-piece gusset - left lower front", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_left_lower_rear", label: "253-15: Windshield pillar reinforcement 2-piece gusset - left lower rear", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_right_upper_front", label: "253-15: Windshield pillar reinforcement 2-piece gusset - right upper front", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_right_upper_rear", label: "253-15: Windshield pillar reinforcement 2-piece gusset - right upper rear", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_right_lower_front", label: "253-15: Windshield pillar reinforcement 2-piece gusset - right lower front", restrictOptionIds: ["taco"] },
-        { id: "a_pillar_2pc_right_lower_rear", label: "253-15: Windshield pillar reinforcement 2-piece gusset - right lower rear", restrictOptionIds: ["taco"] }
-      );
-    }
+    });
     const rearLowerXVal = getAnswer("rear_lower_x_present").value;
     if (rearLowerXVal === "253-19-1" || rearLowerXVal === "253-19-2") {
       rows.push({ id: "rear_lower_x_left", label: "253-19: Rear lower X junction - left" }, { id: "rear_lower_x_right", label: "253-19: Rear lower X junction - right" });
@@ -1089,8 +1092,9 @@
     });
     if (getAnswer("backstay_diagonals").value === "253-21-1" || getAnswer("backstay_diagonals").value === "253-21-2") xGroup("backstay_diag", ["_upper", "_lower"]);
     if (getAnswer("roof_bars").value === "253-12-1" || getAnswer("roof_bars").value === "253-12-2") xGroup("roof", ["_front", "_rear"]);
-    if (getAnswer("a_pillar_reinforcement").value === "two_bars") {
+    {
       ["left", "right"].forEach((side) => {
+        if (aPillarSideDesign(getAnswer("a_pillar_reinforcement").value, side) !== "two_bars") return;
         const upperFront = "a_pillar_2pc_" + side + "_upper_front", upperRear = "a_pillar_2pc_" + side + "_upper_rear";
         const lowerFront = "a_pillar_2pc_" + side + "_lower_front", lowerRear = "a_pillar_2pc_" + side + "_lower_rear";
         groups.push({ rows: [upperFront, upperRear], anyOf: [[upperFront], [upperRear]] });
@@ -1552,6 +1556,9 @@
       // junctions that don't exist without front structure.
       showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "table",
+      // Rarely fitted: folded until opened, with a one-click "All no".
+      collapsedByDefault: true,
+      setAllShortcut: { col: "present", value: "no", label: "All no" },
       // Per this element's own description, these are only really expected
       // on a deficient roof (no roof bars, or a single diagonal one) --
       // "No" only counts against the car when the roof itself is one of
@@ -1928,6 +1935,18 @@
             if (!sides.length) return null;
             return "Not possible with the " + sides.join(" and ") + " door bar design selected (253-11, single bar or no door bar) -- only the 1 continuous bar build can be done.";
           },
+        },
+        // Each side built its own way: 2 bars on one, 1 continuous bar on
+        // the other (the 2-bar side needs its door bar's crossing too).
+        {
+          id: "mixed_left_two", label: "Left 2 bars, right 1 continuous bar", outcome: "pass", fallbackId: "continuous",
+          unavailableIf: (getAnswer) => (aPillarNoJunctionSides(getAnswer).indexOf("left") !== -1
+            ? "Not possible with the left door bar design selected (253-11, single bar or no door bar) -- only the 1 continuous bar build can be done there." : null),
+        },
+        {
+          id: "mixed_right_two", label: "Left 1 continuous bar, right 2 bars", outcome: "pass", fallbackId: "continuous",
+          unavailableIf: (getAnswer) => (aPillarNoJunctionSides(getAnswer).indexOf("right") !== -1
+            ? "Not possible with the right door bar design selected (253-11, single bar or no door bar) -- only the 1 continuous bar build can be done there." : null),
         },
         // e.g. drag or older cages -- doesn't meet the FIA requirement
         // whenever dimension A exceeds 200mm.
@@ -3482,7 +3501,7 @@
   };
   const aPillarBars = (getAnswer) => {
     const v = val(getAnswer, "a_pillar_reinforcement");
-    if (v === "continuous" || v === "two_bars") return { value: "yes", from: ["a_pillar_reinforcement"] };
+    if (v && v !== "none") return { value: "yes", from: ["a_pillar_reinforcement"] };
     return v === "none" ? { value: "no", from: ["a_pillar_reinforcement"] } : null;
   };
   // Diagonal members in the main hoop / the backstays' plane (a V counts

@@ -104,6 +104,29 @@ body {
    shrinks the reserved space the same way, no extra JS needed. */
 /* The editor hidden until a logbook is opened (CFG.startHidden). */
 body.workspace-hidden .cage-viewer-row, body.workspace-hidden #app { display: none; }
+
+/* A wide screen (body.wide-layout, set by app.js): the page on the left as
+   usual, and a right column the height of the window, pinned while the page
+   scrolls: the 3D model at its top and Part 7 or 8 below it, scrolling on
+   its own. */
+.workspace-side { display: none; }
+body.wide-layout .workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 900px) minmax(480px, 1fr);
+  max-width: 2100px;
+  margin: 0 auto;
+  align-items: start;
+}
+body.wide-layout .workspace-main { min-width: 0; }
+body.wide-layout .workspace-side {
+  display: flex; flex-direction: column; gap: 16px;
+  position: sticky; top: 0; height: 100vh;
+  min-width: 0; padding: 20px 20px 20px 0;
+}
+.workspace-side-viewer { flex: 0 0 auto; }
+.workspace-side-part { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; border-radius: var(--radius); }
+body.wide-layout .cage-viewer-container { height: min(48vh, 600px); }
+
 .cage-viewer-row {
   position: sticky;
   top: 0;
@@ -207,11 +230,11 @@ body.workspace-hidden .cage-viewer-row, body.workspace-hidden #app { display: no
    -- a real <button> (not just a styled div) so it's keyboard-reachable
    and gets a native click, positioned opposite the watermark so the 2
    never collide. */
+.cage-viewer-badges { position: absolute; top: 8px; left: 8px; right: 60px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; pointer-events: none; }
+.cage-viewer-badges > * { pointer-events: auto; }
+/* The badge whose part shows below the model (wide layout). */
+.cage-viewer-safety-score.badge-current { box-shadow: 0 0 0 2px var(--accent); }
 .cage-viewer-safety-score {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 2;
   background: rgba(20, 22, 26, 0.85);
   color: var(--ink);
   border: 1px solid var(--border);
@@ -227,6 +250,7 @@ body.workspace-hidden .cage-viewer-row, body.workspace-hidden #app { display: no
 .cage-viewer-safety-score.tier-orange { color: var(--warn); border-color: var(--warn); }
 .cage-viewer-safety-score.tier-red { color: var(--fail); border-color: var(--fail); }
 .cage-viewer-safety-score[hidden] { display: none; }
+#cageViewerCompliance[hidden] { display: none; }
 .cage-viewer-header-buttons { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 /* The model's own view controls, overlaid on its bottom-left corner (above
    the canvas, which cage_view.js appends after them). */
@@ -709,9 +733,8 @@ textarea { resize: vertical; min-height: 50px; }
      own scrollable content). Now Safety score / Logbook / Vehicle
      description all render in-flow together below the checklist on every
      tab, so a fixed-to-viewport-bottom panel here would overlap whatever
-     else is currently in view instead -- just a normal panel now. */
-  max-height: min(60vh, 520px);
-  overflow-y: auto;
+     else is currently in view instead -- just a normal panel now, as long as
+     its content (the page scrolls it, like every other part). */
 }
 
 .results-panel-collapsed {
