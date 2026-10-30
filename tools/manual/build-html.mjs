@@ -19,7 +19,7 @@ const IMAGES = [
   ["Part 3:", "33-part3.png"], ["Part 4:", "34-part4.png"], ["Part 5:", "35-part5.png"], ["Part 6:", "36-part6.png"],
   ["Part 7 with", "37-part7.png"], ["Part 8:", "38-part8.png"], ["Currently editing:", "41-library-current.png"],
   ["Save as a new rollcage", "43-save-as.png"], ["A saved rollcage selected", "42-library-saved.png"],
-  ["The 3D print dialog", "45-print.png"],
+  ["The 3D print dialog", "45-print.png"], ["On a wide screen", "46-wide.png"],
 ];
 // Narrow screenshots (dialogs, a single card) shown at their own size.
 const NARROW = new Set(["12-part1-picture-card.png", "43-save-as.png", "44-unsaved.png", "45-print.png"]);

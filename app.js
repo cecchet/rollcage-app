@@ -53,7 +53,7 @@
     vehicle: { name: "", org: "none", logbookDate: "" },
     pathId: null,
     answers: {}, // elementId -> { value, note, photos: [{name, dataUrl}] }
-    pictures: [], // { id, elements: [{elementId, value}], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot } -- image bytes live in IndexedDB, see picture storage below
+    pictures: [], // { id, elements: [{elementId, value}], aiSuggestions: [{elementId, value, confidence, rationale}], hasScreenshot, view? (the camera angle of its "Selected parts" snapshot) } -- image bytes live in IndexedDB, see picture storage below
     homologationPhotos: [], // { id } -- FIA homologation paperwork photos (only relevant/shown when homologation_route === "homologated"); image bytes in the SAME IndexedDB store as pictures above, just a separate id list
     paperLogbookPhotos: [], // { id, sha256? } -- the logbook app's photos of the car's paper logbook pages (same store)
     vehiclePhotos: { front: null, rear: null }, // { id } | null per slot -- 3/4 front & rear vehicle photos on the Vehicle description panel; image bytes in the SAME IndexedDB store as pictures above
@@ -2733,7 +2733,8 @@
       return Promise.all([
         Promise.all(pictures.filter((x) => x.photo).map(({ p, photo, screenshot }) => {
           const id = picUid();
-          return stored(id, { photo, screenshot: screenshot || null }).then((ok) => (ok ? { id, elements: clone(p.elements), aiSuggestions: clone(p.aiSuggestions), hasScreenshot: !!screenshot, category: p.category } : null));
+          return stored(id, { photo, screenshot: screenshot || null, ...(screenshot && p.shotRev ? { shotRev: p.shotRev } : {}) })
+            .then((ok) => (ok ? { id, elements: clone(p.elements), aiSuggestions: clone(p.aiSuggestions), hasScreenshot: !!screenshot, ...(p.view ? { view: { ...p.view } } : {}), category: p.category } : null));
         })),
         Promise.all(vehicle.filter((x) => x.photo).map(({ slot, photo }) => {
           const id = picUid();
@@ -2756,12 +2757,14 @@
   // model and taking the same snapshot Save does -- then restoring the open
   // rollcage's own state and model. Cached in memory.
   const templateThumbCache = {};
-  // Bump when the 3D model's look changes (parts, colors, lighting), so the
-  // pre-rendered thumbnails count as stale until they're rebuilt.
-  const TEMPLATE_THUMB_REV = 2;
+  // Bump when the 3D model's look changes (parts, colors, lighting): the
+  // pre-rendered template thumbnails then count as stale until they're
+  // rebuilt, and pictures' "Selected parts" snapshots are redrawn (see
+  // refreshPartsShots).
+  const MODEL_LOOK_REV = 2;
   // What a template's thumbnail was drawn from: a hash of its design.
   function templateThumbKey(t) {
-    const s = TEMPLATE_THUMB_REV + JSON.stringify([t.vehicle, t.pathId, t.answers]);
+    const s = MODEL_LOOK_REV + JSON.stringify([t.vehicle, t.pathId, t.answers]);
     let h = 0x811c9dc5;
     for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
     return (h >>> 0).toString(16);
@@ -10349,6 +10352,9 @@
     // the model was turned to (a picture with no tags gets no snapshot).
     const screenshot = mode.selected.size && window.CageView && window.CageView.snapshot
       ? window.CageView.snapshot(640, { keepAngle: true }) : null;
+    // The angle too, so the snapshot can be redrawn the same way once the
+    // model's look changes (see refreshPartsShots).
+    const angle = screenshot && window.CageView.getAngle ? window.CageView.getAngle() : null;
     const pic = state.pictures.find((p) => p.id === mode.pictureId);
     state.pictureSelectMode = null;
     if (pic) {
@@ -10362,10 +10368,12 @@
         return { elementId, value: tag.value, extra, confidence: unchanged ? before.confidence : undefined };
       });
       pic.hasScreenshot = !!screenshot;
+      if (angle) pic.view = { theta: +angle.theta.toFixed(4), phi: +angle.phi.toFixed(4), roll: +angle.roll.toFixed(4) };
+      else delete pic.view;
       markDirty();
       if (screenshot) {
-        patchPictureRecord(pic.id, { screenshot }).then(() => {
-          pictureImageCache[pic.id] = Object.assign({}, pictureImageCache[pic.id], { screenshot });
+        patchPictureRecord(pic.id, { screenshot, shotRev: MODEL_LOOK_REV }).then(() => {
+          pictureImageCache[pic.id] = Object.assign({}, pictureImageCache[pic.id], { screenshot, shotRev: MODEL_LOOK_REV });
           render();
         });
       }
@@ -10408,21 +10416,56 @@
     });
     return transforms;
   }
+  // Draws the open rollcage on the 3D model: colors, visible parts, and the
+  // entered angles and junction distances.
+  function applyCageModel() {
+    const colors = computeCageColors();
+    window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE || state.pictureSelectMode) ? true : state.showGhostBars);
+    window.CageView.setMeshTransforms(computeCageTransforms());
+    // Tilts the modeled main hoop / backstays to the entered angles (after
+    // the transforms -- the deformation works on each part's final placement).
+    if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value), mainHoopTwistDeg());
+    if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
+    if (window.CageView.setFrontRollbarAngle) window.CageView.setFrontRollbarAngle(parseFloat((getAnswer("front_rollbar_angle").value || {}).angle));
+    if (window.CageView.setJunctionOffsets) window.CageView.setJunctionOffsets(junctionOffsets());
+  }
+  // A picture's "Selected parts" snapshot drawn before the model's look last
+  // changed (MODEL_LOOK_REV) is redrawn at the angle it was taken at, with
+  // the same parts selected -- one at a time after a render, each put
+  // straight into the page and its stored record (which a saved rollcage
+  // shares, so it isn't an unsaved change). One without a saved angle
+  // (tagged before angles were kept) stays as it is.
+  let partsShotTimer = null;
+  function refreshPartsShots() {
+    if (partsShotTimer || state.pictureSelectMode || state.damageSelectMode || !window.CageView || !window.CageView.getAngle) return;
+    const pic = state.pictures.find((p) => p.hasScreenshot && p.view && (p.elements || []).length && pictureImageCache[p.id]
+      && pictureImageCache[p.id].screenshot && (pictureImageCache[p.id].shotRev || 0) < MODEL_LOOK_REV);
+    if (!pic) return;
+    const before = state.pictureSelectMode;
+    let shot;
+    try {
+      state.pictureSelectMode = { pictureId: pic.id, selected: new Map(pic.elements.map((t) => [t.elementId, { value: t.value, extra: t.extra || {} }])) };
+      applyCageModel();
+      shot = window.CageView.snapshot(640, { angle: pic.view });
+    } finally {
+      state.pictureSelectMode = before;
+      applyCageModel();
+    }
+    if (!shot) return; // the model isn't ready -- tried again on a later render
+    const old = pictureImageCache[pic.id].screenshot;
+    pictureImageCache[pic.id] = Object.assign({}, pictureImageCache[pic.id], { screenshot: shot, shotRev: MODEL_LOOK_REV });
+    patchPictureRecord(pic.id, { screenshot: shot, shotRev: MODEL_LOOK_REV }).catch(() => {});
+    document.querySelectorAll("img").forEach((img) => { if (img.src === old) img.src = shot; });
+    partsShotTimer = setTimeout(() => { partsShotTimer = null; refreshPartsShots(); }, 30);
+  }
+
   function syncCageView() {
     syncPartDropdown();
     syncPart3Controls();
     syncSafetyScoreBadge();
     syncPictureModeUi();
     if (window.CageView) {
-      const colors = computeCageColors();
-      window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE || state.pictureSelectMode) ? true : state.showGhostBars);
-      window.CageView.setMeshTransforms(computeCageTransforms());
-      // Tilts the modeled main hoop / backstays to the entered angles (after
-      // the transforms -- the deformation works on each part's final placement).
-      if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value), mainHoopTwistDeg());
-      if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
-      if (window.CageView.setFrontRollbarAngle) window.CageView.setFrontRollbarAngle(parseFloat((getAnswer("front_rollbar_angle").value || {}).angle));
-      if (window.CageView.setJunctionOffsets) window.CageView.setJunctionOffsets(junctionOffsets());
+      applyCageModel();
       window.CageView.onPartClick(handleCagePartClick);
       window.CageView.onPartDoubleClick(handleCagePartDoubleClick);
       window.CageView.onPartHover(handleCagePartHover);
@@ -10480,6 +10523,7 @@
     renderSidePart(path);
     lastComplianceSummary = complianceSummary(path);
     syncCageView();
+    setTimeout(refreshPartsShots, 0);
     const newResultsPanel = document.getElementById("compliance-panel");
     if (newResultsPanel && resultsScroll) newResultsPanel.scrollTop = resultsScroll;
     window.scrollTo(0, scrollY);

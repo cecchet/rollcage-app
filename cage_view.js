@@ -1818,8 +1818,10 @@
     });
     // opts.keepAngle: keep the current camera angle (e.g. a picture's
     // tagged parts, viewed the way the user turned the model to match the
-    // photo) -- only reframed around what's showing.
-    if (!(opts && opts.keepAngle)) { theta = Math.PI / 4; phi = Math.PI / 4; roll = 0; }
+    // photo) -- only reframed around what's showing. opts.angle: that
+    // angle as getAngle() gave it (a picture's snapshot redrawn later).
+    if (opts && opts.angle) { theta = opts.angle.theta; phi = opts.angle.phi; roll = opts.angle.roll || 0; }
+    else if (!(opts && opts.keepAngle)) { theta = Math.PI / 4; phi = Math.PI / 4; roll = 0; }
     // Frame just the bars actually showing (fitCamera frames every mesh,
     // hidden alternates and occupants included), far enough back that
     // their bounding sphere fits the narrower of the 2 fields of view --
@@ -1934,7 +1936,10 @@
     return out;
   }
 
-  window.CageView = { setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
+  // The camera's current angle (radians), for snapshot's opts.angle.
+  function getAngle() { return { theta, phi, roll }; }
+
+  window.CageView = { getAngle, setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");

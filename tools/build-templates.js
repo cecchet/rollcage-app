@@ -298,7 +298,7 @@ function writeImage(id, name, dataUrl) {
   fs.writeFileSync(path.join(dir, file), Buffer.from(m[2], "base64"));
   return "images/templates/" + id + "/" + file;
 }
-// An export's rollcage pictures (photo, tags, "Selected parts" snapshot)
+// An export's rollcage pictures (photo, tags, "Selected parts" snapshot and its angle)
 // and 3/4 front/rear vehicle photos, as template pictures.
 function exportPictures(t, d) {
   const images = d.images || {};
@@ -310,7 +310,9 @@ function exportPictures(t, d) {
     return {
       src, category: p.category || "overview",
       elements: p.elements || [], aiSuggestions: p.aiSuggestions || [],
-      ...(screenshot ? { screenshot } : {}),
+      // The angle it was taken at and the model's look it shows (app.js's
+      // MODEL_LOOK_REV) -- an outdated one is redrawn in the app.
+      ...(screenshot ? { screenshot, ...(p.view ? { view: p.view } : {}), ...(rec.shotRev ? { shotRev: rec.shotRev } : {}) } : {}),
     };
   }).filter(Boolean);
   const vehiclePhotos = {};
