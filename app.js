@@ -3395,11 +3395,12 @@
 
   // Its own field, at the top of Part 6 -- picking the sanctioning body is
   // the natural first step there, and it decides what the verdict below
-  // it checks against. Grouped: no sanctioning body (the default -- the
-  // checklist then judges no rulebook, only the safety score rates the
-  // design), the rally bodies with a full FIA 253 checklist of their own,
-  // then the bodies whose rollover protection rule comes from PassTech
-  // (sanctioning-bodies.js), by discipline. A PassTech body with class-
+  // it checks against. Grouped: no sanctioning body (the checklist then
+  // judges no rulebook, only the safety score rates the design) and the
+  // generic FIA Article 253 (the default) on their own, then by discipline:
+  // in Rally, the bodies with a full FIA 253 checklist of their own, and in
+  // every discipline the bodies whose rollover protection rule comes from
+  // PassTech (sanctioning-bodies.js). A PassTech body with class-
   // specific rules also gets a class picker.
   function renderSanctioningBodyField() {
     const orgSelect = el("select", {
@@ -3421,18 +3422,26 @@
       return opt;
     };
     const keys = offeredOrgKeys();
-    if (keys.includes("none")) orgSelect.appendChild(option("none"));
-    const fullChecklist = keys.filter((k) => !RULES[k].agnostic);
-    if (fullChecklist.length) orgSelect.appendChild(el("optgroup", { label: "FIA 253 -- full checklist" }, fullChecklist.map(option)));
+    // None and the generic FIA Article 253 on their own at the top.
+    ["none", "fia"].filter((k) => keys.includes(k)).forEach((k) => orgSelect.appendChild(option(k)));
     const docOnly = keys.filter((k) => RULES[k].docOnly);
     if (docOnly.length) orgSelect.appendChild(el("optgroup", { label: "Documentation only -- no compliance check yet" }, docOnly.map(option)));
-    const byGroup = {};
+    // By discipline. The rally bodies with a full FIA 253 checklist of their
+    // own lead the Rally group, ahead of its rollover-protection-rule ones
+    // -- each option says which kind of check it gets.
+    const fullChecklist = keys.filter((k) => !RULES[k].agnostic && k !== "fia");
+    const byGroup = fullChecklist.length ? { Rally: fullChecklist } : {};
     keys.filter((k) => RULES[k].passTech).forEach((k) => {
       const g = RULES[k].passTech.disciplineGroup;
       (byGroup[g] = byGroup[g] || []).push(k);
     });
     Object.keys(byGroup).sort().forEach((group) => {
-      orgSelect.appendChild(el("optgroup", { label: group + " -- rollover protection rules" }, byGroup[group].map(option)));
+      const label = group === "Rally" && fullChecklist.length ? "Rally" : group + " -- rollover protection rules";
+      orgSelect.appendChild(el("optgroup", { label }, byGroup[group].map((k) => {
+        const opt = option(k);
+        if (label === "Rally") opt.textContent += RULES[k].passTech ? " -- rollover protection rules" : " -- full checklist";
+        return opt;
+      })));
     });
     const children = [el("div", { class: "field" }, [el("label", {}, ["Sanctioning body"]), orgSelect])];
     // A body with grandfathering rules: which ones apply depends on when
