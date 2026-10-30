@@ -4253,19 +4253,20 @@
 
     // Sill bar is a boolean extra on the door-bar element (see
     // rules-data.js's extraFields), not its own top-level element -- offer
-    // it as its own synthetic catalog entry for the category's side;
+    // it as its own synthetic catalog entry for each side whose door bars
+    // are asked about (a door close-up's own side, both in an overview);
     // analyzePictureElements merges a suggestion for it back into that
     // side's door-bar tag as `.extra.sill_bar`, the same shape manual
     // tagging already uses.
-    if (categoryDef.sillBar) {
-      const side = categoryDef.sillBar;
+    const sillSides = categoryDef.sillBar ? [categoryDef.sillBar] : ["left", "right"].filter((side) => flat.some((e) => e.id === "door_bars_" + side));
+    sillSides.forEach((side) => {
       flat.push({
         id: "door_bars_" + side + "__sill_bar",
         name: (side === "left" ? "Left" : "Right") + " sill bar",
-        description: "Optional extra bar running along the bottom of the door opening, roughly horizontal and low near the sill/rocker panel -- separate from the door bar design above it. Only applies alongside a 253-9, 253-10, or single-bar door design (253-11 and NASCAR-style designs already include a sill-like bar as part of their own shape, so don't answer this for those). Omit if this side's lower sill area isn't visible in any photo.",
+        description: "Optional extra bar running along the bottom of the door opening, roughly horizontal and low near the sill/rocker panel -- separate from the door bar design above it. In a diagram, it's the bottom edge of that side's door opening, between the front and main hoops' feet. Only applies alongside a 253-9, 253-10, or single-bar door design (253-11 and NASCAR-style designs already include a sill-like bar as part of their own shape, so don't answer this for those). Omit if this side's lower sill area isn't visible in any photo.",
         boolean: true,
       });
-    }
+    });
 
     // Junction gussets: every one in "overview" (and the gusset close-ups'
     // category), and in a close-up
@@ -5162,7 +5163,7 @@
           // While editing, the color its bars have in the 3D model.
           editing ? el("span", { class: "picture-element-swatch", style: "background:" + pictureTagColor(conf), "aria-hidden": "true" }) : null,
           label,
-          conf ? el("span", { class: "picture-element-confidence" }, [conf === "high" ? "AI" : "AI · " + conf]) : null,
+          conf ? el("span", { class: "picture-element-confidence" }, ["AI · " + conf]) : null,
           canRemove ? el("button", { type: "button", class: "picture-element-remove", title: "Remove from this picture", "aria-label": "Remove " + label + " from this picture", onclick: () => removeTag(tag.elementId) }, ["×"]) : null,
         ]));
       });
