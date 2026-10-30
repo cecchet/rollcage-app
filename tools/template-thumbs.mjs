@@ -4,7 +4,7 @@
 // lists each one with the hash of the design it was drawn from (see
 // templateThumb in app.js -- a stale one is drawn live instead). Re-run
 // after changing templates.js or the 3D model's look (and bump
-// TEMPLATE_THUMB_REV in app.js for the latter), with the app served at
+// MODEL_LOOK_REV in app.js for the latter), with the app served at
 // http://localhost:5003:
 //   node tools/manual/driver.mjs tools/template-thumbs.mjs 1280 900
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -24,11 +24,17 @@ export default async function (a) {
     if (exit) exit.click();
     await wait(500);
     window.TEMPLATE_MODEL_THUMBS = {};
-    if (!document.getElementById('library-dialog')) [...document.querySelectorAll('button')].find((b) => /^Rollcage library$/.test(b.textContent.trim())).click();
+    // A library already open (as on a first visit) still shows the old
+    // ones -- reopen it.
+    const back = document.getElementById('library-dialog') && [...document.querySelectorAll('button')].find((b) => /^(Back to editing|Close)$/.test(b.textContent.trim()));
+    if (back) { back.click(); await wait(500); }
+    [...document.querySelectorAll('button')].find((b) => /^Rollcage library$/.test(b.textContent.trim())).click();
     for (let i = 0; i < 300 && document.querySelector('[data-template-thumb]'); i++) await wait(200);
     if (document.querySelector('[data-template-thumb]')) throw new Error('snapshots not drawn');
     return [...document.querySelectorAll('img[data-template-id]')].map((i) => ({ id: i.dataset.templateId, key: i.dataset.thumbKey, src: i.src }));
   `);
+  const notDrawn = shots.filter((s) => !/^data:image\/jpeg;base64,/.test(s.src));
+  if (notDrawn.length) throw new Error("not drawn: " + notDrawn.map((s) => s.id).join(", "));
   mkdirSync(dir, { recursive: true });
   const list = {};
   shots.forEach((s) => {

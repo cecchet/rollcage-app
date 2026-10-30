@@ -1113,6 +1113,7 @@ img.zoomable, #cageViewerPictureModeThumb { cursor: zoom-in; }
 .picture-element-confidence { font-size: 0.68rem; font-weight: 700; padding: 0 5px; border-radius: 4px; background: rgba(127, 127, 127, 0.2); white-space: nowrap; }
 .picture-element-chip.ai-low { border: 1px dashed var(--warn); }
 .picture-element-chip.ai-low .picture-element-confidence { background: var(--warn-bg); color: var(--warn); }
+.picture-element-swatch { flex: none; width: 9px; height: 9px; border-radius: 50%; }
 /* Video frame review: zoom button + full-size viewer */
 .video-review-cell { position: relative; }
 .video-review-cell .video-review-frame { width: 100%; }

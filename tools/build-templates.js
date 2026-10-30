@@ -52,6 +52,13 @@ const TEMPLATES = [
     group: "design", id: "rally-cage-double-v", file: "Rally cage 1.json", name: "FIA Article 253 App J cage",
     dropAnswers: ["vehicle_manufacturer", "vehicle_model", "vehicle_year", "vehicle_builder", "vehicle_weight"],
   },
+  { group: "design", id: "road-racing-basic", file: "Road racing basic cage.json" },
+  // The Datsun 240Z kit's cage (below) as a generic design: without the
+  // kit's pictures or link, or the car's own details.
+  {
+    group: "design", id: "nhra-drag-racing", file: "CageKits Datsun 240Z NHRA.json", name: "NHRA Drag racing cage",
+    dropAnswers: ["vehicle_manufacturer", "vehicle_model", "vehicle_year", "vehicle_builder", "vehicle_weight"],
+  },
   // Everything one should not do (see build-kit-samples.js) -- shows every
   // warning the app gives, for the lowest Frog Safety score.
   { group: "design", id: "worst-cage", file: "Worst cage.json", name: "Worst cage", subtitle: "Everything you should not do in a rollcage" },

@@ -2761,7 +2761,7 @@
   // pre-rendered template thumbnails then count as stale until they're
   // rebuilt, and pictures' "Selected parts" snapshots are redrawn (see
   // refreshPartsShots).
-  const MODEL_LOOK_REV = 2;
+  const MODEL_LOOK_REV = 3;
   // What a template's thumbnail was drawn from: a hash of its design.
   function templateThumbKey(t) {
     const s = MODEL_LOOK_REV + JSON.stringify([t.vehicle, t.pathId, t.answers]);
@@ -2787,6 +2787,7 @@
       state.pictureSelectMode = null;
       state.activeTab = 1;
       window.CageView.applyState(computeCageColors(), false);
+      if (window.CageView.setHoles) window.CageView.setHoles(tacoGussetFiles());
       window.CageView.setMeshTransforms(computeCageTransforms());
       if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value), mainHoopTwistDeg());
       if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
@@ -5123,11 +5124,8 @@
     const chips = el("div", { class: "picture-elements" });
     const editing = state.pictureSelectMode && state.pictureSelectMode.pictureId === pic.id;
     const tags = editing
-      ? [...state.pictureSelectMode.selected.entries()].map(([elementId, t]) => {
-          // Still an AI tag while its value hasn't been changed.
-          const before = (pic.elements || []).find((x) => x.elementId === elementId);
-          return { elementId, value: t.value, extra: t.extra, confidence: before && before.value === t.value ? before.confidence : undefined };
-        })
+      ? [...state.pictureSelectMode.selected.entries()].map(([elementId, t]) => (
+          { elementId, value: t.value, extra: t.extra, confidence: pictureTagConfidence(pic, elementId, t) }))
       : pic.elements;
     const removeTag = (elementId) => {
       if (editing) {
@@ -5159,6 +5157,8 @@
         // second look (and is one click to remove).
         const conf = tag.confidence;
         chips.appendChild(el("span", { class: "picture-element-chip" + (conf ? " ai-" + conf : ""), title: conf ? "AI suggestion, " + conf + " confidence" : "" }, [
+          // While editing, the color its bars have in the 3D model.
+          editing ? el("span", { class: "picture-element-swatch", style: "background:" + pictureTagColor(conf), "aria-hidden": "true" }) : null,
           label,
           conf ? el("span", { class: "picture-element-confidence" }, [conf === "high" ? "AI" : "AI · " + conf]) : null,
           canRemove ? el("button", { type: "button", class: "picture-element-remove", title: "Remove from this picture", "aria-label": "Remove " + label + " from this picture", onclick: () => removeTag(tag.elementId) }, ["×"]) : null,
@@ -7509,6 +7509,10 @@
     // currently tagged in a picture's "Edit rollcage elements" mode. See
     // computeCageColors' two overlay blocks below.
     aiPreview: "#39ff14",
+    // A picture's tags in "Edit rollcage elements": the ones entered by hand
+    // in aiPreview's green, the AI's in magenta, paler the less confident
+    // it was (see pictureTagColor).
+    pictureAiHigh: "#d946ef", pictureAiMedium: "#eb9cf5", pictureAiLow: "#f8d9fc",
     damage: "#ff2d2d", // an event's damaged parts (logbook app)
     // Driver/Codriver mannequins -- seat shell and body render dim/ghosted
     // (not a compliance item themselves, and shouldn't visually compete
@@ -8870,6 +8874,43 @@
   // renderSafetyScore has actually run at least once.
   let lastSafetyScoreSummary = null;
 
+  // A picture's tag in the "Edit rollcage elements" selection is still the
+  // AI's (with its confidence) while it's what the AI tagged -- one the user
+  // changed or added is a manual one (no confidence).
+  function pictureTagConfidence(pic, elementId, tag) {
+    const before = pic && (pic.elements || []).find((t) => t.elementId === elementId);
+    if (!before || before.value !== tag.value) return undefined;
+    const extra = tag.extra && Object.keys(tag.extra).length ? tag.extra : undefined;
+    return JSON.stringify(before.extra || {}) === JSON.stringify(extra || {}) ? before.confidence : undefined;
+  }
+  function pictureTagColor(confidence) {
+    if (confidence === "high") return CAGE_COLOR.pictureAiHigh;
+    if (confidence === "medium") return CAGE_COLOR.pictureAiMedium;
+    if (confidence === "low") return CAGE_COLOR.pictureAiLow;
+    return CAGE_COLOR.aiPreview;
+  }
+  // The "Gusset design" table's current rows by id (null without one), and
+  // a row's design as it stands now -- see computeCageColors' gusset section
+  // for why a stored answer is checked against the row's current definition.
+  function gussetDesignRows(path) {
+    const elm = path.elements.find((e) => e.id === "gusset_design");
+    return elm ? new Map(resolveRows(elm).map((r) => [r.id, r])) : null;
+  }
+  function gussetDesign(rowsById, row) {
+    if (rowsById && !rowsById.has(row)) return null;
+    const rowDef = rowsById && rowsById.get(row);
+    const design = getAnswer("gusset_design__" + row + "__design").value;
+    if (rowDef && rowDef.restrictOptionIds && design && rowDef.restrictOptionIds.indexOf(design) === -1) return null;
+    return design || null;
+  }
+  // Taco gussets get a hole in the 3D model (as real ones have), so they
+  // tell apart from single plates by shape too, not just color.
+  function tacoGussetFiles() {
+    const path = state.vehicle && RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    if (!path) return [];
+    const rows = gussetDesignRows(path);
+    return GUSSET_LOCATIONS.filter(({ row }) => gussetDesign(rows, row) === "taco").map(({ file }) => file);
+  }
   function computeCageColors() {
     const colors = {};
     const owner = {};
@@ -9054,13 +9095,9 @@
     // definition -- a row that's gone, or a value no longer in its current
     // restrictOptionIds, reads as ghost/unanswered rather than keeping its
     // stale color forever.
-    const gussetDesignElm = path.elements.find((e) => e.id === "gusset_design");
-    const gussetRowsById = gussetDesignElm ? new Map(resolveRows(gussetDesignElm).map((r) => [r.id, r])) : null;
+    const gussetRowsById = gussetDesignRows(path);
     function gussetDesignColor(row) {
-      if (gussetRowsById && !gussetRowsById.has(row)) return null;
-      const rowDef = gussetRowsById && gussetRowsById.get(row);
-      const design = getAnswer("gusset_design__" + row + "__design").value;
-      if (rowDef && rowDef.restrictOptionIds && design && rowDef.restrictOptionIds.indexOf(design) === -1) return null;
+      const design = gussetDesign(gussetRowsById, row);
       if (design === "taco") return CAGE_COLOR.gussetTaco;
       if (design === "single_plate") return CAGE_COLOR.gussetSinglePlate;
       return null;
@@ -9166,13 +9203,15 @@
       // Every gusset is clickable while tagging, even one the checklist's
       // current designs leave out -- a photo showing it is the evidence.
       GUSSET_FILE_TO_ROW.forEach((row, f) => { if (colors[f] === "hidden") delete colors[f]; });
+      const editedPicture = state.pictures.find((p) => p.id === state.pictureSelectMode.pictureId);
       state.pictureSelectMode.selected.forEach((tag, elementId) => {
         // A tagged foot shows its tagged design's parts only (not the
         // answered design's), as each design is drawn with different parts.
         const footRow = footTagRow(elementId);
         const loc = footRow && FOOT_LOCATIONS.find((l) => l.row === footRow);
         if (loc) [loc.plateFile, footCubeFile(footRow), doublePlaneFile(footRow), rockerBaseFile(footRow), rockerFoldFile(footRow)].forEach((f) => { colors[f] = "hidden"; });
-        filesForElementValue(elementId, tag.value, tag.extra).forEach((f) => { colors[f] = CAGE_COLOR.aiPreview; });
+        const color = pictureTagColor(pictureTagConfidence(editedPicture, elementId, tag));
+        filesForElementValue(elementId, tag.value, tag.extra).forEach((f) => { colors[f] = color; });
       });
     }
 
@@ -10369,12 +10408,9 @@
     if (pic) {
       // An AI tag left untouched keeps its AI confidence -- only a tag
       // the user actually changed (or added) becomes a manual one.
-      const prior = new Map((pic.elements || []).map((t) => [t.elementId, t]));
       pic.elements = [...mode.selected.entries()].map(([elementId, tag]) => {
         const extra = tag.extra && Object.keys(tag.extra).length ? tag.extra : undefined;
-        const before = prior.get(elementId);
-        const unchanged = before && before.value === tag.value && JSON.stringify(before.extra || {}) === JSON.stringify(extra || {});
-        return { elementId, value: tag.value, extra, confidence: unchanged ? before.confidence : undefined };
+        return { elementId, value: tag.value, extra, confidence: pictureTagConfidence(pic, elementId, tag) };
       });
       pic.hasScreenshot = !!screenshot;
       if (angle) pic.view = { theta: +angle.theta.toFixed(4), phi: +angle.phi.toFixed(4), roll: +angle.roll.toFixed(4) };
@@ -10430,6 +10466,7 @@
   function applyCageModel() {
     const colors = computeCageColors();
     window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE || state.pictureSelectMode) ? true : state.showGhostBars);
+    if (window.CageView.setHoles) window.CageView.setHoles(tacoGussetFiles());
     window.CageView.setMeshTransforms(computeCageTransforms());
     // Tilts the modeled main hoop / backstays to the entered angles (after
     // the transforms -- the deformation works on each part's final placement).

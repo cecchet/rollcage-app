@@ -3,70 +3,78 @@
 window.TEMPLATE_MODEL_THUMBS = {
  "half-rollcage": {
   "src": "images/templates/model-3d/half-rollcage.jpg",
-  "key": "83364c62"
+  "key": "c7e446b1"
  },
  "rally-cage-double-v": {
   "src": "images/templates/model-3d/rally-cage-double-v.jpg",
-  "key": "8fb0b8ac"
+  "key": "da26c75"
+ },
+ "road-racing-basic": {
+  "src": "images/templates/model-3d/road-racing-basic.jpg",
+  "key": "5f19d206"
+ },
+ "nhra-drag-racing": {
+  "src": "images/templates/model-3d/nhra-drag-racing.jpg",
+  "key": "b38ab32a"
  },
  "worst-cage": {
   "src": "images/templates/model-3d/worst-cage.jpg",
-  "key": "a4ecbf7a"
+  "key": "7922dbff"
  },
  "subaru-gc-broken-motorsports": {
   "src": "images/templates/model-3d/subaru-gc-broken-motorsports.jpg",
-  "key": "54a64adc"
+  "key": "15c40bf"
  },
  "subaru-gd-broken-motorsports": {
   "src": "images/templates/model-3d/subaru-gd-broken-motorsports.jpg",
-  "key": "75a74862"
+  "key": "83c222d"
  },
  "subaru-vab-custom-cages": {
   "src": "images/templates/model-3d/subaru-vab-custom-cages.jpg",
-  "key": "5fbb77a9"
+  "key": "2b4cf54e"
  },
  "ford-fiesta-mk6-custom-cages": {
   "src": "images/templates/model-3d/ford-fiesta-mk6-custom-cages.jpg",
-  "key": "4675246c"
+  "key": "4776f703"
  },
  "mazda-mx5-cagekits": {
   "src": "images/templates/model-3d/mazda-mx5-cagekits.jpg",
-  "key": "2d88adc6"
+  "key": "6f3b8af9"
  },
  "datsun-240z-cagekits": {
   "src": "images/templates/model-3d/datsun-240z-cagekits.jpg",
-  "key": "c213f3c3"
+  "key": "bd0e8d6e"
  },
  "bmw-e92-cagekits": {
   "src": "images/templates/model-3d/bmw-e92-cagekits.jpg",
-  "key": "75b5332a"
+  "key": "1e49ce1d"
  },
  "porsche-gt3-cup": {
   "src": "images/templates/model-3d/porsche-gt3-cup.jpg",
-  "key": "a469cae6"
+  "key": "12f742b3"
  },
  "audi-rs4-rally": {
   "src": "images/templates/model-3d/audi-rs4-rally.jpg",
-  "key": "c7f95536"
+  "key": "84b9c69d"
  },
  "brz-rally-9hio": {
   "src": "images/templates/model-3d/brz-rally-9hio.jpg",
-  "key": "42b8f886"
+  "key": "d9b30331"
  },
  "subaru-sti-hillclimb-9hio": {
   "src": "images/templates/model-3d/subaru-sti-hillclimb-9hio.jpg",
-  "key": "8b2f8c42"
+  "key": "64e0440b"
  },
  "bmw-road-racing-9hio": {
   "src": "images/templates/model-3d/bmw-road-racing-9hio.jpg",
-  "key": "edf27f02"
+  "key": "bdf0883"
  },
  "honda-fit-rally-9hio": {
   "src": "images/templates/model-3d/honda-fit-rally-9hio.jpg",
-  "key": "efbe6c87"
+  "key": "ee093b44"
  },
  "mustang-road-racing-9hio": {
   "src": "images/templates/model-3d/mustang-road-racing-9hio.jpg",
-  "key": "c20df9a6"
+  "key": "87ba0fd"
  }
 };

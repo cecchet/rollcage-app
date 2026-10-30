@@ -1936,10 +1936,117 @@
     return out;
   }
 
+  // A round hole through the middle of each listed plate (taco gussets --
+  // see tacoGussetFiles in app.js), cut in the fragment shader rather than
+  // the geometry: the plates are bare extruded triangles, and the main hoop
+  // lean / junction offsets reshape them after the fact, so the hole is
+  // re-placed from the mesh's current vertices whenever they change (see
+  // placeHole). Every other mesh keeps a radius of 0 -- no hole, as do the
+  // A/B-pillar gussets, whose STLs come with a row of holes of their own.
+  const HOLE_RADIUS = 0.5; // of the plate's inscribed circle
+  const HOLE_MAX_VERTICES = 36; // a plain plate: an extruded triangle (or quad)
+  let holeFiles = new Set();
+  function setHoles(files) {
+    onReady(() => {
+      holeFiles = new Set(files);
+      Object.keys(meshes).forEach((file) => {
+        const mesh = meshes[file];
+        const hole = mesh.material.userData.hole;
+        if (!holeFiles.has(file)) { if (hole) hole.r.value = 0; return; }
+        if (!hole) installHole(mesh, file);
+        mesh.userData.holeKey = null;
+      });
+    });
+  }
+  function installHole(mesh, file) {
+    const hole = { c: { value: new THREE.Vector3() }, n: { value: new THREE.Vector3(0, 0, 1) }, r: { value: 0 } };
+    mesh.material.userData.hole = hole;
+    mesh.material.onBeforeCompile = (shader) => {
+      shader.uniforms.holeC = hole.c;
+      shader.uniforms.holeN = hole.n;
+      shader.uniforms.holeR = hole.r;
+      shader.vertexShader = "varying vec3 vHolePos;\n" + shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\nvHolePos = transformed;");
+      shader.fragmentShader = "uniform vec3 holeC;\nuniform vec3 holeN;\nuniform float holeR;\nvarying vec3 vHolePos;\n" + shader.fragmentShader.replace("#include <clipping_planes_fragment>",
+        "#include <clipping_planes_fragment>\nif (holeR > 0.0) { vec3 hd = vHolePos - holeC; if (length(hd - dot(hd, holeN) * holeN) < holeR) discard; }");
+    };
+    mesh.material.needsUpdate = true;
+    mesh.onBeforeRender = () => {
+      const pos = mesh.geometry.attributes.position;
+      const key = mesh.geometry.uuid + ":" + pos.version;
+      if (!holeFiles.has(file) || mesh.userData.holeKey === key) return;
+      mesh.userData.holeKey = key;
+      if (pos.count <= HOLE_MAX_VERTICES) placeHole(pos, hole);
+      else hole.r.value = 0;
+    };
+  }
+  // The plate's plane is its vertices' least-spread direction (PCA); the
+  // hole goes at the point of that plane farthest inside the plate's
+  // outline (its convex hull there), sized from that clearance.
+  function placeHole(pos, hole) {
+    const vs = [];
+    const c = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) { const v = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)); vs.push(v); c.add(v); }
+    c.multiplyScalar(1 / vs.length);
+    const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    vs.forEach((v) => {
+      const d = [v.x - c.x, v.y - c.y, v.z - c.z];
+      for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) C[a][b] += d[a] * d[b];
+    });
+    // Power iteration on (trace*I - C) converges on C's smallest axis.
+    const tr = C[0][0] + C[1][1] + C[2][2];
+    let n = new THREE.Vector3(0.3, 0.5, 0.8);
+    for (let k = 0; k < 100; k++) {
+      n = new THREE.Vector3(
+        tr * n.x - (C[0][0] * n.x + C[0][1] * n.y + C[0][2] * n.z),
+        tr * n.y - (C[1][0] * n.x + C[1][1] * n.y + C[1][2] * n.z),
+        tr * n.z - (C[2][0] * n.x + C[2][1] * n.y + C[2][2] * n.z)).normalize();
+    }
+    const u = new THREE.Vector3(1, 0, 0);
+    if (Math.abs(n.x) > 0.9) u.set(0, 1, 0);
+    u.sub(n.clone().multiplyScalar(u.dot(n))).normalize();
+    const w = new THREE.Vector3().crossVectors(n, u);
+    const pts = vs.map((v) => { const d = v.clone().sub(c); return [d.dot(u), d.dot(w)]; });
+    // Convex hull (monotone chain), counter-clockwise.
+    pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const half = (list) => {
+      const h = [];
+      list.forEach((p) => { while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop(); h.push(p); });
+      h.pop();
+      return h;
+    };
+    const hull = half(pts).concat(half(pts.slice().reverse()));
+    if (hull.length < 3) { hole.r.value = 0; return; }
+    // Distance inside the hull (negative outside).
+    const inside = (x, y) => {
+      let m = Infinity;
+      for (let i = 0; i < hull.length; i++) {
+        const a = hull[i], b = hull[(i + 1) % hull.length];
+        const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        m = Math.min(m, ((b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0])) / len);
+      }
+      return m;
+    };
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    hull.forEach(([x, y]) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); });
+    let best = [0, 0], bestD = -Infinity, sx = (x1 - x0) / 20, sy = (y1 - y0) / 20;
+    let cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    for (let round = 0; round < 4; round++) {
+      for (let i = -10; i <= 10; i++) for (let j = -10; j <= 10; j++) {
+        const x = cx + i * sx, y = cy + j * sy, d = inside(x, y);
+        if (d > bestD) { bestD = d; best = [x, y]; }
+      }
+      [cx, cy] = best; sx /= 5; sy /= 5;
+    }
+    hole.c.value.copy(c).add(u.multiplyScalar(best[0])).add(w.multiplyScalar(best[1]));
+    hole.n.value.copy(n);
+    hole.r.value = Math.max(0, bestD) * HOLE_RADIUS;
+  }
+
   // The camera's current angle (radians), for snapshot's opts.angle.
   function getAngle() { return { theta, phi, roll }; }
 
-  window.CageView = { getAngle, setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
+  window.CageView = { getAngle, setHoles, setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
