@@ -5584,14 +5584,17 @@
     // Every element tagged on the pictures (AI or manual). One the current
     // design doesn't have at all -- a gusset row its bar designs don't
     // create, or an element hidden by another answer (e.g. a backstay
-    // diagonal with no backstays) -- can't just be applied: the design
-    // answer that brings it in has to change first.
+    // diagonal with no backstays) -- is applied only along with (after) the
+    // design answer that brings it in, e.g. 253-7's gussets with 253-7.
+    const notInDesignNow = (elementId, target) => {
+      const elm = path.elements.find((e) => e.id === elementId);
+      return !!target.unexpected || (elm ? !elementVisible(elm) : false);
+    };
     const evaluated = aggregatePictureTags()
       .map((s) => ({ s, target: resolvePictureTagTarget(path, s.elementId) }))
       .filter((r) => r.target)
       .map(({ s, target }) => {
-        const elm = path.elements.find((e) => e.id === s.elementId);
-        const notInDesign = !!target.unexpected || (elm ? !elementVisible(elm) : false);
+        const notInDesign = notInDesignNow(s.elementId, target);
         let current = notInDesign ? null : getAnswer(s.elementId).value;
         const absent = notInDesign || !current || current === "none" || current === "no";
         return {
@@ -5605,7 +5608,7 @@
           // A manual tag with no specific design agrees with any answer
           // that has the element.
           matches: s.value ? current === s.value : !absent,
-          canApply: !notInDesign && !!s.value,
+          canApply: !!s.value,
         };
       });
     const rows = evaluated.filter((r) => !r.matches);
@@ -5628,13 +5631,19 @@
     }
 
     // Each discrepancy: what the pictures show (left) vs the design defined
-    // in the checklist (right) -- one side picked, the current design until
-    // the pictures' side is clicked. Applying a left pick updates the
+    // in the checklist (right) -- the current design picked until another
+    // side is clicked; clicking the picked side again unpicks the row
+    // ("none"), leaving it for later. Applying a left pick updates the
     // checklist (and so the 3D model); a right pick updates the pictures'
     // tags to match the checklist instead.
     const picked = state.aiAnalysis.accepted;
     const sideOf = (id) => picked[id] || "checklist";
-    const pick = (id, side) => { if (side === "checklist") delete picked[id]; else picked[id] = side; render(); };
+    const pick = (id, side) => {
+      if (sideOf(id) === side) picked[id] = "none";
+      else if (side === "checklist") delete picked[id];
+      else picked[id] = side;
+      render();
+    };
     const option = (r, side, heading, valueText, detail, disabled) => el("button", {
       type: "button", class: "compare-option" + (sideOf(r.s.elementId) === side ? " selected" : ""),
       "aria-pressed": sideOf(r.s.elementId) === side ? "true" : "false",
@@ -5652,27 +5661,39 @@
         el("div", { class: "compare-row-name" }, [r.target.name]),
         el("div", { class: "compare-options" }, [
           option(r, "pictures", "Identified in the pictures", r.optLabel + (r.s.confidence ? " (" + r.s.confidence + " confidence)" : ""),
-            r.notInDesign ? "Not part of the current design -- change the design answer that brings it in first."
-              : !r.s.value ? "Edit the picture's elements to pick which design it shows."
+            !r.s.value ? "Edit the picture's elements to pick which design it shows."
+              : r.notInDesign ? "Not part of the current design yet -- applied along with the design answer that brings it in (pick that one from the pictures too)."
               : ["Keeping this updates the design.", r.s.rationale], !r.canApply),
           option(r, "checklist", "Currently defined design", r.currentLabel || "Not answered yet",
             r.absent ?"Keeping this removes it from the pictures' tags." : "Keeping this overwrites the picture tag."),
         ]),
       ]));
     });
-    const selectedCount = rows.length;
+    const selectedCount = rows.filter((r) => sideOf(r.s.elementId) !== "none").length;
     panel.appendChild(
       el("div", { class: "toolbar" }, [
         el("button", { class: "btn secondary", onclick: () => { rows.forEach((r) => { if (r.canApply) picked[r.s.elementId] = "pictures"; }); render(); } }, ["Select all from pictures"]),
         el("button", {
           class: "btn", disabled: !selectedCount,
           onclick: () => {
+            // Design answers first, then what they bring in (a gusset row
+            // only exists once its bar design does). A pick still not in
+            // the design after that stays picked, and unpicked rows stay
+            // unpicked, for later.
+            const kept = {};
             rows.forEach((r) => {
               const side = sideOf(r.s.elementId);
-              if (side === "pictures" && r.canApply) setAnswer(r.s.elementId, { value: r.s.value });
+              if (side === "none") kept[r.s.elementId] = "none";
+              else if (side === "pictures" && r.canApply && !r.notInDesign) setAnswer(r.s.elementId, { value: r.s.value });
               else if (side === "checklist") retagPicturesToChecklist(r.s.elementId, r.notInDesign);
             });
-            state.aiAnalysis.accepted = {};
+            rows.forEach((r) => {
+              if (sideOf(r.s.elementId) !== "pictures" || !r.canApply || !r.notInDesign) return;
+              const target = resolvePictureTagTarget(path, r.s.elementId);
+              if (target && !notInDesignNow(r.s.elementId, target)) setAnswer(r.s.elementId, { value: r.s.value });
+              else kept[r.s.elementId] = "pictures";
+            });
+            state.aiAnalysis.accepted = kept;
             render();
           },
         }, ["Apply selected" + (selectedCount ? " (" + selectedCount + ")" : "")]),
@@ -9715,14 +9736,6 @@
     "253-17 right lower.stl": { elementId: "rear_lateral_reinforcement_present", kind: "side", side: "lower", other: "upper" },
   };
 
-  // A gusset row's own design choice can be restricted to just one shape
-  // (restrictOptionIds, e.g. lateral-to-A-pillar gussets are single-plate
-  // only) -- double-click should fill in whichever shape is actually
-  // allowed there rather than always defaulting to the same one.
-  function defaultGussetDesignFor(rowDef) {
-    if (rowDef && rowDef.restrictOptionIds && rowDef.restrictOptionIds.length === 1) return rowDef.restrictOptionIds[0];
-    return "single_plate";
-  }
 
   // Mounting foot double-click cycles through plate designs (see
   // MOUNTING_FOOT_DESIGN_OPTIONS) rather than a single toggle, since there
@@ -9922,9 +9935,13 @@
       const gussetDesignElm = path.elements.find((e) => e.id === "gusset_design");
       const rowDef = gussetDesignElm && resolveRows(gussetDesignElm).find((r) => r.id === gussetRow);
       if (!rowDef) return; // not a currently valid/visible gusset row
+      // Cycles none -> each design the row allows (taco, single plate; just
+      // one where restrictOptionIds limits it) -> none.
       const key = "gusset_design__" + gussetRow + "__design";
-      const current = getAnswer(key).value;
-      setAnswer(key, { value: current ? "" : defaultGussetDesignFor(rowDef) });
+      const cycle = [""].concat(gussetDesignElm.columns[0].options.map((o) => o.id)
+        .filter((id) => id && (!rowDef.restrictOptionIds || rowDef.restrictOptionIds.includes(id))));
+      const next = cycle[(cycle.indexOf(getAnswer(key).value || "") + 1) % cycle.length];
+      setAnswer(key, { value: next });
       return;
     }
     const roofCornerRow = ROOF_CORNER_GUSSET_FILE_TO_ROW.get(file);
