@@ -1660,7 +1660,9 @@
     holder.innerHTML = "";
     sidePartShown = null;
     const choices = sidePartChoices();
-    if (!isWideLayout() || !choices.length) return;
+    // While tagging a picture (or marking damage), the column is the
+    // picture and the model only.
+    if (!isWideLayout() || !choices.length || state.pictureSelectMode || state.damageSelectMode) return;
     const picked = choices.includes(sidePart) ? sidePart : choices[choices.length - 1];
     // The part open on the left isn't repeated here: the other one shows instead.
     const shown = picked === state.activeTab && choices.length > 1 ? choices.find((p) => p !== picked) : picked;
@@ -5606,6 +5608,7 @@
         };
       });
     const rows = evaluated.filter((r) => !r.matches);
+    pictureDifferenceCount = rows.length;
     // Suggestions that already match the checklist are correctly left out
     // of the review list below -- nothing to accept -- but silently
     // dropping some while showing others (e.g. an Overview photo tagging 9
@@ -5624,14 +5627,16 @@
     }
 
     // Each discrepancy: what the pictures show (left) vs the design defined
-    // in the checklist (right) -- pick one side (click again to unpick).
-    // Applying a left pick updates the checklist (and so the 3D model); a
-    // right pick updates the pictures' tags to match the checklist instead.
+    // in the checklist (right) -- one side picked, the current design until
+    // the pictures' side is clicked. Applying a left pick updates the
+    // checklist (and so the 3D model); a right pick updates the pictures'
+    // tags to match the checklist instead.
     const picked = state.aiAnalysis.accepted;
-    const pick = (id, side) => { if (picked[id] === side) delete picked[id]; else picked[id] = side; render(); };
+    const sideOf = (id) => picked[id] || "checklist";
+    const pick = (id, side) => { if (side === "checklist") delete picked[id]; else picked[id] = side; render(); };
     const option = (r, side, heading, valueText, detail, disabled) => el("button", {
-      type: "button", class: "compare-option" + (picked[r.s.elementId] === side ? " selected" : ""),
-      "aria-pressed": picked[r.s.elementId] === side ? "true" : "false",
+      type: "button", class: "compare-option" + (sideOf(r.s.elementId) === side ? " selected" : ""),
+      "aria-pressed": sideOf(r.s.elementId) === side ? "true" : "false",
       disabled: !!disabled,
       onclick: () => pick(r.s.elementId, side),
     }, [
@@ -5654,8 +5659,7 @@
         ]),
       ]));
     });
-    panel.appendChild(list);
-    const selectedCount = rows.filter((r) => picked[r.s.elementId]).length;
+    const selectedCount = rows.length;
     panel.appendChild(
       el("div", { class: "toolbar" }, [
         el("button", { class: "btn secondary", onclick: () => { rows.forEach((r) => { if (r.canApply) picked[r.s.elementId] = "pictures"; }); render(); } }, ["Select all from pictures"]),
@@ -5663,7 +5667,7 @@
           class: "btn", disabled: !selectedCount,
           onclick: () => {
             rows.forEach((r) => {
-              const side = picked[r.s.elementId];
+              const side = sideOf(r.s.elementId);
               if (side === "pictures" && r.canApply) setAnswer(r.s.elementId, { value: r.s.value });
               else if (side === "checklist") retagPicturesToChecklist(r.s.elementId, r.notInDesign);
             });
@@ -5673,6 +5677,7 @@
         }, ["Apply selected" + (selectedCount ? " (" + selectedCount + ")" : "")]),
       ])
     );
+    panel.appendChild(list);
     return panel;
   }
 
@@ -10260,6 +10265,7 @@
   // itself always trails whichever Part is currently shown.
   function syncSafetyScoreBadge() {
     syncComplianceBadge();
+    syncPictureDifferencesBadge();
     const btn = document.getElementById("cageViewerSafetyScore");
     if (!btn) return;
     // Same top-left badge slot, repurposed while tagging a picture's
@@ -10301,6 +10307,24 @@
         render();
       }
       const target = document.getElementById("safety-score-panel");
+      if (!target) return;
+      scrollBelowViewer(target);
+      flashCard(target);
+    };
+  }
+  // "Update from pictures" on the model while the pictures part's "Differences between
+  // pictures and current design" lists anything (counted as it renders) --
+  // a shortcut to that list, gone once every difference is resolved.
+  let pictureDifferenceCount = 0;
+  function syncPictureDifferencesBadge() {
+    const btn = document.getElementById("cageViewerPictureDifferences");
+    if (!btn) return;
+    btn.hidden = !pictureDifferenceCount || !!state.pictureSelectMode || !!state.damageSelectMode;
+    if (btn.hidden) return;
+    btn.textContent = "Update from pictures (" + pictureDifferenceCount + ")";
+    btn.title = pictureDifferenceCount + " difference(s) between the pictures and the current design -- review them";
+    btn.onclick = () => {
+      const target = document.getElementById("pictures-compare");
       if (!target) return;
       scrollBelowViewer(target);
       flashCard(target);
@@ -10354,6 +10378,7 @@
     const active = !!mode || !!state.damageSelectMode;
     buttons.hidden = active;
     banner.hidden = !active;
+    document.body.classList.toggle("picture-selecting", active);
     if (header) header.hidden = !active;
     const bannerText = banner.querySelector("span");
     if (bannerText) {
@@ -10523,6 +10548,7 @@
 
   function render() {
     failingGussetCache = null;
+    pictureDifferenceCount = 0; // (set again if Part 1's differences panel renders)
     // This rebuilds the whole tree from scratch (root.innerHTML = "" below)
     // rather than diffing, which loses the focused element AND the page's
     // scroll position -- e.g. typing into a Part 6 contact field commits on
@@ -10667,6 +10693,15 @@
     }
     const pmDone = document.getElementById("cageViewerPictureModeDone");
     if (pmDone) pmDone.addEventListener("click", () => (state.damageSelectMode ? finishDamageSelectMode() : finishPictureSelectMode()));
+    // While tagging (or marking damage), a click anywhere but the model, the
+    // picture, the banner's buttons or a tag's × flashes Done -- the way out.
+    document.addEventListener("click", (e) => {
+      if (!pmDone || (!state.pictureSelectMode && !state.damageSelectMode)) return;
+      if (e.target.closest("#cageViewerContainer, #cageViewerPictureModeThumb, #cageViewerPictureModeBanner button, .picture-element-remove, .image-viewer")) return;
+      pmDone.classList.remove("flash");
+      void pmDone.offsetWidth; // restart the animation
+      pmDone.classList.add("flash");
+    });
     const pmCancel = document.getElementById("cageViewerPictureModeCancel");
     if (pmCancel) pmCancel.addEventListener("click", () => (state.damageSelectMode ? cancelDamageSelectMode() : cancelPictureSelectMode()));
     document.addEventListener("keydown", (e) => {

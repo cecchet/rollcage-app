@@ -11,6 +11,8 @@
   --fail-bg: #fbe9e7;
   --warn: #8a5a00;
   --warn-bg: #fff4dd;
+  --pick: #ca8a04;
+  --pick-bg: #fef9c3;
   --info-bg: #eef2f9;
   --template: #6b3fb3;
   --kit: #b4530f;
@@ -32,6 +34,8 @@
     --fail-bg: #3a1c1a;
     --warn: #f0c05a;
     --warn-bg: #3a2f10;
+    --pick: #facc15;
+    --pick-bg: #37320c;
     --info-bg: #202634;
     --template: #b794f6;
     --kit: #f6a85a;
@@ -250,7 +254,7 @@ body.wide-layout .cage-viewer-container { height: min(48vh, 600px); }
 .cage-viewer-safety-score.tier-orange { color: var(--warn); border-color: var(--warn); }
 .cage-viewer-safety-score.tier-red { color: var(--fail); border-color: var(--fail); }
 .cage-viewer-safety-score[hidden] { display: none; }
-#cageViewerCompliance[hidden] { display: none; }
+#cageViewerCompliance[hidden], #cageViewerPictureDifferences[hidden] { display: none; }
 .cage-viewer-header-buttons { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 /* The model's own view controls, overlaid on its bottom-left corner (above
    the canvas, which cage_view.js appends after them). */
@@ -288,6 +292,21 @@ body.wide-layout .cage-viewer-container { height: min(48vh, 600px); }
   margin-bottom: 8px;
 }
 #cageViewerPictureModeThumb[hidden] { display: none; }
+/* While tagging on a wide screen, the picture takes all the column's height
+   the model leaves (Part 7/8 aren't shown then -- see renderSidePart). */
+body.wide-layout.picture-selecting .workspace-side-viewer,
+body.wide-layout.picture-selecting #sideViewerSlot,
+body.wide-layout.picture-selecting #cageViewerBody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+body.wide-layout.picture-selecting .workspace-side-part { display: none; }
+body.wide-layout.picture-selecting .cage-viewer-picture-thumb { flex: 1 1 auto; min-height: 120px; max-height: none; }
+body.wide-layout.picture-selecting .cage-viewer-container { flex: 0 0 auto; }
+/* Done, flashed by a click elsewhere while tagging. */
+#cageViewerPictureModeDone.flash { animation: done-flash 0.9s ease-out; }
+@keyframes done-flash {
+  0%, 40% { box-shadow: 0 0 0 4px var(--warn); transform: scale(1.12); }
+  100% { box-shadow: 0 0 0 0 transparent; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { #cageViewerPictureModeDone.flash { animation-duration: 1.6s; } }
 /* The Part switcher and View switch (Design/Tube size/Junctions/Welds) are
    suppressed while tagging a picture -- the 3D model and Done/Cancel should
    be the only interactive things on screen, see syncPictureModeUi(). ID
@@ -956,7 +975,8 @@ button.picture-coverage-chip:hover:not(:disabled) { box-shadow: inset 0 0 0 1px 
 .compare-option { text-align: left; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; cursor: pointer; }
 .compare-option:hover:not(:disabled) { border-color: var(--accent); }
 .compare-option:disabled { cursor: not-allowed; opacity: 0.75; }
-.compare-option.selected { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); background: var(--info-bg); }
+/* The picked side, in yellow -- apart from the app's blue buttons/selections. */
+.compare-option.selected { border-color: var(--pick); box-shadow: inset 0 0 0 2px var(--pick); background: var(--pick-bg); }
 .compare-option-heading { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 2px; }
 .compare-option-value { font-size: 0.9rem; }
 .compare-option-detail { font-size: 0.78rem; color: var(--muted); margin-top: 4px; }
