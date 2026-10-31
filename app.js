@@ -22,6 +22,8 @@
     // The Frog Safety score as a part of its own (the last one) instead of a
     // panel trailing every part.
     safetyScorePart: true,
+    // false: no Frog Safety score at all (no part, panel or badge).
+    safetyScore: true,
     // Sanctioning bodies offered, as RULES keys in display order; null = all
     // of them except documentation-only ones (see rules-data.js).
     orgs: null,
@@ -1562,23 +1564,36 @@
       });
     },
     setAnswer: (id, value) => setAnswer(id, { value }),
-    jumpTo: (where) => { if (where === "logbook") window.RollcageApp.showPart("logbook"); else jumpToElementSection(where); },
+    jumpTo: (where) => {
+      if (where === "logbook") window.RollcageApp.showPart("logbook");
+      else if (/^field:/.test(where)) jumpToLogbookField(where.slice(6));
+      else jumpToElementSection(where);
+    },
     // What a logbook needs before it's issued: the logbook information
     // (Part 1) and every checklist part complete. [{ label, done, missing?,
     // where }] -- where: "logbook" or the first missing item's id (jumpTo).
     issueReadiness: () => {
       const v = (id) => { const a = getAnswer(id).value; return typeof a === "string" ? a.trim() : ""; };
+      // The logbook information, field by field (logbookFieldProblem): a
+      // group is done when none of its fields has a problem; "Go" goes to
+      // the first that has.
+      const group = (label, ids) => {
+        const bad = ids.filter((id) => logbookFieldProblem(id));
+        const problem = bad.length === 1 ? logbookFieldProblem(bad[0]) : "";
+        return { label: label + (problem && problem !== "Required" ? " -- " + problem.toLowerCase() : ""), done: !bad.length, where: bad.length ? "field:" + bad[0] : null };
+      };
       const items = [
-        { label: "Sanctioning body", done: !!state.vehicle.org && state.vehicle.org !== "none", where: "logbook" },
-        { label: "Vehicle: manufacturer, model and year", done: !!(v("vehicle_manufacturer") && v("vehicle_model") && v("vehicle_year")), where: "logbook" },
-        { label: "Owner's name and email", done: !!(v("vehicle_owner_name") && /^[^@\s]+@[^@\s]+$/.test(v("vehicle_owner_email"))), where: "logbook" },
-        { label: "Logbook number", done: !!v("vehicle_logbook_number"), where: "logbook" },
+        group("Sanctioning body", ["vehicle_org"]),
+        group("Vehicle: manufacturer, model and year", ["vehicle_manufacturer", "vehicle_model", "vehicle_year"]),
+        group("Owner's name", ["vehicle_owner_name"]),
+        group("Owner's email", ["vehicle_owner_email"]),
+        group("Logbook number", ["vehicle_logbook_number"]),
       ];
       // An existing logbook was already issued: its paper pages (and its
       // original issue date) stand in for checking the cage against the rules.
       if (isExistingLogbook()) {
-        items.push({ label: "Original issue date", done: !!state.vehicle.logbookDate, where: "logbook" });
-        items.push({ label: "Photos of the paper logbook pages", done: state.paperLogbookPhotos.length > 0, where: "logbook" });
+        items.push(group("Original issue date", ["vehicle_logbook_date"]));
+        items.push(group("Photos of the paper logbook pages", ["paper_logbook_photos"]));
         return items;
       }
       const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
@@ -3114,9 +3129,56 @@
     ]);
   }
 
+  // The logbook app: what a field a logbook can't be issued without is
+  // missing ("Required") or gets wrong, or null -- for the field's red
+  // outline and message (logbookField) and the issue checklist
+  // (issueReadiness). Ids are answers, plus vehicle_org (the sanctioning
+  // body), vehicle_logbook_date and paper_logbook_photos.
+  const LOGBOOK_REQUIRED_FIELDS = ["vehicle_org", "vehicle_manufacturer", "vehicle_model", "vehicle_year", "vehicle_owner_name", "vehicle_owner_email", "vehicle_logbook_number"];
+  function logbookFieldProblem(id) {
+    if (!CFG.logbook || (state.vehicle && state.vehicle.server)) return null;
+    const existing = isExistingLogbook();
+    if (!LOGBOOK_REQUIRED_FIELDS.includes(id) && !(existing && (id === "vehicle_logbook_date" || id === "paper_logbook_photos"))) return null;
+    if (id === "vehicle_org") return state.vehicle.org && state.vehicle.org !== "none" ? null : "Required";
+    if (id === "vehicle_logbook_date") return state.vehicle.logbookDate ? null : "Required";
+    if (id === "paper_logbook_photos") return state.paperLogbookPhotos.length ? null : "Add at least one page";
+    const a = getAnswer(id).value;
+    const v = typeof a === "string" ? a.trim() : "";
+    if (!v) return "Required";
+    if (id === "vehicle_owner_email" && !/^[^@\s]+@[^@\s.]+(\.[^@\s.]+)+$/.test(v)) return "Not a valid email address";
+    return null;
+  }
+  // Marks a field wrapper with its id (for jumpToLogbookField) and, when
+  // logbookFieldProblem finds one, a red outline and the problem under it.
+  function logbookField(wrap, id) {
+    wrap.dataset.field = id;
+    const problem = logbookFieldProblem(id);
+    if (problem) {
+      wrap.classList.add("field-missing");
+      wrap.appendChild(el("div", { class: "field-problem" }, [problem]));
+    }
+    return wrap;
+  }
+  // "Go" on the issue checklist: to that field of the logbook information,
+  // flashed, with the cursor in it.
+  function jumpToLogbookField(id) {
+    state.libraryOpen = false;
+    setWorkspaceShown(true);
+    state.activeTab = LOGBOOK_PHASE;
+    state.resultsExpanded = true;
+    render();
+    requestAnimationFrame(() => {
+      const target = document.querySelector('[data-field="' + id + '"]');
+      if (!target) return;
+      scrollBelowViewer(target, { center: true });
+      flashEl(target, "field-flash");
+      const input = target.querySelector("input, select, textarea");
+      if (input) input.focus({ preventScroll: true });
+    });
+  }
   function textAnswerField(label, id, placeholder, type) {
     const answer = getAnswer(id);
-    return el("div", { class: "field" }, [
+    return logbookField(el("div", { class: "field" }, [
       el("label", {}, [label]),
       el("input", {
         type: type || "text",
@@ -3124,7 +3186,7 @@
         placeholder: placeholder || "",
         onchange: (e) => setAnswer(id, { value: e.target.value }),
       }),
-    ]);
+    ]), id);
   }
 
   // A number + kg/lb unit select, same {value, unit} shape and cell-number/
@@ -3317,12 +3379,12 @@
       ]));
       if (paper !== "yes") return wrap;
     }
-    wrap.appendChild(renderPhotoListField("paperLogbookPhotos", "Paper logbook pages",
+    wrap.appendChild(logbookField(renderPhotoListField("paperLogbookPhotos", "Paper logbook pages",
       (existing
         ? "Photos of every page of the existing logbook: its issue page and every event entry (required). "
         : "Photos of the paper logbook's pages (optional). ")
         + "Up to " + PAPER_LOGBOOK_PHOTO_LIMIT + " -- uploaded with the logbook, seen by the owner and scrutineers only.",
-      PAPER_LOGBOOK_PHOTO_LIMIT));
+      PAPER_LOGBOOK_PHOTO_LIMIT), "paper_logbook_photos"));
     return wrap;
   }
   // A list of plain photos (no tags) kept in state[key] as { id }: upload,
@@ -3453,7 +3515,7 @@
         return opt;
       })));
     });
-    const children = [el("div", { class: "field" }, [el("label", {}, ["Sanctioning body"]), orgSelect])];
+    const children = [logbookField(el("div", { class: "field" }, [el("label", {}, ["Sanctioning body"]), orgSelect]), "vehicle_org")];
     // A body with grandfathering rules: which ones apply depends on when
     // the logbook was (or will be) issued.
     const orgRules = RULES[state.vehicle.org];
@@ -3721,7 +3783,7 @@
     inspectionNotesInput.value = inspectionNotesAnswer.value || "";
     logbookPanel.appendChild(el("div", { class: "field" }, [el("label", {}, ["Inspection notes"]), inspectionNotesInput]));
 
-    const dateField = el("div", { class: "field" }, [
+    const dateField = logbookField(el("div", { class: "field" }, [
       el("label", {}, [isExistingLogbook() ? "Original issue date" : "Logbook issue date"]),
       el("input", {
         type: "date",
@@ -3731,16 +3793,16 @@
           markDirty();
         },
       }),
-    ]);
+    ]), "vehicle_logbook_date");
     const logbookNumberAnswer = getAnswer("vehicle_logbook_number");
-    const logbookNumberField = el("div", { class: "field" }, [
+    const logbookNumberField = logbookField(el("div", { class: "field" }, [
       el("label", {}, ["Logbook number"]),
       el("input", {
         type: "text",
         value: logbookNumberAnswer.value || "",
         onchange: (e) => setAnswer("vehicle_logbook_number", { value: e.target.value }),
       }),
-    ]);
+    ]), "vehicle_logbook_number");
     logbookPanel.appendChild(el("div", { class: "field-row" }, [dateField, logbookNumberField]));
     if (CFG.logbook) logbookPanel.appendChild(renderPaperLogbookField());
 
@@ -10608,14 +10670,15 @@
       renderResults(root, path);
       // (The logbook app's vehicle lives in Logbook information -- so do its pictures.)
       if (CFG.logbook) renderPictures(root, path);
-    } else if (state.activeTab === SAFETY_PHASE && CFG.safetyScorePart) {
+    } else if (state.activeTab === SAFETY_PHASE && CFG.safetyScorePart && CFG.safetyScore) {
       renderSafetyScore(root, path, { asPart: true });
     } else {
       renderChecklist(root, path);
     }
     // Trails every part -- unless it's a part of its own (then the badge
     // still needs its total).
-    if (!CFG.safetyScorePart) renderSafetyScore(root, path);
+    if (!CFG.safetyScore) lastSafetyScoreSummary = null;
+    else if (!CFG.safetyScorePart) renderSafetyScore(root, path);
     else if (state.activeTab !== SAFETY_PHASE) renderSafetyScore(root, path, { summaryOnly: true });
     renderSidePart(path);
     lastComplianceSummary = complianceSummary(path);

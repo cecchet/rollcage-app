@@ -348,6 +348,11 @@ body.wide-layout.picture-selecting .cage-viewer-container { flex: 0 0 auto; }
 }
 
 .field label { font-size: 0.82rem; color: var(--muted); }
+/* The logbook app: a field a logbook can't be issued without, missing or wrong. */
+.field.field-missing input, .field.field-missing select { border-color: var(--fail); box-shadow: 0 0 0 1px var(--fail); }
+.field.field-missing > label { color: var(--fail); }
+.field-problem { font-size: 0.78rem; color: var(--fail); }
+.field.field-flash { animation: row-flash-fade 1.6s ease-out; border-radius: var(--radius); }
 
 .vehicle-photo-slot { flex: 1 1 220px; }
 .vehicle-photo-thumb {
