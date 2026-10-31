@@ -117,6 +117,13 @@
   function markDirty() {
     state.dirty = true;
   }
+  // Reloading, closing the tab or leaving the page with unsaved changes asks
+  // first (the browser's own "Leave site?" dialog -- its text can't be set).
+  window.addEventListener("beforeunload", (e) => {
+    if (!state.dirty) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
 
   // Gates any action that would replace the current in-memory rollcage
   // (loading a different saved one, starting a new one) behind a single
