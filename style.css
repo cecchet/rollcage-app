@@ -1107,6 +1107,10 @@ img.zoomable, #cageViewerPictureModeThumb { cursor: zoom-in; }
 .logbook-event-badge { font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); white-space: nowrap; }
 .logbook-event-badge.result-pass { background: var(--pass-bg); color: var(--pass); }
 .logbook-event-badge.result-fail, .logbook-event-badge.damage { background: var(--fail-bg); color: var(--fail); }
+/* A repair or cage update in the log. */
+.logbook-event.logbook-work { border-left-color: var(--accent); }
+.logbook-event-badge.work { background: var(--info-bg); color: var(--accent); }
+.picture-element-chip.work-chip { background: var(--pass-bg); color: var(--pass); }
 .logbook-event-toggle { color: var(--muted); }
 .logbook-event-body { padding: 0 12px 12px; }
 .logbook-event-damage { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }

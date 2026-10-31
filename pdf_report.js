@@ -306,6 +306,7 @@
       w.subheading(ev.title);
       ev.lines.forEach((line) => w.row(line.label, line.value, line.label === "Tech inspection"
         ? { valueColor: ev.result === "pass" ? COLOR.green : ev.result === "fail" ? COLOR.red : COLOR.muted } : undefined));
+      (ev.photos || []).forEach((photo) => w.image(photo, { maxWidth: 120, maxHeight: 90 }));
       if (!ev.damage) return;
       w.text("Rollcage damage", { size: 10, bold: true, color: COLOR.red });
       (ev.damage.parts || []).forEach((part) => w.bullet(part, { color: COLOR.red }));

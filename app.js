@@ -1448,6 +1448,7 @@
     };
     state.events = state.events.map((ev) => ({
       ...ev,
+      photos: (ev.photos || []).map((p) => ({ ...p, id: cloneStoredPicture(p.id) })),
       damage: ev.damage && {
         ...ev.damage,
         photos: (ev.damage.photos || []).map((p) => ({ ...p, id: cloneStoredPicture(p.id) })),
@@ -1473,6 +1474,7 @@
       vehiclePhotos: { front: one(vp.front), rear: one(vp.rear) },
       events: (s.events || []).map((ev) => ({
         ...ev,
+        photos: remap(ev.photos),
         damage: ev.damage && { ...ev.damage, photos: remap(ev.damage.photos), modelShotId: ev.damage.modelShotId ? mapId(ev.damage.modelShotId) : null },
       })),
     };
@@ -1557,7 +1559,7 @@
     showPart: (which) => {
       state.libraryOpen = false;
       setWorkspaceShown(true);
-      state.activeTab = which === "rollcage" ? 1 : LOGBOOK_PHASE;
+      state.activeTab = which === "rollcage" ? 1 : which === "events" && logShown() ? LOG_PHASE : LOGBOOK_PHASE;
       if (which !== "rollcage") state.resultsExpanded = true;
       render();
       const id = which === "events" ? "logbook-events" : which === "logbook" ? "compliance-panel" : "cageViewerContainer";
@@ -3824,13 +3826,29 @@
   // notes), who inspected it (optional scrutineer, chief scrutineer) and
   // optional event notes -- e.g. a crash. Rollcage damage gets its own
   // photos and the damaged parts marked on the 3D model.
+  // The log also holds what's done to the cage between events: a repair
+  // or a cage update (an added bar, a changed design...) -- ev.kind
+  // "repair" | "update" ("event", or none, for an event): what was done
+  // (name), who did it (doneBy), notes, photos, the parts concerned marked
+  // on the 3D model (ev.damage, as an event's damage) and the scrutineer
+  // who checked it.
+  // A new logbook being prepared has no log yet: it comes once it's issued
+  // (the logbook app's CFG.eventsOnlyWhenIssued -- vehicle.server links an
+  // issued one to its online copy). An existing one brings its past events
+  // along, entered before it's issued.
+  function logShown() { return !CFG.eventsOnlyWhenIssued || !!state.vehicle.server || isExistingLogbook(); }
+  const LOG_KINDS = {
+    event: { label: "Event", add: "Add an event" },
+    repair: { label: "Repair", add: "Add a repair", what: "What was repaired", placeholder: "e.g. Replaced the left door bars", parts: "Repaired parts" },
+    update: { label: "Cage update", add: "Add a cage update", what: "What changed", placeholder: "e.g. Added a 253-18 rear transversal bar", parts: "Parts added or changed" },
+  };
+  const logKind = (ev) => (LOG_KINDS[ev.kind] ? ev.kind : "event");
   function eventUid() { return "ev_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6); }
-  function newLogbookEvent() {
-    return {
-      id: eventUid(), name: "", date: new Date().toISOString().slice(0, 10), driver: "",
-      techResult: "", techNotes: "", scrutineerName: "", scrutineerLicense: "", chiefName: "", chiefLicense: "",
-      notes: "", damage: null,
-    };
+  function newLogbookEvent(kind) {
+    const base = { id: eventUid(), kind: kind || "event", name: "", date: new Date().toISOString().slice(0, 10), notes: "", photos: [], damage: null };
+    return kind && kind !== "event"
+      ? Object.assign(base, { doneBy: "", scrutineerName: "", scrutineerLicense: "", damage: { present: true, photos: [], files: [], modelShotId: null } })
+      : Object.assign(base, { driver: "", techResult: "", techNotes: "", scrutineerName: "", scrutineerLicense: "", chiefName: "", chiefLicense: "" });
   }
   function eventsInOrder() {
     // Newest first, like flipping to the last filled-in page.
@@ -3853,24 +3871,29 @@
     const part = file.replace(/\.(stl|virtual)$/i, "");
     return elm && elm.name !== part ? elm.name + " (" + part + ")" : part;
   }
+  function renderLogPart(root) {
+    const panel = el("div", { class: "panel" });
+    panel.appendChild(el("h2", {}, [PHASE_LABELS[LOG_PHASE]]));
+    panel.appendChild(el("div", { class: "element-desc" }, ["The car's log, newest first: each event it entered (with its tech inspection, photos and any rollcage damage), and each repair or update made to its cage."]));
+    renderLogbookEvents(panel);
+    root.appendChild(panel);
+  }
   function renderLogbookEvents(panel) {
     panel.appendChild(el("div", { class: "category-heading logbook-events-heading", id: "logbook-events" }, [
-      "Events (" + state.events.length + ")",
+      "Entries (" + state.events.length + ")",
     ]));
-    panel.appendChild(el("div", { class: "toolbar" }, [
-      el("button", {
-        class: "btn small", disabled: !!state.damageSelectMode,
-        onclick: () => {
-          const ev = newLogbookEvent();
-          state.events.push(ev);
-          state.expandedEvents[ev.id] = true;
-          markDirty();
-          render();
-        },
-      }, ["Add event"]),
-    ]));
+    panel.appendChild(el("div", { class: "toolbar" }, Object.keys(LOG_KINDS).map((kind, i) => el("button", {
+      class: "btn small" + (i ? " secondary" : ""), disabled: !!state.damageSelectMode,
+      onclick: () => {
+        const ev = newLogbookEvent(kind);
+        state.events.push(ev);
+        state.expandedEvents[ev.id] = true;
+        markDirty();
+        render();
+      },
+    }, [LOG_KINDS[kind].add]))));
     if (!state.events.length) {
-      panel.appendChild(el("div", { class: "element-desc" }, ["No events yet -- add one for each event the car enters, with its tech inspection result."]));
+      panel.appendChild(el("div", { class: "element-desc" }, ["Nothing logged yet -- add each event the car enters, with its tech inspection result, and each repair or update made to the cage."]));
       return;
     }
     const list = el("div", { class: "logbook-event-list" });
@@ -3878,6 +3901,7 @@
     panel.appendChild(list);
   }
   function renderLogbookEvent(ev) {
+    if (logKind(ev) !== "event") return renderLogbookWork(ev);
     const open = !!state.expandedEvents[ev.id];
     const result = ev.techResult === "pass" ? "PASS" : ev.techResult === "fail" ? "FAIL" : "Not inspected";
     const card = el("div", { class: "logbook-event state-" + (ev.techResult === "pass" ? "pass" : ev.techResult === "fail" ? "fail" : "warn"), id: "event-" + ev.id });
@@ -3913,41 +3937,16 @@
       eventTextField(ev, "Chief Scrutineer license", "chiefLicense", { placeholder: "e.g. A-23" }),
     ]));
     body.appendChild(eventTextField(ev, "Event notes (optional)", "notes", { multiline: true, placeholder: "e.g. rolled on stage 4, front of the car damaged" }));
+    body.appendChild(renderEventPhotos(ev, "photos", "Photos (optional)", "Anything worth keeping from this event -- e.g. something seen at tech.", "Event photo"));
     body.appendChild(renderEventDamage(ev));
-    body.appendChild(el("div", { class: "toolbar" }, [
-      el("button", {
-        class: "btn small secondary", disabled: !!state.damageSelectMode,
-        onclick: () => {
-          if (!confirm("Delete the event \"" + (ev.name || "Unnamed event") + "\"? This can't be undone.")) return;
-          const photoIds = ev.damage ? (ev.damage.photos || []).map((p) => p.id).concat(ev.damage.modelShotId ? [ev.damage.modelShotId] : []) : [];
-          photoIds.forEach((id) => { deletePictureRecord(id); delete pictureImageCache[id]; });
-          state.events = state.events.filter((x) => x !== ev);
-          if (state.damageViewEventId === ev.id) state.damageViewEventId = null;
-          markDirty();
-          render();
-        },
-      }, ["Delete event"]),
-    ]));
+    body.appendChild(el("div", { class: "toolbar" }, [deleteLogEntryButton(ev, "event")]));
     card.appendChild(body);
     return card;
   }
-  function renderEventDamage(ev) {
-    const box = el("div", { class: "logbook-event-damage" });
-    const present = !!(ev.damage && ev.damage.present);
-    const toggle = el("input", {
-      type: "checkbox", id: "damage_" + ev.id,
-      onchange: (e) => {
-        ev.damage = Object.assign({ photos: [], files: [], modelShotId: null }, ev.damage || {}, { present: e.target.checked });
-        markDirty();
-        render();
-      },
-    });
-    toggle.checked = present;
-    box.appendChild(el("label", { class: "checkbox-label", for: "damage_" + ev.id }, [toggle, " The rollcage was damaged at this event"]));
-    if (!present) return box;
-
-    // Damage photos (same compressed-JPEG picture store as everywhere else).
-    const photos = ev.damage.photos || (ev.damage.photos = []);
+  // An event's photos (owner[key]: [{ id }], same compressed-JPEG picture
+  // store as everywhere else): add, view, delete.
+  function renderEventPhotos(owner, key, label, description, what, caption) {
+    const photos = owner[key] || (owner[key] = []);
     const photoInput = el("input", {
       type: "file", accept: "image/*", multiple: true, disabled: !!state.damageSelectMode,
       onchange: (e) => {
@@ -3965,7 +3964,7 @@
         });
       },
     });
-    box.appendChild(el("div", { class: "field" }, [el("label", {}, ["Damage photos"]), photoInput]));
+    const box = el("div", { class: "field" }, [el("label", {}, [label]), description ? el("div", { class: "element-desc" }, [description]) : null, photoInput]);
     if (photos.length) {
       const grid = el("div", { class: "damage-photo-grid" });
       photos.forEach((p) => {
@@ -3973,33 +3972,105 @@
         const cached = pictureImageCache[p.id] || {};
         grid.appendChild(el("div", { class: "photo-thumb" }, [
           cached.photo
-            ? el("img", { src: cached.photo, alt: "Damage photo", onclick: () => { state.mediaViewer = { image: cached.photo, caption: (ev.name || "Event") + " -- rollcage damage" }; render(); } })
+            ? el("img", { src: cached.photo, alt: what, onclick: () => { state.mediaViewer = { image: cached.photo, caption: caption || owner.name || what }; render(); } })
             : el("div", { class: "picture-card-loading" }, ["…"]),
           el("button", {
             type: "button", title: "Delete photo",
-            onclick: () => { if (!confirm("Delete this damage photo? This can't be undone.")) return; ev.damage.photos = photos.filter((x) => x !== p); deletePictureRecord(p.id); delete pictureImageCache[p.id]; markDirty(); render(); },
+            onclick: () => { if (!confirm("Delete this " + what.toLowerCase() + "? This can't be undone.")) return; owner[key] = photos.filter((x) => x !== p); deletePictureRecord(p.id); delete pictureImageCache[p.id]; markDirty(); render(); },
           }, ["×"]),
         ]));
       });
       box.appendChild(grid);
     }
-
-    // Damaged parts, marked on the 3D model.
+    return box;
+  }
+  // A repair or cage update in the log (see LOG_KINDS).
+  function renderLogbookWork(ev) {
+    const kind = LOG_KINDS[logKind(ev)];
+    const open = !!state.expandedEvents[ev.id];
+    const checked = !!(ev.scrutineerName || ev.scrutineerLicense);
+    const card = el("div", { class: "logbook-event logbook-work", id: "event-" + ev.id });
+    card.appendChild(el("div", { class: "logbook-event-head", onclick: () => { state.expandedEvents[ev.id] = !open; render(); } }, [
+      el("span", { class: "logbook-event-title" }, [[ev.date || "No date", ev.name || "Unnamed " + kind.label.toLowerCase(), ev.doneBy].filter(Boolean).join(" — ")]),
+      el("span", { class: "logbook-event-badge work" }, [kind.label]),
+      checked ? el("span", { class: "logbook-event-badge result-pass" }, ["Checked"]) : null,
+      el("span", { class: "logbook-event-toggle" }, [open ? "▴" : "▾"]),
+    ]));
+    if (!open) return card;
+    const body = el("div", { class: "logbook-event-body" });
+    body.appendChild(el("div", { class: "field-row" }, [
+      eventTextField(ev, kind.what, "name", { placeholder: kind.placeholder, rerender: true }),
+      eventTextField(ev, "Date", "date", { type: "date", rerender: true }),
+    ]));
+    body.appendChild(el("div", { class: "field-row" }, [eventTextField(ev, "Done by (optional)", "doneBy", { placeholder: "e.g. the fabricator's name", rerender: true })]));
+    body.appendChild(eventTextField(ev, "Notes (optional)", "notes", { multiline: true, placeholder: "e.g. tubes, welds, why it was done" }));
+    if (logKind(ev) === "update") body.appendChild(el("div", { class: "element-desc" }, ["Update the cage's design and measurements in the other parts to match, so the logbook shows the cage as it is now."]));
+    body.appendChild(renderEventPhotos(ev, "photos", "Photos (optional)", "", "Photo", (ev.name || kind.label)));
+    if (!ev.damage) ev.damage = { present: true, photos: [], files: [], modelShotId: null };
+    body.appendChild(renderMarkedParts(ev, kind.parts));
+    body.appendChild(el("div", { class: "field-row" }, [
+      eventTextField(ev, "Checked by scrutineer (optional)", "scrutineerName", { rerender: true }),
+      eventTextField(ev, "Scrutineer license (optional)", "scrutineerLicense", { rerender: true }),
+    ]));
+    body.appendChild(el("div", { class: "toolbar" }, [deleteLogEntryButton(ev, kind.label.toLowerCase())]));
+    card.appendChild(body);
+    return card;
+  }
+  function deleteLogEntryButton(ev, what) {
+    return el("button", {
+      class: "btn small secondary", disabled: !!state.damageSelectMode,
+      onclick: () => {
+        if (!confirm("Delete the " + what + " \"" + (ev.name || "Unnamed " + what) + "\"? This can't be undone.")) return;
+        const photoIds = (ev.photos || []).map((p) => p.id).concat(ev.damage ? (ev.damage.photos || []).map((p) => p.id).concat(ev.damage.modelShotId ? [ev.damage.modelShotId] : []) : []);
+        photoIds.forEach((id) => { deletePictureRecord(id); delete pictureImageCache[id]; });
+        state.events = state.events.filter((x) => x !== ev);
+        if (state.damageViewEventId === ev.id) state.damageViewEventId = null;
+        markDirty();
+        render();
+      },
+    }, ["Delete " + what]);
+  }
+  // The parts an entry concerns (an event's damage, a repair's or update's
+  // parts), marked on the 3D model and shown there on demand.
+  function renderMarkedParts(ev, label) {
+    const box = el("div", { class: "field" }, [el("label", {}, [label])]);
     const files = ev.damage.files || (ev.damage.files = []);
     const viewing = state.damageViewEventId === ev.id;
     box.appendChild(el("div", { class: "toolbar" }, [
       el("button", {
         class: "btn small", disabled: !!state.damageSelectMode || !!state.pictureSelectMode,
         onclick: () => { state.damageSelectMode = { eventId: ev.id, files: new Set(files) }; state.damageViewEventId = null; render(); },
-      }, [files.length ? "Edit damaged parts on the 3D model" : "Mark damaged parts on the 3D model"]),
+      }, [files.length ? "Edit them on the 3D model" : "Mark them on the 3D model"]),
       files.length ? el("button", {
         class: "btn small secondary", disabled: !!state.damageSelectMode,
         onclick: () => { state.damageViewEventId = viewing ? null : ev.id; render(); },
       }, [viewing ? "Stop showing on the 3D model" : "Show on the 3D model"]) : null,
     ]));
     if (files.length) {
-      box.appendChild(el("div", { class: "picture-elements" }, files.map((f) => el("span", { class: "picture-element-chip damage-chip" }, [damagedPartLabel(f)]))));
+      box.appendChild(el("div", { class: "picture-elements" }, files.map((f) => el("span", { class: "picture-element-chip " + (logKind(ev) === "event" ? "damage-chip" : "work-chip") }, [damagedPartLabel(f)]))));
     }
+    return box;
+  }
+  function renderEventDamage(ev) {
+    const box = el("div", { class: "logbook-event-damage" });
+    const present = !!(ev.damage && ev.damage.present);
+    const toggle = el("input", {
+      type: "checkbox", id: "damage_" + ev.id,
+      onchange: (e) => {
+        ev.damage = Object.assign({ photos: [], files: [], modelShotId: null }, ev.damage || {}, { present: e.target.checked });
+        if (!e.target.checked && state.damageViewEventId === ev.id) state.damageViewEventId = null;
+        markDirty();
+        render();
+      },
+    });
+    toggle.checked = present;
+    box.appendChild(el("label", { class: "checkbox-label", for: "damage_" + ev.id }, [toggle, " The rollcage was damaged at this event"]));
+    if (!present) return box;
+
+    box.appendChild(renderEventPhotos(ev.damage, "photos", "Damage photos", "", "Damage photo", (ev.name || "Event") + " -- rollcage damage"));
+
+    // Damaged parts, marked on the 3D model.
+    box.appendChild(renderMarkedParts(ev, "Damaged parts"));
     return box;
   }
   function finishDamageSelectMode() {
@@ -4020,7 +4091,7 @@
         putPictureRecord(id, { photo: canvas.toDataURL("image/jpeg", 0.85), screenshot: null });
         ev.damage.modelShotId = id;
       }
-      state.damageViewEventId = ev.id;
+      state.damageViewEventId = mode.files.size ? ev.id : null;
       markDirty();
     }
     render();
@@ -4029,6 +4100,23 @@
   async function buildReportEvents() {
     const out = [];
     for (const ev of eventsInOrder()) {
+      if (logKind(ev) !== "event") {
+        const kind = LOG_KINDS[logKind(ev)];
+        const lines = [{ label: "Date", value: ev.date || "" }];
+        if (ev.doneBy) lines.push({ label: "Done by", value: ev.doneBy });
+        if (ev.notes) lines.push({ label: "Notes", value: ev.notes });
+        if (ev.scrutineerName || ev.scrutineerLicense) lines.push({ label: "Checked by", value: [ev.scrutineerName, ev.scrutineerLicense && "lic. " + ev.scrutineerLicense].filter(Boolean).join(", ") });
+        if (ev.damage && (ev.damage.files || []).length) lines.push({ label: kind.parts, value: ev.damage.files.map(damagedPartLabel).join(", ") });
+        const entry = { title: kind.label + ": " + (ev.name || "Unnamed " + kind.label.toLowerCase()), result: "", lines, photos: [] };
+        for (const p of ev.photos || []) {
+          const rec = await getPictureRecord(p.id).catch(() => null);
+          if (rec && rec.photo) entry.photos.push(rec.photo);
+        }
+        const shot = ev.damage && ev.damage.modelShotId ? await getPictureRecord(ev.damage.modelShotId).catch(() => null) : null;
+        if (shot && shot.photo) entry.photos.unshift(shot.photo);
+        out.push(entry);
+        continue;
+      }
       const lines = [
         { label: "Event date", value: ev.date || "" },
         { label: "Driver", value: ev.driver || "" },
@@ -4038,7 +4126,11 @@
       if (ev.scrutineerName || ev.scrutineerLicense) lines.push({ label: "Scrutineer", value: [ev.scrutineerName, ev.scrutineerLicense && "lic. " + ev.scrutineerLicense].filter(Boolean).join(", ") });
       if (ev.chiefName || ev.chiefLicense) lines.push({ label: "Chief Scrutineer", value: [ev.chiefName, ev.chiefLicense && "lic. " + ev.chiefLicense].filter(Boolean).join(", ") });
       if (ev.notes) lines.push({ label: "Event notes", value: ev.notes });
-      const entry = { title: ev.name || "Unnamed event", result: ev.techResult || "", lines };
+      const entry = { title: ev.name || "Unnamed event", result: ev.techResult || "", lines, photos: [] };
+      for (const p of ev.photos || []) {
+        const rec = await getPictureRecord(p.id).catch(() => null);
+        if (rec && rec.photo) entry.photos.push(rec.photo);
+      }
       if (ev.damage && ev.damage.present) {
         const photos = [];
         for (const p of ev.damage.photos || []) {
@@ -4125,6 +4217,8 @@
   // puts Pictures there too -- see PICTURES_PHASE).
   const VEHICLE_PHASE = 8;
   const PICTURES_PHASE = CFG.logbook ? LOGBOOK_PHASE : VEHICLE_PHASE;
+  // The logbook app's last part: its log (events, repairs, cage updates).
+  const LOG_PHASE = 9;
   const PHASE_TITLES = {
     [VEHICLE_PHASE]: "Vehicle & pictures",
     1: "Rollcage design (bars & gussets)",
@@ -4134,12 +4228,13 @@
     [SEATS_PHASE]: "Seats, belts & routing",
     [LOGBOOK_PHASE]: CFG.logbook ? "Logbook information and Pictures" : "Sanctioning body compliance",
     [SAFETY_PHASE]: "Frog Safety score",
+    [LOG_PHASE]: "Log: events, repairs and updates",
   };
   // Display order (and so each part's number): the rollcage app opens on
   // the vehicle and its pictures, the logbook app on its Logbook
   // information (which holds the vehicle), ahead of the cage's own parts.
   const PHASE_ORDER = (CFG.logbook
-    ? [LOGBOOK_PHASE, 1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE]
+    ? [LOGBOOK_PHASE, 1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE, LOG_PHASE]
     : [VEHICLE_PHASE, 1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE, LOGBOOK_PHASE]).concat(CFG.safetyScorePart ? [SAFETY_PHASE] : []);
   function partName(phase) { return "Part " + (PHASE_ORDER.indexOf(phase) + 1); }
   const PHASE_LABELS = {};
@@ -5791,6 +5886,7 @@
     // directly, gated on this phase in render()) so nothing ever populates
     // phases[LOGBOOK_PHASE] -- it's still always offered as a destination.
     usedPhases.push(LOGBOOK_PHASE);
+    if (CFG.logbook && logShown()) usedPhases.push(LOG_PHASE);
     if (!CFG.logbook) usedPhases.push(VEHICLE_PHASE);
     if (CFG.safetyScorePart) usedPhases.push(SAFETY_PHASE);
     return { phases, usedPhases: PHASE_ORDER.filter((p) => usedPhases.includes(p)) };
@@ -7535,11 +7631,11 @@
     if (CFG.logbook) {
       panel.appendChild(el("div", { class: "category-heading" }, ["Logbook details"]));
       appendLogbookFields(panel);
-      // A new logbook being prepared has no events yet: they come once it's
-      // issued (the logbook app's CFG.eventsOnlyWhenIssued -- vehicle.server
-      // links an issued one to its online copy). An existing one brings its
-      // past events along, entered before it's issued.
-      if (!CFG.eventsOnlyWhenIssued || state.vehicle.server || isExistingLogbook()) renderLogbookEvents(panel);
+      // Its log is a part of its own (LOG_PHASE).
+      if (logShown()) panel.appendChild(el("div", { class: "element-desc" }, [
+        "Events, repairs and cage updates are recorded in ",
+        el("button", { type: "button", class: "derived-source-link", onclick: () => window.RollcageApp.showPart("events") }, [PHASE_LABELS[LOG_PHASE]]), ".",
+      ]));
     }
 
     root.appendChild(panel);
@@ -9279,14 +9375,23 @@
     // Marking (or viewing) an event's rollcage damage: only the damaged
     // parts show, in red, everything else ghosted -- same idea as picture
     // tagging below.
-    const damageFiles = state.damageSelectMode ? state.damageSelectMode.files
-      : state.damageViewEventId ? new Set(((state.events.find((x) => x.id === state.damageViewEventId) || {}).damage || {}).files || []) : null;
+    // (Viewing: only while that entry still has parts marked -- an event
+    // whose damage was unticked or emptied shows the cage as usual.)
+    const viewed = state.damageViewEventId && state.events.find((x) => x.id === state.damageViewEventId);
+    const viewedFiles = viewed && viewed.damage && viewed.damage.present && (viewed.damage.files || []).length ? new Set(viewed.damage.files) : null;
+    const damageFiles = state.damageSelectMode ? state.damageSelectMode.files : viewedFiles;
+    const markedEntry = state.damageSelectMode ? state.events.find((x) => x.id === state.damageSelectMode.eventId) : viewed;
+    const markColor = markedEntry && logKind(markedEntry) !== "event" ? CAGE_COLOR.statusPass : CAGE_COLOR.damage;
+    // Only the parts this cage has (those with a color now) show, dimmed;
+    // every other possible part is hidden, and so are the occupants (each
+    // mannequin is one mesh with its seat).
     if (damageFiles) {
-      Object.keys(colors).forEach((f) => {
-        if (colors[f] === "hidden" || DRIVER_FILES.indexOf(f) !== -1 || CODRIVER_FILES.indexOf(f) !== -1) return;
-        delete colors[f];
+      const all = window.CageView && window.CageView.getAllFiles ? window.CageView.getAllFiles() : Object.keys(colors);
+      all.forEach((f) => {
+        if (!colors[f] || colors[f] === "hidden" || DRIVER_FILES.indexOf(f) !== -1 || CODRIVER_FILES.indexOf(f) !== -1) colors[f] = "hidden";
+        else delete colors[f];
       });
-      damageFiles.forEach((f) => { colors[f] = CAGE_COLOR.damage; });
+      damageFiles.forEach((f) => { colors[f] = markColor; });
     }
     // Only this picture's own tags show -- every other colored bar (the
     // checklist's answers) goes back to a ghost, so the model shows what's
@@ -10388,7 +10493,8 @@
     // would be misleading; a plain non-interactive label instead.
     if (state.damageSelectMode) {
       btn.hidden = false;
-      btn.textContent = "Damaged parts selection";
+      const markEntry = state.events.find((x) => x.id === state.damageSelectMode.eventId);
+      btn.textContent = markEntry && logKind(markEntry) !== "event" ? LOG_KINDS[logKind(markEntry)].parts + " selection" : "Damaged parts selection";
       btn.className = "cage-viewer-safety-score";
       btn.onclick = null;
       return;
@@ -10496,8 +10602,11 @@
     if (header) header.hidden = !active;
     const bannerText = banner.querySelector("span");
     if (bannerText) {
+      const markEntry = state.damageSelectMode && state.events.find((x) => x.id === state.damageSelectMode.eventId);
       bannerText.textContent = state.damageSelectMode
-        ? "Marking damaged parts -- click each damaged bar, gusset or foot."
+        ? (markEntry && logKind(markEntry) !== "event"
+          ? "Marking the " + LOG_KINDS[logKind(markEntry)].parts.toLowerCase() + " -- click each bar, gusset or foot."
+          : "Marking damaged parts -- click each damaged bar, gusset or foot.")
         : "Selecting parts for this picture — click a bar to tag it (or cycle its design options).";
     }
     if (partDropdown) partDropdown.hidden = active;
@@ -10604,7 +10713,7 @@
   // entered angles and junction distances.
   function applyCageModel() {
     const colors = computeCageColors();
-    window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE || state.pictureSelectMode) ? true : state.showGhostBars);
+    window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE || state.pictureSelectMode || state.damageSelectMode || state.damageViewEventId) ? true : state.showGhostBars);
     if (window.CageView.setHoles) window.CageView.setHoles(tacoGussetFiles());
     window.CageView.setMeshTransforms(computeCageTransforms());
     // Tilts the modeled main hoop / backstays to the entered angles (after
@@ -10697,6 +10806,8 @@
       renderResults(root, path);
       // (The logbook app's vehicle lives in Logbook information -- so do its pictures.)
       if (CFG.logbook) renderPictures(root, path);
+    } else if (state.activeTab === LOG_PHASE && CFG.logbook && logShown()) {
+      renderLogPart(root);
     } else if (state.activeTab === SAFETY_PHASE && CFG.safetyScorePart && CFG.safetyScore) {
       renderSafetyScore(root, path, { asPart: true });
     } else {
