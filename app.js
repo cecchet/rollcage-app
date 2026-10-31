@@ -1510,9 +1510,11 @@
     hideWorkspace: () => { state.libraryOpen = false; setWorkspaceShown(false); render(); },
     // (A frame later: the 3D view needs its size before the library draws
     // its cards' snapshots from it.)
-    openLibrary: () => {
+    // opts.templatesOnly: only the templates, to start a new one from (no
+    // saved or open ones).
+    openLibrary: (opts) => {
       setWorkspaceShown(true);
-      requestAnimationFrame(() => { state.libraryOpen = true; state.librarySelectedId = null; render(); });
+      requestAnimationFrame(() => { state.libraryOpen = true; state.libraryTemplatesOnly = !!(opts && opts.templatesOnly); state.librarySelectedId = null; render(); });
     },
     // The library on this device, for syncing it with the online one. A
     // logbook's vehicle.server ({ id, digitalNumber, lastSeq, fingerprint,
@@ -1558,10 +1560,8 @@
       state.activeTab = which === "rollcage" ? 1 : LOGBOOK_PHASE;
       if (which !== "rollcage") state.resultsExpanded = true;
       render();
-      requestAnimationFrame(() => {
-        const target = document.getElementById(which === "events" ? "logbook-events" : which === "logbook" ? "compliance-panel" : "cageViewerContainer");
-        if (target) scrollBelowViewer(target);
-      });
+      const id = which === "events" ? "logbook-events" : which === "logbook" ? "compliance-panel" : "cageViewerContainer";
+      requestAnimationFrame(() => scrollBelowViewerSettled(() => document.getElementById(id)));
     },
     setAnswer: (id, value) => setAnswer(id, { value }),
     jumpTo: (where) => {
@@ -1637,7 +1637,7 @@
   let libraryHandler = null;
   function openLibraryButton() {
     if (libraryHandler) libraryHandler();
-    else { state.libraryOpen = true; state.librarySelectedId = null; render(); }
+    else { state.libraryOpen = true; state.libraryTemplatesOnly = false; state.librarySelectedId = null; render(); }
   }
   function setWorkspaceShown(on) {
     document.body.classList.toggle("workspace-hidden", !on);
@@ -2280,17 +2280,17 @@
   const TOUR_LIBRARY_STEPS = [
     {
       target: "library-templates", fallback: "library-dialog",
-      onEnter: () => { state.libraryOpen = true; state.librarySelectedId = null; },
+      onEnter: () => { state.libraryOpen = true; state.libraryTemplatesOnly = false; state.librarySelectedId = null; },
       text: () => "Start here, in the " + CFG.libraryName + ": the design templates below are complete example cages -- open one to explore the tool right away. Your own saved " + NOUN + "s appear above them.",
     },
     {
       target: "library-selected", fallback: "library-dialog",
-      onEnter: () => { state.libraryOpen = true; const t = firstTemplate(); state.librarySelectedId = t ? TEMPLATE_SELECTION_PREFIX + t.templateId : null; },
+      onEnter: () => { state.libraryOpen = true; state.libraryTemplatesOnly = false; const t = firstTemplate(); state.librarySelectedId = t ? TEMPLATE_SELECTION_PREFIX + t.templateId : null; },
       text: "Select a card to see what you can do with it: start from a template, or load, export or delete one of your saved " + NOUN + "s.",
     },
     {
       target: "library-top-actions", fallback: "library-dialog",
-      onEnter: () => { state.libraryOpen = true; },
+      onEnter: () => { state.libraryOpen = true; state.libraryTemplatesOnly = false; },
       text: "Or start a blank " + NOUN + " from scratch, or import one from a file.",
     },
   ];
@@ -2377,7 +2377,7 @@
     const tour = TOURS[id];
     if (!tour) return;
     if (tour.onStart) tour.onStart();
-    if (id === "app") { setWorkspaceShown(true); state.libraryOpen = true; state.librarySelectedId = null; }
+    if (id === "app") { setWorkspaceShown(true); state.libraryOpen = true; state.libraryTemplatesOnly = false; state.librarySelectedId = null; }
     state.tour = { id, step: tour.intro ? -1 : 0 };
     if (!tour.intro && tour.steps[0].onEnter) tour.steps[0].onEnter();
     render();
@@ -3020,15 +3020,16 @@
     });
     setTimeout(ensureTemplateThumbs, 0);
 
-    const dialog = el("div", { class: "load-dialog", id: "library-dialog", role: "dialog", "aria-modal": "true", "aria-label": CFG.libraryName }, [
+    const templatesOnly = state.libraryTemplatesOnly;
+    const dialog = el("div", { class: "load-dialog", id: "library-dialog", role: "dialog", "aria-modal": "true", "aria-label": templatesOnly ? "Cage templates" : CFG.libraryName }, [
       el("div", { class: "load-dialog-header" }, [
-        el("h2", {}, [CFG.libraryName]),
+        el("h2", {}, [templatesOnly ? "Cage templates" : CFG.libraryName]),
         // "Back to editing" when there's a rollcage open to go back to.
-        el("button", { class: "btn small secondary", onclick: close }, [editingSomething() ? "Back to editing" : "Close"]),
+        el("button", { class: "btn small secondary", onclick: close }, [!templatesOnly && editingSomething() ? "Back to editing" : "Close"]),
       ]),
-      el("div", { class: "element-desc" }, ["Saved in this browser only."]),
+      el("div", { class: "element-desc" }, [templatesOnly ? "Pick a cage to start the new " + NOUN + " from: a copy of it opens, ready to fill in." : "Saved in this browser only."]),
       state.libraryNotice ? el("div", { class: "library-notice" }, [state.libraryNotice]) : null,
-      el("div", { class: "toolbar", id: "library-top-actions" }, [
+      templatesOnly ? null : el("div", { class: "toolbar", id: "library-top-actions" }, [
         el("button", { class: "btn small secondary", onclick: () => confirmDiscardIfDirty(() => { state.libraryOpen = false; startNew(); }) }, ["Start a new " + NOUN]),
         el("button", { class: "btn small secondary", onclick: () => importInput.click() }, [CFG.logbook ? "Import a logbook or rollcage from file" : "Import a " + NOUN + " from file"]),
         importInput,
@@ -3037,10 +3038,10 @@
       // or started (a blank new one on a first visit isn't).
       // Each section has its own color (see .library-section-*) so they're
       // easy to tell apart.
-      editingSomething()
+      templatesOnly ? null : editingSomething()
         ? el("div", { class: "library-section library-section-current" }, [el("h3", { class: "library-section-heading" }, ["Currently editing"]), renderLibraryCurrent()])
         : el("div", { class: "element-desc" }, ["Select a saved " + NOUN + " or template below to see what you can do with it."]),
-      el("div", { class: "library-section library-section-saved" }, [
+      templatesOnly ? null : el("div", { class: "library-section library-section-saved" }, [
         el("h3", { class: "library-section-heading" }, ["Saved " + NOUN + "s" + (words.length ? " (" + sessions.length + " of " + allSessions.length + ")" : "")]),
         searchBox, list,
       ]),
@@ -3167,10 +3168,11 @@
     state.activeTab = LOGBOOK_PHASE;
     state.resultsExpanded = true;
     render();
+    const find = () => document.querySelector('[data-field="' + id + '"]');
     requestAnimationFrame(() => {
-      const target = document.querySelector('[data-field="' + id + '"]');
+      const target = find();
       if (!target) return;
-      scrollBelowViewer(target, { center: true });
+      scrollBelowViewerSettled(find, { center: true });
       flashEl(target, "field-flash");
       const input = target.querySelector("input, select, textarea");
       if (input) input.focus({ preventScroll: true });
@@ -9368,6 +9370,31 @@
       ? window.pageYOffset + rect.top - stickyHeight - Math.max(margin, (window.innerHeight - stickyHeight - rect.height) / 2)
       : window.pageYOffset + rect.top - stickyHeight - margin;
     window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }
+
+  // scrollBelowViewer for a page still filling in: a just-opened logbook's
+  // photos load after it's drawn, each redrawing the page and pushing what
+  // comes after them further down. So for a couple of seconds the target
+  // (found again each time: a redraw replaces it) is put back in place
+  // whenever it has moved -- until the person scrolls themselves.
+  function scrollBelowViewerSettled(find, opts) {
+    const first = find();
+    if (!first) return;
+    scrollBelowViewer(first, opts);
+    let stopped = false;
+    const stop = () => { stopped = true; };
+    const events = ["wheel", "touchstart", "keydown", "mousedown"];
+    events.forEach((e) => window.addEventListener(e, stop, { once: true, passive: true }));
+    let lastTop = null, n = 0;
+    const check = () => {
+      const target = find();
+      if (stopped || !target || ++n > 12) { events.forEach((e) => window.removeEventListener(e, stop)); return; }
+      const top = window.pageYOffset + target.getBoundingClientRect().top;
+      if (lastTop != null && Math.abs(top - lastTop) > 20) scrollBelowViewer(target, opts);
+      lastTop = top;
+      setTimeout(check, 250);
+    };
+    setTimeout(check, 250);
   }
 
   // Briefly outlines an element so a click lands somewhere obvious even
