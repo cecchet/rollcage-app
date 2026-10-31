@@ -2326,7 +2326,7 @@
       {
         target: "headerHelpLinks",
         onEnter: () => { state.activeTab = 1; },
-        text: "Take this tour again any time with How it works, or read the User manual for every part in detail. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video (the YouTube logo) explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
+        text: "Take this tour again any time with How it works, or read the User manual for every part in detail. Want to see it in action? The YouTube logo plays the Rollcage assessment tool tutorial video. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
       },
     ]),
   };
@@ -2349,7 +2349,7 @@
       {
         target: "headerHelpLinks",
         onEnter: () => { state.activeTab = LOGBOOK_PHASE; },
-        text: "Take this tour again any time with How it works. Want to learn more about roll cages themselves? The FIA Article 253 Rollcages Tutorial video (the YouTube logo) explains how they're designed and built. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
+        text: "Take this tour again any time with How it works. Want to see it in action? The YouTube logo plays the Rollcage assessment tool tutorial video. Tip: you can install this app on your phone -- Android (Chrome): menu ⋮ > Install app; iPhone (Safari): Share > Add to Home Screen.",
       },
     ]),
   };
@@ -2883,6 +2883,7 @@
     return el("span", { class: "library-card-score " + tier, title: "Frog Safety score" }, [(score.total > 0 ? "+" : "") + score.total]);
   }
 
+  const FIA_TUTORIAL_VIDEO = "i2VvQxYf9qM";
   function renderLibrary(holder) {
     if (!state.libraryOpen) return;
     const close = () => { state.libraryOpen = false; state.libraryNotice = null; libraryCurrentShot = null; render(); };
@@ -3027,8 +3028,22 @@
     const dialog = el("div", { class: "load-dialog", id: "library-dialog", role: "dialog", "aria-modal": "true", "aria-label": templatesOnly ? "Cage templates" : CFG.libraryName }, [
       el("div", { class: "load-dialog-header" }, [
         el("h2", {}, [templatesOnly ? "Cage templates" : CFG.libraryName]),
-        // "Back to editing" when there's a rollcage open to go back to.
-        el("button", { class: "btn small secondary", onclick: close }, [!templatesOnly && editingSomething() ? "Back to editing" : "Close"]),
+        // How roll cages are designed and built: the FIA Article 253 tutorial
+        // video, played in the app's player (or on YouTube with a modified click).
+        el("div", { class: "load-dialog-header-actions" }, [
+          el("a", {
+            class: "header-video-link", href: "https://youtu.be/" + FIA_TUTORIAL_VIDEO, target: "_blank", rel: "noopener",
+            title: "FIA Article 253 Rollcages Tutorial video", "aria-label": "FIA Article 253 Rollcages Tutorial video",
+            onclick: (e) => {
+              if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+              e.preventDefault();
+              state.mediaViewer = { video: FIA_TUTORIAL_VIDEO, caption: "FIA Article 253 Rollcages Tutorial" };
+              render();
+            },
+          }, [el("img", { src: "images/frog-racing-video.jpg", alt: "" })]),
+          // "Back to editing" when there's a rollcage open to go back to.
+          el("button", { class: "btn small secondary", onclick: close }, [!templatesOnly && editingSomething() ? "Back to editing" : "Close"]),
+        ]),
       ]),
       el("div", { class: "element-desc" }, [templatesOnly ? "Pick a cage to start the new " + NOUN + " from: a copy of it opens, ready to fill in." : "Saved in this browser only."]),
       state.libraryNotice ? el("div", { class: "library-notice" }, [state.libraryNotice]) : null,
@@ -5520,10 +5535,14 @@
     }
     // AI processing (beta): the walk-around (it feeds both sections below),
     // bulk upload with sorting, and AI analysis of many pictures at once.
-    panel.appendChild(el("h3", { class: "pictures-group-heading", id: "pictures-ai-heading" }, ["AI processing (beta)"]));
-    panel.appendChild(renderVideoWalkaround(totalRemaining));
-    panel.appendChild(sortSection);
-    panel.appendChild(renderBatchAnalysisSection(path));
+    // On its own tint (the low-confidence AI color), with what it sends where.
+    panel.appendChild(el("div", { class: "pictures-ai-box", id: "pictures-ai" }, [
+      el("h3", { class: "pictures-group-heading", id: "pictures-ai-heading" }, ["AI processing (beta)"]),
+      el("div", { class: "pictures-ai-disclaimer" }, ["These features send your pictures over the internet to Google's Gemini AI vision model to be analyzed. Don't use them if you want all your data to stay on this device."]),
+      renderVideoWalkaround(totalRemaining),
+      sortSection,
+      renderBatchAnalysisSection(path),
+    ]));
     panel.appendChild(el("h3", { class: "pictures-group-heading", id: "pictures-vehicle-heading" }, ["Vehicle pictures"]));
     panel.appendChild(el("div", { class: "picture-category-section", id: "pictures-vehicle" }, [
       el("div", { class: "picture-autosort-label" }, ["The car itself, for the " + NOUN + "'s card and the PDF report -- one 3/4 front and one 3/4 rear shot."]),
@@ -10959,7 +10978,7 @@
       tutorialLink.addEventListener("click", (e) => {
         if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
         e.preventDefault();
-        state.mediaViewer = { video: "i2VvQxYf9qM", caption: "FIA Article 253 Rollcages Tutorial" };
+        state.mediaViewer = { video: "_5h4sA7bqh4", caption: "Rollcage assessment tool tutorial video" };
         render();
       });
     }
