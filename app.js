@@ -2260,6 +2260,7 @@
     renderPrintDialog(holder);
     // Before the media viewer, so a photo opened from it shows on top.
     renderCoveragePictureDialog(holder);
+    renderBatchAnalysisDialog(holder);
     renderMediaViewer(holder);
     renderVideoFrameViewer(holder);
     renderTour(holder);
@@ -5102,7 +5103,7 @@
     const busy = status === "scanning" || status === "saving";
     const max = Math.max(0, totalRemaining);
     const children = [
-      el("h3", { class: "picture-category-heading" }, ["Video walk-around (beta)"]),
+      el("h3", { class: "picture-category-heading" }, ["Video walk-around"]),
       el("div", { class: "picture-autosort-label" }, [
         "Record a slow walk-around of the car and its cage (outside for the vehicle shots, then doors open, inside the cage). Every clear frame is pulled out of it for you to pick from: mark one 3/4 front and one 3/4 rear frame as the vehicle pictures, and the rest you keep become rollcage pictures, sorted into the categories below. The video itself stays on this device.",
       ]),
@@ -5337,6 +5338,18 @@
       chips.appendChild(el("span", { class: "picture-elements-empty" }, ["No elements tagged yet"]));
     }
     if (tagsOpen) card.appendChild(chips);
+    // While editing: drop every AI tag at once (a picture whose AI results
+    // aren't worth keeping), keeping those entered by hand.
+    const aiTagCount = editing ? tags.filter((t) => t.confidence).length : 0;
+    if (aiTagCount) {
+      card.appendChild(el("button", {
+        type: "button", class: "btn small secondary picture-remove-ai",
+        onclick: () => {
+          tags.forEach((t) => { if (t.confidence) state.pictureSelectMode.selected.delete(t.elementId); });
+          render();
+        },
+      }, ["Remove all " + aiTagCount + " AI tag" + (aiTagCount === 1 ? "" : "s")]));
+    }
     // 253-14 roof and 253-22 backstay V always come together -- a picture
     // tagged with one and a different design for the other is worth a look.
     const tagValue = (id) => { const t = tags.find((x) => x.elementId === id); return t && t.value; };
@@ -5496,8 +5509,8 @@
     });
     const unsorted = picturesInCategory(UNSORTED_PICTURES);
     const sortSection = el("div", { class: "picture-category-section picture-autosort-field", id: "pictures-autosort" }, [
-      el("h3", { class: "picture-category-heading" }, ["Bulk upload with automatic AI sorting (beta)" + (unsorted.length ? " (" + unsorted.length + " waiting)" : "")]),
-      el("div", { class: "picture-autosort-label" }, ["Upload up to " + PICTURE_LIMIT + " photos at once -- each waits here until it's placed in a category below."]),
+      el("h3", { class: "picture-category-heading" }, ["Bulk upload with automatic AI sorting" + (unsorted.length ? " (" + unsorted.length + " waiting)" : "")]),
+      el("div", { class: "picture-autosort-label" }, ["Upload up to " + PICTURE_LIMIT + " photos at once -- each waits here until it's placed in a rollcage pictures category below."]),
       el("div", { class: "field" }, [sortInput].concat(totalRemaining <= 0 ? [el("div", { class: "ai-status" }, ["Picture limit reached (" + PICTURE_LIMIT + ")."])] : [])),
     ]);
     if (unsorted.length) {
@@ -5505,8 +5518,12 @@
       unsorted.forEach((pic) => grid.appendChild(card(pic)));
       sortSection.appendChild(grid);
     }
-    // The walk-around feeds both sections below.
+    // AI processing (beta): the walk-around (it feeds both sections below),
+    // bulk upload with sorting, and AI analysis of many pictures at once.
+    panel.appendChild(el("h3", { class: "pictures-group-heading", id: "pictures-ai-heading" }, ["AI processing (beta)"]));
     panel.appendChild(renderVideoWalkaround(totalRemaining));
+    panel.appendChild(sortSection);
+    panel.appendChild(renderBatchAnalysisSection(path));
     panel.appendChild(el("h3", { class: "pictures-group-heading", id: "pictures-vehicle-heading" }, ["Vehicle pictures"]));
     panel.appendChild(el("div", { class: "picture-category-section", id: "pictures-vehicle" }, [
       el("div", { class: "picture-autosort-label" }, ["The car itself, for the " + NOUN + "'s card and the PDF report -- one 3/4 front and one 3/4 rear shot."]),
@@ -5516,7 +5533,6 @@
       ]),
     ]));
     panel.appendChild(el("h3", { class: "pictures-group-heading", id: "pictures-rollcage-heading" }, ["Rollcage pictures"]));
-    panel.appendChild(sortSection);
 
     PICTURE_CATEGORIES.forEach((cat) => {
       const picsInCat = picturesInCategory(cat.id);
@@ -5682,6 +5698,85 @@
   // picked picture gets the element tagged (with the current design's own
   // answer for it, as manual tagging does); unpicking removes the tag (and
   // the AI's suggestion for it from that photo).
+  // "AI analysis (beta)" for many pictures: pick them in a window (those
+  // with no element tagged yet picked to start with), then each is
+  // analyzed in turn, as its own card's AI analysis does.
+  let batchAnalysis = null; // { done, total } while a run is going
+  function renderBatchAnalysisSection(path) {
+    const untagged = state.pictures.filter((p) => !(p.elements || []).length).length;
+    return el("div", { class: "picture-category-section", id: "pictures-ai-analysis" }, [
+      el("h3", { class: "picture-category-heading" }, ["AI analysis"]),
+      el("div", { class: "picture-autosort-label" }, ["Has a vision model suggest the rollcage elements each picture shows, for several pictures at once -- check its suggestions afterwards."]),
+      el("div", { class: "toolbar" }, [
+        el("button", {
+          class: "btn small", disabled: !state.pictures.length || !!batchAnalysis || !!state.pictureSelectMode,
+          onclick: () => { state.batchAnalysisDialog = { selected: new Set(state.pictures.filter((p) => !(p.elements || []).length).map((p) => p.id)), path }; render(); },
+        }, [batchAnalysis ? el("span", { class: "ai-busy ai-spinning" }, ["Analyzing " + Math.min(batchAnalysis.done + 1, batchAnalysis.total) + " of " + batchAnalysis.total + "…"]) : "AI analysis (beta)"]),
+        !batchAnalysis && state.pictures.length ? el("span", { class: "element-desc" }, [untagged ? untagged + " picture" + (untagged === 1 ? "" : "s") + " with no element tagged yet" : "Every picture has elements tagged"]) : null,
+      ]),
+    ]);
+  }
+  async function runBatchAnalysis(ids, path) {
+    batchAnalysis = { done: 0, total: ids.length };
+    render();
+    for (const id of ids) {
+      const pic = state.pictures.find((p) => p.id === id);
+      if (pic) await analyzePictureElements(id, path, pictureCategoryFor(pic));
+      batchAnalysis.done++;
+      render();
+    }
+    batchAnalysis = null;
+    render();
+  }
+  function renderBatchAnalysisDialog(holder) {
+    const dlg = state.batchAnalysisDialog;
+    if (!dlg) return;
+    const close = () => { state.batchAnalysisDialog = null; render(); };
+    const grid = el("div", { class: "coverage-picture-grid" });
+    state.pictures.forEach((pic) => {
+      loadPictureImage(pic.id);
+      const cached = pictureImageCache[pic.id] || {};
+      const on = dlg.selected.has(pic.id);
+      const n = (pic.elements || []).length;
+      grid.appendChild(el("div", { class: "coverage-picture-tile" }, [
+        el("button", {
+          type: "button", class: "coverage-picture" + (on ? " selected" : ""), "aria-pressed": on ? "true" : "false",
+          onclick: () => { if (on) dlg.selected.delete(pic.id); else dlg.selected.add(pic.id); render(); },
+        }, [
+          cached.photo ? el("img", { src: cached.photo, alt: "" }) : el("div", { class: "coverage-picture-loading" }, [cached.missing ? "Photo missing" : "Loading..."]),
+          el("span", { class: "coverage-picture-label" }, [(on ? "✓ " : "") + pictureCategoryDef(pic.category).label + " · " + (n ? n + " tagged" : "none tagged")]),
+        ]),
+        cached.photo ? el("button", {
+          type: "button", class: "coverage-picture-zoom", title: "View full screen (click the photo there to zoom in)", "aria-label": "View this picture full screen",
+          onclick: () => openPictureGallery(pic.id),
+        }, ["🔍"]) : null,
+      ]));
+    });
+    const count = dlg.selected.size;
+    const dialog = el("div", { class: "load-dialog coverage-picture-dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "batchAnalysisDialogTitle" }, [
+      el("h2", { id: "batchAnalysisDialogTitle" }, ["AI analysis (beta)"]),
+      el("p", {}, ["Select the pictures to analyze (" + count + " selected). Those with no element tagged yet are selected to start with. The AI's suggestions are added to each picture's tagged elements."]),
+      el("div", { class: "toolbar" }, [
+        el("button", { class: "btn small secondary", onclick: () => { state.pictures.forEach((p) => dlg.selected.add(p.id)); render(); } }, ["Select all"]),
+        el("button", { class: "btn small secondary", onclick: () => { dlg.selected.clear(); render(); } }, ["Select none"]),
+      ]),
+      grid,
+      el("div", { class: "toolbar confirm-dialog-actions" }, [
+        el("button", { class: "btn small secondary", onclick: close }, ["Cancel"]),
+        el("button", {
+          class: "btn small", disabled: !count,
+          onclick: () => {
+            const ids = state.pictures.map((p) => p.id).filter((id) => dlg.selected.has(id));
+            state.batchAnalysisDialog = null;
+            runBatchAnalysis(ids, dlg.path);
+          },
+        }, ["Analyze " + count + " picture" + (count === 1 ? "" : "s")]),
+      ]),
+    ]);
+    const overlay = el("div", { class: "modal-overlay" }, [dialog]);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    holder.appendChild(overlay);
+  }
   function renderCoveragePictureDialog(holder) {
     const dlg = state.coveragePictureDialog;
     if (!dlg) return;
@@ -5839,6 +5934,7 @@
     panel.appendChild(
       el("div", { class: "toolbar" }, [
         el("button", { class: "btn secondary", onclick: () => { rows.forEach((r) => { if (r.canApply) picked[r.s.elementId] = "pictures"; }); render(); } }, ["Select all from pictures"]),
+        el("button", { class: "btn secondary", onclick: () => { rows.forEach((r) => { delete picked[r.s.elementId]; }); render(); } }, ["Select all from current design"]),
         el("button", {
           class: "btn", disabled: !selectedCount,
           onclick: () => {
