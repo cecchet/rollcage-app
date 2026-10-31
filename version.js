@@ -3,4 +3,4 @@
 // deployment number, like PassTech's BUILD_DATE (src/lib/version.ts). Set on
 // every commit by tools/bump-version.mjs (the pre-commit hook that
 // tools/install-hooks.mjs installs) -- not by hand.
-window.BUILD_NUMBER = "2026/10/30-6";
+window.BUILD_NUMBER = "2026/10/30-7";

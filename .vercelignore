@@ -1,0 +1,15 @@
+# Files Vercel doesn't need to deploy (it serves the rest as static files,
+# plus the api/ function). Keeps each deployment smaller.
+# Build/maintenance scripts and their outputs.
+tools
+# The user manual -- published on GitHub Pages (docs/), not served here.
+docs
+# Development-only 3D files and viewers (the app loads cage_parts/).
+Rollcage.stl
+rollcage_assembly.obj
+rollcage_assembly.stl
+3mf_reference.stl
+stl_viewer.html
+cage_assembly.html
+.claude
+README.md
