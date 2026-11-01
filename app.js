@@ -2279,7 +2279,8 @@
   const TOUR_STEP_PICTURES = { target: "pictures-panel", onEnter: () => { state.activeTab = PICTURES_PHASE; state.picturesExpanded = true; }, text: () => "Add photos of the cage in Pictures (" + partName(PICTURES_PHASE) + "): tag which designs each one shows on the 3D model, or let AI analysis (beta) suggest them. Pictures has its own \"How it works\" tour." };
   // Every tour starts in the library -- where a first-time user picks a
   // template to play with (see boot) -- then carries on over the open cage.
-  const firstTemplate = () => (window.ROLLCAGE_TEMPLATES || [])[0];
+  // The tour's example cage: the full FIA Article 253 design template.
+  const tourTemplate = () => (window.ROLLCAGE_TEMPLATES || []).find((t) => t.templateId === "rally-cage-double-v") || (window.ROLLCAGE_TEMPLATES || [])[0];
   const TOUR_LIBRARY_STEPS = [
     {
       target: "library-templates", fallback: "library-dialog",
@@ -2288,7 +2289,7 @@
     },
     {
       target: "library-selected", fallback: "library-dialog",
-      onEnter: () => { state.libraryOpen = true; state.libraryTemplatesOnly = false; const t = firstTemplate(); state.librarySelectedId = t ? TEMPLATE_SELECTION_PREFIX + t.templateId : null; },
+      onEnter: () => { state.libraryOpen = true; state.libraryTemplatesOnly = false; const t = tourTemplate(); state.librarySelectedId = t ? TEMPLATE_SELECTION_PREFIX + t.templateId : null; },
       text: "Select a card to see what you can do with it: start from a template, or load, export or delete one of your saved " + NOUN + "s.",
     },
     {
@@ -2298,11 +2299,17 @@
     },
   ];
   // Leaving the library: on a first visit (nothing open yet), carry on over
-  // the first template so the rest of the tour has a real cage to show.
+  // the example cage so the rest of the tour has a real cage to show --
+  // dropped again when the tour ends (tourDropSample), unless it was saved.
   function tourLeaveLibrary() {
     state.libraryOpen = false;
-    const t = firstTemplate();
-    if (t && !state.dirty && !getAnswer("main_structure_layout").value) startFromTemplate(t);
+    const t = tourTemplate();
+    if (t && !state.dirty && !getAnswer("main_structure_layout").value) { startFromTemplate(t); state.tourSample = state.sessionId; }
+  }
+  function tourDropSample() {
+    const sample = state.tourSample;
+    state.tourSample = null;
+    if (sample && state.sessionId === sample && !loadAll()[sample]) startNew();
   }
   const ROLLCAGE_APP_TOUR = {
     intro: {
@@ -2310,7 +2317,12 @@
       text: "Describe a roll cage once -- its design, tubing, installation and welds -- and the tool builds a live 3D model of it, rates its safety with the Frog Safety score, and can check it against the rules of the sanctioning body you race with. Here's a quick tour of the main features.",
     },
     onStart: () => { state.tourReturnTab = state.activeTab; state.activeTab = 1; },
-    onEnd: () => { if (!state.libraryOpen) state.activeTab = state.tourReturnTab || 1; },
+    // Ends clean: the example cage gone, back in the library to pick one.
+    onEnd: () => {
+      tourDropSample();
+      state.activeTab = state.tourReturnTab || 1;
+      state.libraryOpen = true; state.libraryTemplatesOnly = false; state.librarySelectedId = null;
+    },
     steps: TOUR_LIBRARY_STEPS.concat([
       { target: "sessionBarHolder", onEnter: tourLeaveLibrary, text: "Name your rollcage here. The Rollcage library (where you just were) is where you save it in this browser, make a copy (Save as), print a PDF report, and find your saved cages and the templates." },
       { target: "cageViewerPartDropdown", text: () => "The checklist is split into parts: the vehicle and its pictures, rollcage design (bars and gussets), tubing, installation constraints (angles, distances...), welds, seats and belts, sanctioning body compliance (" + partName(LOGBOOK_PHASE) + "), and the Frog Safety score (" + partName(SAFETY_PHASE) + "). Switch parts here -- it stays at hand while you scroll." },
@@ -2336,7 +2348,7 @@
       text: "A digital logbook replaces a car's paper logbook: the car and its sanctioning body, the documented roll cage -- with a live 3D model -- and an entry for every event it enters, with its tech inspection result and any rollcage damage. Here's a quick tour of the main features.",
     },
     onStart: () => { state.tourReturnTab = state.activeTab; state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; },
-    onEnd: () => { if (!state.libraryOpen) state.activeTab = state.tourReturnTab || LOGBOOK_PHASE; },
+    onEnd: () => { tourDropSample(); if (!state.libraryOpen) state.activeTab = state.tourReturnTab || LOGBOOK_PHASE; },
     steps: TOUR_LIBRARY_STEPS.concat([
       { target: "sessionBarHolder", onEnter: tourLeaveLibrary, text: "Name the logbook here. The Logbook library (where you just were) is where you save it in this browser, make a copy (Save as), print the whole logbook as a PDF, and find your saved logbooks and the cage templates." },
       { target: "compliance-panel", onEnter: () => { state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; }, text: () => partName(LOGBOOK_PHASE) + " is the logbook itself: the vehicle, its sanctioning body (and whether the cage meets its rules), and the logbook details -- owner, builder, inspector, logbook number." },
