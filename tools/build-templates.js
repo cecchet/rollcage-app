@@ -36,6 +36,14 @@ const NINE_HIO_VIDEOS = {
   "subaru-sti-hillclimb-9hio": { id: "v3eeSjGU51k", title: "Hillclimb Subaru STi rollcage" },
 };
 
+// A template's sanctioning body (`org`, and `orgClass` for a body with
+// classes), for the ones built to a body's rules -- the Frog Safety score
+// measures their tubing against that body's sizes rather than FIA's. The
+// others have none (scored against FIA; started on FIA, as a new cage is).
+// NHRA's 8.50 cage: its 7.50-9.99 sec class. The road racing kits: NASA Road
+// Racing; the roll bar: GRIDLIFE's HPDE (the best known HPDE).
+const NHRA_850 = { org: "nhra-sportsman-et", orgClass: "et-750-999" };
+
 // Listed in library order, grouped into the library's sections by `group`:
 // "design" (Design templates), "kit" (Rollcage kits -- based on a vendor's
 // kit: the card links to its product page, with a snapshot of that page as
@@ -45,7 +53,7 @@ const NINE_HIO_VIDEOS = {
 // vehicle photos are extracted to images/templates/<id>/ and loaded when
 // starting from it.
 const TEMPLATES = [
-  { group: "design", id: "half-rollcage", file: "Rollbar _ half rollcage.json" },
+  { group: "design", id: "half-rollcage", file: "Rollbar _ half rollcage.json", org: "gridlife-hpde" },
   // A generic design -- the sample car's own vehicle details (an Audi RS4)
   // are left out; its measurements stay.
   {
@@ -56,7 +64,7 @@ const TEMPLATES = [
   // The Datsun 240Z kit's cage (below) as a generic design: without the
   // kit's pictures or link, or the car's own details.
   {
-    group: "design", id: "nhra-drag-racing", file: "CageKits Datsun 240Z NHRA.json", name: "NHRA Drag racing cage",
+    group: "design", id: "nhra-drag-racing", file: "CageKits Datsun 240Z NHRA.json", name: "NHRA Drag racing cage", ...NHRA_850,
     dropAnswers: ["vehicle_manufacturer", "vehicle_model", "vehicle_year", "vehicle_builder", "vehicle_weight"],
   },
   // Everything one should not do (see build-kit-samples.js) -- shows every
@@ -159,7 +167,7 @@ const TEMPLATES = [
     ]),
   },
   {
-    group: "kit", id: "mazda-mx5-cagekits", file: "CageKits Mazda MX-5 Miata.json",
+    group: "kit", id: "mazda-mx5-cagekits", file: "CageKits Mazda MX-5 Miata.json", org: "nasa-road-racing",
     source: { label: "CageKits", url: "https://cagekits.org/product/mx-5-miata-road-race-roll-cage-kit/", thumbnail: "images/templates/mazda-mx5-cagekits.jpg" },
     // CageKits' renders (used with permission).
     pictures: pics("mazda-mx5-cagekits", [
@@ -179,7 +187,7 @@ const TEMPLATES = [
     ]),
   },
   {
-    group: "kit", id: "datsun-240z-cagekits", file: "CageKits Datsun 240Z NHRA.json",
+    group: "kit", id: "datsun-240z-cagekits", file: "CageKits Datsun 240Z NHRA.json", ...NHRA_850,
     source: { label: "CageKits", url: "https://cagekits.org/product/240z-nhra-8-5-chromoly-roll-cage-kit/", thumbnail: "images/templates/datsun-240z-cagekits.jpg" },
     pictures: pics("datsun-240z-cagekits", [
       ["1.jpg", "overview"], ["3.jpg", "overview"],
@@ -194,7 +202,7 @@ const TEMPLATES = [
     ]),
   },
   {
-    group: "kit", id: "bmw-e92-cagekits", file: "CageKits BMW E92 roll bar.json", subtitle: "Rollbar kit from CageKits",
+    group: "kit", id: "bmw-e92-cagekits", file: "CageKits BMW E92 roll bar.json", subtitle: "Rollbar kit from CageKits", org: "nasa-road-racing",
     source: { label: "CageKits", url: "https://cagekits.org/product/e92-bolt-in-roll-bar-kit/", thumbnail: "images/templates/bmw-e92-cagekits.jpg" },
     pictures: pics("bmw-e92-cagekits", [
       ["1.jpg", "overview"], ["2.jpg", "overview"], ["3.jpg", "overview"],
@@ -373,8 +381,8 @@ const out = TEMPLATES.map((t) => {
   return {
     templateId: t.id,
     group: t.group || "design",
-    // No sanctioning body by default -- picked in Part 6, like a new cage.
-    vehicle: { ...d.vehicle, name: t.name || d.vehicle.name, org: "none", logbookDate: "" },
+    // No sanctioning body unless the template names one (see NHRA_850).
+    vehicle: { ...d.vehicle, name: t.name || d.vehicle.name, org: t.org || "none", ...(t.orgClass ? { orgClass: t.orgClass } : {}), logbookDate: "" },
     pathId: d.pathId || "new_construction",
     answers,
     ...(t.source ? { source: t.source } : {}),

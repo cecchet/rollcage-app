@@ -2289,7 +2289,7 @@
   // names a Part (partName is defined further down this file).
   const TOUR_STEP_3D = { target: "cageViewerContainer", text: "The live 3D model shows the cage as you answer, in the view of the part you're on (design, tube size, constraints or welds). Click a bar to jump to its question; double-click it to cycle through its designs. Drag to rotate, scroll to zoom, shift+drag to pan. Reset, Ghost bars and Occupants sit on the model (filled = on); \"3D Model\" above hides it." };
   const TOUR_STEP_LAYOUT = { target: "section-main_structure_layout", onEnter: () => { state.activeTab = 1; }, text: () => "Start " + partName(1) + " with the base structure layout, then work down the design choices -- each answer lights up on the model." };
-  const TOUR_STEP_SCORE = { target: "cageViewerSafetyScore", fallback: "cageViewerContainer", text: "Once a layout is picked, the Frog Safety score appears on the model. It rates the design itself, independent of any rulebook -- click it for the details. Each row links to its question, and unsafe designs explain why, some with a photo or video." };
+  const TOUR_STEP_SCORE = { target: "cageViewerSafetyScore", fallback: "cageViewerContainer", text: "Once a layout is picked, the Frog Safety score appears on the model. It rates the design against FIA Article 253's guidelines -- or, for a body whose rollover rules come from PassTech (road racing, drag, HPDE...), against that body's own -- click it for the details. Each row links to its question, and unsafe designs explain why, some with a photo or video." };
   const TOUR_STEP_PICTURES = { target: "pictures-panel", onEnter: () => { state.activeTab = PICTURES_PHASE; state.picturesExpanded = true; }, text: () => "Add photos of the cage in Pictures (" + partName(PICTURES_PHASE) + "): tag which designs each one shows on the 3D model, or let AI analysis (beta) suggest them. Pictures has its own \"How it works\" tour." };
   // Every tour starts in the library -- where a first-time user picks a
   // template to play with (see boot) -- then carries on over the open cage.
@@ -2347,7 +2347,7 @@
       {
         target: "compliance-panel",
         onEnter: () => { state.activeTab = LOGBOOK_PHASE; state.resultsExpanded = true; },
-        text: () => partName(LOGBOOK_PHASE) + " checks the cage against a sanctioning body's rules. None is selected by default, so the checklist just records the design -- pick FIA, a rally body (new construction or grandfathered rules), or one of 20 other bodies that require a cage to check compliance.",
+        text: () => partName(LOGBOOK_PHASE) + " checks the cage against a sanctioning body's rules. None is selected by default, so the checklist just records the design -- pick FIA, a rally body (new construction or grandfathered rules), or one of 42 other bodies' rollover protection rules (road racing, HPDE, autocross, drag racing...) to check compliance.",
       },
       {
         target: "headerHelpLinks",
@@ -2890,7 +2890,7 @@
         state.answers = record.answers || {};
         failingGussetCache = null;
         const s = computeSafetyScoreRows(path);
-        if (s.ratedRows) result = { total: s.totalPoints, violations: s.violations };
+        if (s.ratedRows) result = { total: s.totalPoints, violations: s.violations, body: s.bodyName };
       } catch (e) {
         result = null;
       } finally {
@@ -2906,7 +2906,11 @@
   function libraryScoreBadge(score) {
     if (!score) return null;
     const tier = score.violations > 0 || score.total < 0 ? "tier-red" : score.total > 0 ? "tier-green" : "tier-orange";
-    return el("span", { class: "library-card-score " + tier, title: "Frog Safety score" }, [(score.total > 0 ? "+" : "") + score.total]);
+    // Under it, the body it's measured against (FIA, NHRA, NASA...).
+    return el("span", { class: "library-card-scores" }, [
+      el("span", { class: "library-card-score " + tier, title: "Frog Safety score" }, [(score.total > 0 ? "+" : "") + score.total]),
+      score.body ? el("span", { class: "library-card-score-body", title: "Scored against " + score.body + "'s rules" }, [score.body]) : null,
+    ]);
   }
 
   const FIA_TUTORIAL_VIDEO = "i2VvQxYf9qM";
@@ -3142,7 +3146,7 @@
         el("div", { class: "load-dialog-images" }, [
           // The open rollcage's live score (unsaved changes included).
           lastSafetyScoreSummary && lastSafetyScoreSummary.ratedRows
-            ? libraryScoreBadge({ total: lastSafetyScoreSummary.totalPoints, violations: lastSafetyScoreSummary.violations }) : null,
+            ? libraryScoreBadge({ total: lastSafetyScoreSummary.totalPoints, violations: lastSafetyScoreSummary.violations, body: lastSafetyScoreSummary.bodyName }) : null,
           libraryCurrentShot
             ? el("img", { class: "load-dialog-model", src: libraryCurrentShot, alt: "3D model" })
             : el("div", { class: "load-dialog-model load-dialog-placeholder" }, ["Rendering 3D snapshot..."]),
@@ -3307,10 +3311,9 @@
         ])
       );
       vehiclePanel.appendChild(
-        el("div", { class: "field-row" }, [
+        el("div", { class: "field-row", id: "vehicle-weight-field" }, [
           // Some sanctioning bodies' minimum tubing spec varies by vehicle
-          // weight class -- captured here for that, even though the actual
-          // weight-based tubing rule isn't implemented yet.
+          // weight (passTechTier) -- Part 7 links here when it's missing.
           weightAnswerField("Vehicle weight", "vehicle_weight"),
         ])
       );
@@ -3621,15 +3624,38 @@
     if (!n || isNaN(n)) return null;
     return v.unit === "lb" ? n : n * 2.20462;
   }
-  function fmtTube(sz) { return sz.outerDiameterIn + '" x ' + sz.wallThicknessIn + '"'; }
+  function fmtTube(sz) { return sz.outerDiameterIn + '" x ' + sz.wallThicknessIn + '"' + (sz.material ? " (" + (sz.material === "chromoly" ? "4130 chromoly" : "mild steel") + ")" : ""); }
+  // The PassTech body's tubing sizes for the car's weight: its spec's
+  // lightest tier the car is still under (the last one past them all) --
+  // null when it has none, or several and no weight to pick by.
+  function passTechTier(pt) {
+    const rule = passTechRuleFor(pt);
+    const spec = rule && rule.rolloverProtectionTubingSpec;
+    if (!spec || !spec.length) return null;
+    const tiers = spec.slice().sort((a, b) => (a.underWeightLbs || Infinity) - (b.underWeightLbs || Infinity));
+    const weight = vehicleWeightLbs();
+    if (weight == null) return tiers.length === 1 ? tiers[0] : null;
+    return tiers.find((t) => t.underWeightLbs == null || weight < t.underWeightLbs) || tiers[tiers.length - 1];
+  }
+  // A tier's sizes a tube of this material meets the rule with: a size for
+  // 4130 chromoly (NHRA's thinner wall) only counts for chromoly; a mild
+  // steel one, or one for no material, for any. As tubingMinimums' combos.
+  function passTechSizes(tier, material) {
+    return tier.minSizes.filter((sz) => sz.material !== "chromoly" || material === "chromoly_4130");
+  }
+  function passTechSizesFor(tier, material) {
+    return passTechSizes(tier, material).map((sz) => ({ minDiameterIn: sz.outerDiameterIn, minThicknessIn: sz.wallThicknessIn }));
+  }
   function tubeCheck(label, elementId, tier, weightLbs) {
     const v = getAnswer(elementId).value || {};
     const od = toInches(v.diameter), wall = toInches(v.thickness);
-    const need = tier.minSizes.map(fmtTube).join(" or ");
+    // Only the sizes for its material (NHRA's chromoly wall isn't mild steel's).
+    const sizes = v.material ? passTechSizes(tier, v.material) : tier.minSizes;
+    const need = sizes.map(fmtTube).join(" or ");
     const where = weightLbs == null ? "" : " for " + Math.round(weightLbs) + " lbs";
     const target = { elementId };
     if (od == null || wall == null) return { label, status: "pending", detail: "Enter its size in " + partName(2) + " (needs " + need + where + ")", target };
-    const ok = tier.minSizes.some((sz) => od >= sz.outerDiameterIn - 1e-6 && wall >= sz.wallThicknessIn - 1e-6);
+    const ok = sizes.some((sz) => od >= sz.outerDiameterIn - 1e-6 && wall >= sz.wallThicknessIn - 1e-6);
     return { label, status: ok ? "pass" : "fail", detail: +od.toFixed(3) + '" x ' + +wall.toFixed(3) + '" -- needs at least ' + need + where, target };
   }
   function evaluatePassTechRollover(pt) {
@@ -3648,11 +3674,11 @@
     const spec = rule.rolloverProtectionTubingSpec;
     if (spec && spec.length) {
       const weight = vehicleWeightLbs();
-      if (weight == null) {
-        checks.push({ label: "Tubing size for the car's weight", status: "pending", detail: "Enter the vehicle weight (Vehicle description) to pick the required size" });
+      const tier = passTechTier(pt);
+      if (!tier) {
+        checks.push({ label: "Tubing size for the car's weight", status: "pending", detail: "Enter the vehicle weight (Vehicle description) to pick the required size",
+          link: "vehicle weight", target: { vehicleField: "vehicle-weight-field" } });
       } else {
-        const tiers = spec.slice().sort((a, b) => (a.underWeightLbs || Infinity) - (b.underWeightLbs || Infinity));
-        const tier = tiers.find((t) => t.underWeightLbs == null || weight < t.underWeightLbs) || tiers[tiers.length - 1];
         checks.push(tubeCheck("Main structure tubing", "primary_tubing", tier, weight));
         const secondary = tubeCheck("Secondary tubing", "secondary_tubing", tier, weight);
         // These rulebooks mostly size the main hoop/structure; some allow
@@ -3687,11 +3713,26 @@
     return { rule, checks };
   }
   function passTechVerdict(pt, checks) {
+    // An HPDE / autocross rule with nothing the checklist can tell (a roll
+    // bar for convertibles, a recommendation...): its summary below says it.
+    if (!checks.length) {
+      const rule = passTechRuleFor(pt);
+      return { level: "neutral", label: !rule || rule.requirement === "not_addressed"
+        ? pt.bodyName + "'s rules don't address rollover protection"
+        : "Nothing to check automatically -- read " + pt.bodyName + "'s rule below" };
+    }
     const fails = checks.filter((c) => c.status === "fail").length;
     const pending = checks.filter((c) => c.status === "pending").length;
     if (fails) return { level: "fail", label: "Does not meet " + pt.bodyName + " rollover protection rules" };
     if (pending) return { level: "warn", label: "Incomplete -- " + pending + " item" + (pending > 1 ? "s" : "") + " still to answer" };
     return { level: "pass", label: "Meets the checked " + pt.bodyName + " rollover protection items" };
+  }
+  // A check's detail, its link phrase (c.link -- "vehicle weight") shown as
+  // a link to the check's target.
+  function checkDetail(c) {
+    const at = c.link ? c.detail.indexOf(c.link) : -1;
+    if (at < 0) return c.detail;
+    return el("span", {}, [c.detail.slice(0, at), el("a", { href: "#", class: "passtech-check-link" }, [c.link]), c.detail.slice(at + c.link.length)]);
   }
   function renderPassTechCompliance(panel, pt) {
     const { rule, checks } = evaluatePassTechRollover(pt);
@@ -3703,12 +3744,12 @@
     const icon = { pass: "✓", fail: "✗", pending: "…", manual: "?" };
     panel.appendChild(el("ul", { class: "issue-list passtech-checks" }, checks.map((c) => {
       const li = el("li", { class: "passtech-check passtech-" + c.status }, [
-        el("span", { class: "passtech-check-icon" }, [icon[c.status]]), el("strong", {}, [c.label + ": "]), c.detail,
+        el("span", { class: "passtech-check-icon" }, [icon[c.status]]), el("strong", {}, [c.label + ": "]), checkDetail(c),
       ]);
       if (c.target) {
         li.classList.add("clickable");
         li.title = "Go to this item";
-        li.addEventListener("click", () => jumpToSafetyTarget(c.target));
+        li.addEventListener("click", (e) => { e.preventDefault(); jumpToSafetyTarget(c.target); });
       }
       return li;
     })));
@@ -7115,23 +7156,61 @@
     windshield_reinforcement_present: optionalBarSafetyTier,
   };
 
-  // Tubing beyond the minimum (see computeSafetyScoreRows).
-  const TUBING_BONUS_ELEMENTS = [["primary_tubing", "Primary tubing beyond the minimum"], ["secondary_tubing", "Secondary tubing beyond the minimum"]];
+  // The body a cage's Frog Safety score is measured against: one whose rules
+  // come from PassTech (drift, road racing, drag, HPDE...) by its own rules --
+  // FIA's design guidance is shown but costs it no points; every other one
+  // (no body, FIA, the rally bodies' full checklists) by FIA Article 253's.
+  // Its passTech record, or null for FIA.
+  function scoringBody(org) {
+    const r = RULES[org];
+    return r && r.passTech ? r.passTech : null;
+  }
+  // A sanctioning body's short name, for the score's badge and Part 8: FIA
+  // (no body), NHRA, NASA, GRIDLIFE...
+  const SHORT_BODY_NAMES = { "24 Hours of Lemons": "Lemons", "ChampCar Endurance Series": "ChampCar", "BMW CCA Club Racing": "BMW CCA", "PCA Club Racing": "PCA" };
+  function orgShortName(org) {
+    const r = RULES[org];
+    if (!r || org === "none") return "FIA";
+    const name = r.passTech ? r.passTech.bodyName : r.org;
+    if (SHORT_BODY_NAMES[name]) return SHORT_BODY_NAMES[name];
+    const lead = /^([A-Z][A-Z0-9]+) \(/.exec(name); // NHRA (National Hot Rod Association)
+    if (lead) return lead[1];
+    const paren = /\(([A-Z][A-Za-z0-9]+)/.exec(name); // Hooked on Driving (HOD)
+    return paren ? paren[1] : name;
+  }
+
+  // Tubing beyond, or under, the minimum (see computeSafetyScoreRows).
+  const TUBING_BONUS_ELEMENTS = [["primary_tubing", "Primary tubing"], ["secondary_tubing", "Secondary tubing"]];
   const TUBING_BONUS_DIAMETER_IN = 0.118; // 3mm
   const TUBING_BONUS_WALL_IN = 0.0197; // 0.5mm
   const TUBING_BONUS_POINTS = 5;
   const SECONDARY_UPSIZE_MAX = 10; // +1 per secondary-eligible bar at primary size, up to this
-  // The minimum sizes a tube of this material is held to: the sanctioning
-  // body's own (its element's requirements), else FIA Article 253's; a
-  // stronger steel with no size table of its own (4130, T45, Docol R8) is
-  // held to the carbon steel minimums.
+  // The minimum sizes a tube of this material is held to -- { combos, judged }
+  // (judged: a tube under all of them is a violation):
+  //  - a body whose rules come from PassTech: its rollover rule's tubing
+  //    sizes for the car's weight (and the class picked), the ones for this
+  //    material (see passTechSizesFor). They size the cage's main structure:
+  //    secondary tubing gets the bonus against them, but isn't judged (some
+  //    allow smaller secondary bars -- Part 6 lists that for a manual look).
+  //    No sizes (or no weight to pick them by): nothing to measure against;
+  //  - otherwise the body's own (its element's requirements; with no body,
+  //    FIA's), else FIA Article 253's; a stronger steel with no size table of its own (4130,
+  //    T45, Docol R8) is held to the carbon steel minimums.
   function tubingMinimums(elm, material) {
+    const pt = RULES[state.vehicle.org] && RULES[state.vehicle.org].passTech;
+    if (pt) {
+      const tier = passTechTier(pt);
+      return { combos: tier ? passTechSizesFor(tier, material) : [], judged: elm.id === "primary_tubing" };
+    }
     const fia = (((RULES.fia || {}).paths || {}).new_construction || {}).elements || [];
     const fiaElm = fia.find((e) => e.id === elm.id) || {};
     const sized = (reqs) => (reqs || []).find((r) => r.material === material && r.combos && r.combos.length);
-    const req = sized(elm.requirements) || sized(fiaElm.requirements)
+    // No body: FIA's own table, which also lists its metric sizes (38mm is
+    // 1.496", just under the 1.5" the generic checklist lists).
+    const own = state.vehicle.org === "none" ? fiaElm : elm;
+    const req = sized(own.requirements) || sized(fiaElm.requirements)
       || (fiaElm.requirements || []).find((r) => r.material === "cds_dom" && r.combos);
-    return req ? req.combos : [];
+    return { combos: req ? req.combos : [], judged: true };
   }
 
   // A main rollbar answered "Not compliant" for staying in one single plane
@@ -7178,19 +7257,33 @@
     const rows = [];
     let totalPoints = 0;
     let ratedRows = 0;
+    const body = scoringBody(state.vehicle.org);
+    const bodyName = orgShortName(state.vehicle.org);
     let violations = 0; // Part 3 limits broken (angles, compliance, junction distances) + known-unsafe designs
     // pointsOverride lets a known-bad design score below red's own flat 0
     // floor -- omitted, a row just uses its tier's own TIER_POINTS value.
     // target is where clicking the row jumps to (see jumpToSafetyTarget):
     // {elementId, rowId?} -- defaults to the element whose id is the row's
     // own id, which covers every per-element rule.
-    function addRow(id, label, tier, valueText, pointsOverride, target) {
+    // opts.violation: it counts as a violation (the red warning); a
+    // known-unsafe design (UNSAFE_POINTS -- an unsafe roof bar
+    // configuration, door bars, a missing mandatory gusset...) always does.
+    // opts.construction: how the cage is built (welds, measurements, its
+    // feet, its tubing against the body's sizes, the body's own
+    // requirements) rather than FIA's design guidance -- scored whatever the
+    // body. Scored by a PassTech body (scoringBody), FIA's design guidance
+    // costs nothing: shown in orange, 0 points, not a violation.
+    function addRow(id, label, tier, valueText, pointsOverride, target, opts = {}) {
       if (!tier) return; // unrated (unanswered, or no rule yet) -- omit rather than show a meaningless row
-      const points = pointsOverride !== undefined ? pointsOverride : TIER_POINTS[tier];
-      // A known-unsafe design (an unsafe roof bar configuration, door bars,
-      // a missing mandatory gusset...) raises the same red flag as a Part 3
-      // violation.
-      if (pointsOverride === UNSAFE_POINTS) violations += 1;
+      let points = pointsOverride !== undefined ? pointsOverride : TIER_POINTS[tier];
+      let violation = !!opts.violation || pointsOverride === UNSAFE_POINTS;
+      if (body && points < 0 && !opts.construction) {
+        valueText += " -- an FIA guideline, not required by " + bodyName;
+        tier = "orange";
+        points = 0;
+        violation = false;
+      }
+      if (violation) violations += 1;
       totalPoints += points;
       ratedRows += 1;
       rows.push({ id, label: label + driverSideSuffix(id), tier, valueText, points, target: target || { elementId: id } });
@@ -7227,9 +7320,8 @@
       const dimElm = path.elements.find((e) => e.id === "a_pillar_dimension_a");
       const dimA = parseFloat(getAnswer("a_pillar_dimension_a").value);
       if (!isNaN(dimA) && dimA > 200) {
-        violations += 1;
         addRow("a_pillar_missing", "Windscreen pillar reinforcement (253-15)", "red",
-          "None present with dimension A at " + Math.round(dimA) + "mm (over 200mm) -- violation", -100, { elementId: "a_pillar_reinforcement" });
+          "None present with dimension A at " + Math.round(dimA) + "mm (over 200mm) -- violation", -100, { elementId: "a_pillar_reinforcement" }, { violation: true });
       } else if (isNaN(dimA) && dimElm && elementVisible(dimElm)) {
         addRow("a_pillar_missing", "Windscreen pillar reinforcement (253-15)", "orange",
           "None present and dimension A not measured -- the cage may be missing a required 253-15 (required when A exceeds 200mm)", 0,
@@ -7248,6 +7340,32 @@
       const structureAnswer = getAnswer("main_structure_layout");
       if (["253-1", "253-2", "253-3"].includes(structureAnswer.value)) {
         addRow("main_structure_layout", structureElm.name, "green", elementSummary(structureElm, structureAnswer), 20);
+      }
+      // A roll bar / half rollcage, against FIA: what it doesn't have, scored
+      // as a full cage missing it would be -- no front rollbar or laterals
+      // (like a missing 253-15), no roof bar, no door bars. A body whose
+      // rules accept a roll bar (an HPDE) doesn't count them.
+      if (structureAnswer.value === "half-rollcage") {
+        const target = { elementId: "main_structure_layout" };
+        addRow("half_cage_front", "Front rollbar / laterals", "red", "None -- a roll bar leaves the front of the cabin unprotected in a rollover -- violation", -100, target, { violation: true });
+        addRow("half_cage_roof", "Roof bars", "red", "None -- unsafe roof bar configuration", UNSAFE_POINTS, target);
+        ["left", "right"].forEach((side) => addRow("half_cage_door_" + side, "Door bars (" + side + ")", "red", "None -- unsafe door bar configuration", UNSAFE_POINTS, target));
+      }
+    }
+    // The body's own requirements: a full cage, welded mounting plates.
+    const bodyRule = body && passTechRuleFor(body);
+    if (bodyRule) {
+      const req = { violation: true, construction: true };
+      const layout = getAnswer("main_structure_layout").value;
+      if (bodyRule.rolloverProtectionRequiresFullCage && layout === "half-rollcage") {
+        addRow("body_full_cage", "Full roll cage (" + bodyName + ")", "red", bodyName + " requires a full roll cage -- a roll bar / half rollcage isn't accepted -- violation", -100, { elementId: "main_structure_layout" }, req);
+      }
+      const feetElm = path.elements.find((e) => e.id === "mounting_feet_design");
+      if (bodyRule.rolloverProtectionRequiresWeldedPlates && feetElm) {
+        const bolted = resolveRows(feetElm).filter((r) => getAnswer("mounting_feet_design__" + r.id + "__mount_type").value === "bolted");
+        if (bolted.length) {
+          addRow("body_welded_plates", "Welded mounting plates (" + bodyName + ")", "red", bodyName + " requires welded mounting plates -- " + bolted.length + " bolted -- violation", -100, { elementId: "mounting_feet_design" }, req);
+        }
       }
     }
 
@@ -7417,7 +7535,7 @@
         const target = { elementId: "mounting_feet_design", rowId: footRow.id };
         const isFront = FRONT_FOOT_ROWS.has(footRow.id);
         if (!design) return; // not answered yet
-        if (design === "none") { addRow(footRow.id, label, "red", "Missing -- no mounting foot", UNSAFE_FOOT_POINTS, target); return; }
+        if (design === "none") { addRow(footRow.id, label, "red", "Missing -- no mounting foot", UNSAFE_FOOT_POINTS, target, { construction: true }); return; }
         const optLabel = (feetOptions.find((o) => o.id === design) || {}).label || design;
         if (!isFront) { addRow(footRow.id, label, "green", optLabel, undefined, target); return; }
         if (design === "single_plane") {
@@ -7468,28 +7586,35 @@
       }
     });
 
-    // Tubing beyond the minimum: +5 for a diameter at least 1/8" (3mm)
-    // larger, +5 for a wall at least 0.02" (0.5mm) thicker, than a minimum
-    // size the tube meets -- primary and secondary each. The margins keep a
-    // metric/imperial rounding (45mm vs 1.75") from counting as bigger.
-    // A tube under every minimum just gets no row (its compliance, where a
-    // rulebook judges it, is Part 6's business).
+    // Tubing against the minimum (tubingMinimums): +5 for a diameter at
+    // least 1/8" (3mm) larger, +5 for a wall at least 0.02" (0.5mm) thicker,
+    // than a minimum size the tube meets -- primary and secondary each. The
+    // margins keep a metric/imperial rounding (45mm vs 1.75") from counting
+    // as bigger. A tube under every minimum is a violation (-100), like the
+    // other minimums.
     TUBING_BONUS_ELEMENTS.forEach(([elmId, label]) => {
       const elm = path.elements.find((e) => e.id === elmId);
       if (!elm || !elementVisible(elm)) return;
       const v = getAnswer(elmId).value || {};
       const od = toInches(v.diameter), wall = toInches(v.thickness);
       if (od == null || wall == null || !v.material || v.material === "other") return;
-      const combos = tubingMinimums(elm, v.material);
+      const { combos, judged } = tubingMinimums(elm, v.material);
+      if (!combos.length) return;
+      const size = (c) => +c.minDiameterIn.toFixed(3) + '" x ' + +c.minThicknessIn.toFixed(3) + '"';
+      const tube = +od.toFixed(3) + '" x ' + +wall.toFixed(3) + '"';
       const met = combos.filter((c) => od >= c.minDiameterIn - 1e-6 && wall >= c.minThicknessIn - 1e-6);
-      if (!met.length) return;
+      if (!met.length) {
+        if (!judged) return;
+        addRow(elmId + "__undersize", label + " under the minimum", "red",
+          tube + " -- under the " + combos.map(size).join(" or ") + " minimum -- violation", -100, { elementId: elmId }, { violation: true, construction: true });
+        return;
+      }
       const bigger = met.find((c) => od - c.minDiameterIn >= TUBING_BONUS_DIAMETER_IN - 1e-6);
       const thicker = met.find((c) => wall - c.minThicknessIn >= TUBING_BONUS_WALL_IN - 1e-6);
       if (!bigger && !thicker) return;
-      const size = (c) => +c.minDiameterIn.toFixed(3) + '" x ' + +c.minThicknessIn.toFixed(3) + '"';
       const parts = [bigger ? "larger diameter than the " + size(bigger) + " minimum" : null,
         thicker ? "thicker wall than the " + size(thicker) + " minimum" : null].filter(Boolean);
-      addRow(elmId + "__oversize", label, "green", +od.toFixed(3) + '" x ' + +wall.toFixed(3) + '" -- ' + parts.join(", "),
+      addRow(elmId + "__oversize", label + " beyond the minimum", "green", tube + " -- " + parts.join(", "),
         (bigger ? TUBING_BONUS_POINTS : 0) + (thicker ? TUBING_BONUS_POINTS : 0), { elementId: elmId });
     });
 
@@ -7509,7 +7634,7 @@
       const meetsPrimary = (tube) => {
         const od = toInches(tube.diameter), wall = toInches(tube.thickness);
         if (od == null || wall == null || !tube.material || tube.material === "other" || !primaryElm) return false;
-        return tubingMinimums(primaryElm, tube.material).some((c) => od >= c.minDiameterIn - 1e-6 && wall >= c.minThicknessIn - 1e-6);
+        return tubingMinimums(primaryElm, tube.material).combos.some((c) => od >= c.minDiameterIn - 1e-6 && wall >= c.minThicknessIn - 1e-6);
       };
       const upsized = [];
       resolveRows(classElm).forEach((row) => {
@@ -7517,8 +7642,7 @@
         if (!spec) return;
         const target = { elementId: "tubing_bar_classification", rowId: row.id };
         if (fiaPrimary.has(row.id) && spec === "secondary") {
-          violations += 1;
-          addRow("tube_spec__" + row.id, row.label + " tubing", "red", "Secondary tubing -- FIA requires the primary spec for this bar -- violation", -100, target);
+          addRow("tube_spec__" + row.id, row.label + " tubing", "red", "Secondary tubing -- FIA requires the primary spec for this bar -- violation", -100, target, { violation: true });
           return;
         }
         if (mainStructure(row.id)) return;
@@ -7545,10 +7669,9 @@
         const mm = v && v.value !== "" && v.value != null ? toMM({ val: v.value, unit: v.unit || "mm" }) : null;
         if (mm === null || isNaN(mm) || !(mm > limit)) return;
         const over = mm - limit;
-        violations += 1;
         addRow(elm.id + "__" + row.id, row.label, "red",
           Math.round(mm) + "mm from its junction -- " + Math.round(over) + "mm over the " + limit + "mm limit",
-          -Math.max(1, Math.round(over / 2)), { elementId: elm.id, rowId: row.id });
+          -Math.max(1, Math.round(over / 2)), { elementId: elm.id, rowId: row.id }, { violation: true, construction: true });
       });
     });
 
@@ -7570,8 +7693,7 @@
       if (elm.columns && elm.columns.some((c) => c.safetyLimit)) return; // junction distances: scored per mm above
       const answer = getAnswer(elm.id);
       const flag = (id, label, valueText, target) => {
-        violations += 1;
-        addRow(id, label, "red", valueText + " -- violation", VIOLATION_POINTS, target);
+        addRow(id, label, "red", valueText + " -- violation", VIOLATION_POINTS, target, { violation: true, construction: true });
       };
       if (elm.evaluationType === "table") {
         const rowsOf = resolveRows(elm);
@@ -7623,7 +7745,7 @@
       .sort((a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1] || a.i - b.i)
       .map((x) => x.row);
 
-    return { rows: ordered, totalPoints, ratedRows, violations, driveSide, driverSide };
+    return { rows: ordered, totalPoints, ratedRows, violations, driveSide, driverSide, bodyName, byBody: !!body };
   }
   const VIOLATION_WARNING = "This cage has a design in violation of the minimum FIA recommended guidelines";
   function hasCodriverAnswer() { return getAnswer("vehicle_codriver").value; }
@@ -7643,12 +7765,20 @@
   // Opens wherever the vehicle's drive configuration / occupants fields
   // live (the Vehicle description panel, or the logbook app's Logbook
   // information) and scrolls to them.
-  function jumpToVehicleOccupants() {
+  function jumpToVehicleOccupants() { jumpToVehicleField("vehicle-occupants-fields"); }
+  // The same for one of its field rows (vehicle-weight-field...), its
+  // input focused.
+  function jumpToVehicleField(id) {
     state.activeTab = CFG.logbook ? LOGBOOK_PHASE : VEHICLE_PHASE;
     render();
     requestAnimationFrame(() => {
-      const target = document.getElementById("vehicle-occupants-fields");
-      if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+      const target = document.getElementById(id);
+      if (!target) return;
+      if (id === "vehicle-occupants-fields") { target.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+      scrollBelowViewer(target, { center: true });
+      flashCard(target);
+      const input = target.querySelector("input");
+      if (input) input.focus({ preventScroll: true });
     });
   }
 
@@ -7658,16 +7788,16 @@
   function renderSafetyScore(root, path, opts) {
     const asPart = !!(opts && opts.asPart);
     const panel = el("div", { class: "panel", id: "safety-score-panel" });
-    const { rows, totalPoints, ratedRows, violations, driveSide, driverSide, noLayout } = computeSafetyScoreRows(path);
+    const { rows, totalPoints, ratedRows, violations, driveSide, driverSide, noLayout, bodyName, byBody } = computeSafetyScoreRows(path);
     const missing = noLayout ? [] : scoreMissingInfo(path);
     const provisional = missing.length > 0;
-    if (opts && opts.summaryOnly) { lastSafetyScoreSummary = { totalPoints, ratedRows, violations, provisional }; return; }
+    if (opts && opts.summaryOnly) { lastSafetyScoreSummary = { totalPoints, ratedRows, violations, provisional, bodyName }; return; }
     // Read by syncSafetyScoreBadge() to keep the sticky 3D-viewer badge in
     // sync -- module-level rather than threaded through a return value,
     // same convention CAGE_FILE_OWNER already uses for cross-cutting state
     // computed during a render pass. Set even while collapsed, since the
     // badge keeps showing the total either way.
-    lastSafetyScoreSummary = { totalPoints, ratedRows, violations, provisional };
+    lastSafetyScoreSummary = { totalPoints, ratedRows, violations, provisional, bodyName };
     const title = (asPart ? PHASE_LABELS[SAFETY_PHASE] : "Frog Safety score") + (ratedRows ? ": " + (totalPoints > 0 ? "+" : "") + totalPoints : "") + (ratedRows && provisional ? " (Provisional)" : "");
     if (asPart) {
       panel.appendChild(el("h2", {}, [title]));
@@ -7688,9 +7818,13 @@
       root.appendChild(panel);
       return;
     }
+    // What it's measured against (see scoringBody).
+    panel.appendChild(el("div", { class: "safety-score-placeholder" }, [byBody
+      ? "Scored against " + bodyName + "'s rules (" + partName(LOGBOOK_PHASE) + "): FIA's design guidelines show in orange but cost no points."
+      : "Scored against FIA Article 253's design guidelines" + (bodyName !== "FIA" ? " and " + bodyName + "'s tubing sizes" : "") + "."]));
     if (violations) {
       panel.appendChild(el("div", { class: "safety-score-violation" }, [
-        VIOLATION_WARNING + " (" + violations + " violation" + (violations === 1 ? "" : "s") + " below).",
+        (byBody ? "This cage has a violation of " + bodyName + "'s rules or of construction minimums" : VIOLATION_WARNING) + " (" + violations + " violation" + (violations === 1 ? "" : "s") + " below).",
       ]));
     }
     // The vehicle's drive configuration and occupants drive several ratings
@@ -7769,6 +7903,8 @@
       const { checks } = evaluatePassTechRollover(rules.passTech);
       const verdict = passTechVerdict(rules.passTech, checks);
       const checked = checks.filter((c) => c.status !== "manual");
+      // An HPDE rule with nothing the checklist can tell: no 0 / 0.
+      if (!checked.length) return { kind: "passtech", verdict, nothingChecked: true, summary: "nothing to check automatically" };
       return { kind: "passtech", verdict, summary: checked.filter((c) => c.status === "pass").length + " / " + checked.length + " checked items met" };
     }
     if (rules && rules.docOnly) {
@@ -9774,6 +9910,7 @@
   // screen.
   function jumpToSafetyTarget(target) {
     if (!target) return;
+    if (target.vehicleField) { jumpToVehicleField(target.vehicleField); return; }
     if (!target.rowId) { jumpToElementSection(target.elementId); return; }
     const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
     const elm = path && path.elements.find((e) => e.id === target.elementId);
@@ -10787,7 +10924,8 @@
     const name = rules && !rules.agnostic ? rules.org : "";
     btn.hidden = false;
     btn.textContent = c.kind === "rules" ? name + " compliance: " + c.results.scorePct + "%"
-      : c.kind === "passtech" ? name + " compliance: " + c.summary.replace(/ checked items met$/, "")
+      : c.nothingChecked ? "Compliance: nothing to check"
+      : c.kind === "passtech" ? (name ? name + " compliance: " : "Compliance: ") + c.summary.replace(/ checked items met$/, "")
       : c.kind === "none" ? "No sanctioning body"
       : name + " compliance";
     btn.title = c.verdict.label + (c.kind === "none" ? "" : " -- " + c.summary);

@@ -3,7 +3,7 @@
 window.TEMPLATE_MODEL_THUMBS = {
  "half-rollcage": {
   "src": "images/templates/model-3d/half-rollcage.jpg",
-  "key": "c714da83"
+  "key": "a2a5e80f"
  },
  "rally-cage-double-v": {
   "src": "images/templates/model-3d/rally-cage-double-v.jpg",
@@ -15,7 +15,7 @@ window.TEMPLATE_MODEL_THUMBS = {
  },
  "nhra-drag-racing": {
   "src": "images/templates/model-3d/nhra-drag-racing.jpg",
-  "key": "d96d7fa"
+  "key": "81dc7d47"
  },
  "worst-cage": {
   "src": "images/templates/model-3d/worst-cage.jpg",
@@ -39,15 +39,15 @@ window.TEMPLATE_MODEL_THUMBS = {
  },
  "mazda-mx5-cagekits": {
   "src": "images/templates/model-3d/mazda-mx5-cagekits.jpg",
-  "key": "caae18d0"
+  "key": "5bbce163"
  },
  "datsun-240z-cagekits": {
   "src": "images/templates/model-3d/datsun-240z-cagekits.jpg",
-  "key": "b27b8172"
+  "key": "afed761d"
  },
  "bmw-e92-cagekits": {
   "src": "images/templates/model-3d/bmw-e92-cagekits.jpg",
-  "key": "8d3d180b"
+  "key": "bfb5aa08"
  },
  "porsche-gt3-cup": {
   "src": "images/templates/model-3d/porsche-gt3-cup.jpg",

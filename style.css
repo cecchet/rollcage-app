@@ -1170,3 +1170,14 @@ img.zoomable, #cageViewerPictureModeThumb { cursor: zoom-in; }
 /* The 3D print dialog: its scale and occupants choices, each on its own line. */
 .print-scale, .print-occupants { display: block; margin: 8px 0; }
 .print-occupants input { margin-right: 6px; }
+/* The library card's Frog Safety score, and under it the body it's measured against. */
+.library-card-scores {
+  position: absolute; top: 6px; left: 6px; z-index: 1;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; pointer-events: none;
+}
+.library-card-scores .library-card-score { position: static; }
+.library-card-score-body {
+  padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border);
+  background: rgba(20, 22, 26, 0.85); color: var(--ink-dim, #b8bec6);
+  font-size: 0.68rem; font-weight: 600; letter-spacing: 0.02em;
+}
