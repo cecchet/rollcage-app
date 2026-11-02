@@ -1506,6 +1506,18 @@
       pictures: state.pictures, vehiclePhotos: state.vehiclePhotos, homologationPhotos: state.homologationPhotos,
       paperLogbookPhotos: state.paperLogbookPhotos,
     })),
+    // A cage's 3D model in the library's default view ({ org, pathId, answers }
+    // as a logbook record holds it): a JPEG data URL, or null (no 3D model
+    // here). Drawn while the editor stays hidden.
+    cageSnapshot: (cage) => new Promise((resolve) => {
+      if (!window.CageView || !window.CageView.snapshot) return resolve(null);
+      window.CageView.onReady(() => {
+        try {
+          resolve(withCageOnModel({ vehicle: Object.assign({}, state.vehicle, { org: knownOrg(cage.org) }), pathId: cage.pathId, answers: cage.answers },
+            () => window.CageView.snapshot(720, { offscreen: true })));
+        } catch (e) { resolve(null); }
+      });
+    }),
     // The editor (3D model + checklist), hidden at start with CFG.startHidden.
     workspaceShown: () => !document.body.classList.contains("workspace-hidden"),
     showWorkspace: () => { setWorkspaceShown(true); render(); },
@@ -1546,6 +1558,8 @@
     save: () => saveWithFlash(),
     // Downloads the open logbook as a file, photos included (Export to file).
     exportFile: () => exportCurrentSessionToFile(),
+    // A saved one (by sessionId) to a file, without opening it.
+    exportLocal: (sessionId) => exportSavedSessionToFile(sessionId),
     // Picks an export file (from either app) and opens it; onOpen(sessionId,
     // notice) once it's in.
     importFile: (onOpen) => {

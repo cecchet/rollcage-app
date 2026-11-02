@@ -1805,7 +1805,16 @@
   function snapshot(maxWidth, opts) {
     if (!ready || !renderer) return null;
     // Not laid out yet (the viewer hidden, or just shown): no picture to take
-    // -- callers try again on a later render.
+    // -- callers try again on a later render. opts.offscreen: draw it anyway,
+    // at a fixed size, the viewer staying hidden (e.g. a logbook's public view).
+    let restoreSize = null;
+    if ((!renderer.domElement.width || !renderer.domElement.height) && opts && opts.offscreen) {
+      const size = renderer.getSize(new THREE.Vector2());
+      restoreSize = { w: size.x, h: size.y, aspect: camera.aspect };
+      renderer.setSize(960, 640, false);
+      camera.aspect = 960 / 640;
+      camera.updateProjectionMatrix();
+    }
     if (!renderer.domElement.width || !renderer.domElement.height) return null;
     const saved = { theta, phi, roll, radius, target: target.clone() };
     const hiddenForShot = [];
@@ -1878,6 +1887,11 @@
     theta = saved.theta; phi = saved.phi; roll = saved.roll; radius = saved.radius;
     target.copy(saved.target);
     updateCamera();
+    if (restoreSize) {
+      renderer.setSize(restoreSize.w, restoreSize.h, false);
+      camera.aspect = restoreSize.aspect;
+      camera.updateProjectionMatrix();
+    }
     renderer.render(scene, camera);
     return out.toDataURL("image/jpeg", 0.85);
   }
