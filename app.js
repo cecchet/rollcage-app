@@ -7115,6 +7115,25 @@
     windshield_reinforcement_present: optionalBarSafetyTier,
   };
 
+  // Tubing beyond the minimum (see computeSafetyScoreRows).
+  const TUBING_BONUS_ELEMENTS = [["primary_tubing", "Primary tubing beyond the minimum"], ["secondary_tubing", "Secondary tubing beyond the minimum"]];
+  const TUBING_BONUS_DIAMETER_IN = 0.118; // 3mm
+  const TUBING_BONUS_WALL_IN = 0.0197; // 0.5mm
+  const TUBING_BONUS_POINTS = 5;
+  const SECONDARY_UPSIZE_MAX = 10; // +1 per secondary-eligible bar at primary size, up to this
+  // The minimum sizes a tube of this material is held to: the sanctioning
+  // body's own (its element's requirements), else FIA Article 253's; a
+  // stronger steel with no size table of its own (4130, T45, Docol R8) is
+  // held to the carbon steel minimums.
+  function tubingMinimums(elm, material) {
+    const fia = (((RULES.fia || {}).paths || {}).new_construction || {}).elements || [];
+    const fiaElm = fia.find((e) => e.id === elm.id) || {};
+    const sized = (reqs) => (reqs || []).find((r) => r.material === material && r.combos && r.combos.length);
+    const req = sized(elm.requirements) || sized(fiaElm.requirements)
+      || (fiaElm.requirements || []).find((r) => r.material === "cds_dom" && r.combos);
+    return req ? req.combos : [];
+  }
+
   // A main rollbar answered "Not compliant" for staying in one single plane
   // is drawn twisted in the 3D model: one leg leaning +10 degrees, the
   // other -10.
@@ -7448,6 +7467,70 @@
         addRow("sill_bar_" + side, "Sill bar (" + side + ")", "green", "Present", undefined, { elementId: "door_bars_" + side });
       }
     });
+
+    // Tubing beyond the minimum: +5 for a diameter at least 1/8" (3mm)
+    // larger, +5 for a wall at least 0.02" (0.5mm) thicker, than a minimum
+    // size the tube meets -- primary and secondary each. The margins keep a
+    // metric/imperial rounding (45mm vs 1.75") from counting as bigger.
+    // A tube under every minimum just gets no row (its compliance, where a
+    // rulebook judges it, is Part 6's business).
+    TUBING_BONUS_ELEMENTS.forEach(([elmId, label]) => {
+      const elm = path.elements.find((e) => e.id === elmId);
+      if (!elm || !elementVisible(elm)) return;
+      const v = getAnswer(elmId).value || {};
+      const od = toInches(v.diameter), wall = toInches(v.thickness);
+      if (od == null || wall == null || !v.material || v.material === "other") return;
+      const combos = tubingMinimums(elm, v.material);
+      const met = combos.filter((c) => od >= c.minDiameterIn - 1e-6 && wall >= c.minThicknessIn - 1e-6);
+      if (!met.length) return;
+      const bigger = met.find((c) => od - c.minDiameterIn >= TUBING_BONUS_DIAMETER_IN - 1e-6);
+      const thicker = met.find((c) => wall - c.minThicknessIn >= TUBING_BONUS_WALL_IN - 1e-6);
+      if (!bigger && !thicker) return;
+      const size = (c) => +c.minDiameterIn.toFixed(3) + '" x ' + +c.minThicknessIn.toFixed(3) + '"';
+      const parts = [bigger ? "larger diameter than the " + size(bigger) + " minimum" : null,
+        thicker ? "thicker wall than the " + size(thicker) + " minimum" : null].filter(Boolean);
+      addRow(elmId + "__oversize", label, "green", +od.toFixed(3) + '" x ' + +wall.toFixed(3) + '" -- ' + parts.join(", "),
+        (bigger ? TUBING_BONUS_POINTS : 0) + (thicker ? TUBING_BONUS_POINTS : 0), { elementId: elmId });
+    });
+
+    // Each bar's tubing (Part 2's Tube specifications table): a bar FIA
+    // requires primary tubing for (the main rollbar; the lateral rollbars
+    // and their rear transverse connection in a 253-2 layout) marked
+    // secondary is a violation; a bar every rulebook lets use secondary
+    // tubing (roof, door, harness, A-pillar bars...) whose tube meets the
+    // primary minimum is +1, up to +10 in all. The bars rulebooks disagree
+    // on (backstays, laterals, main rollbar diagonals -- most US bodies
+    // want them primary, FIA doesn't) count either way.
+    const classElm = path.elements.find((e) => e.id === "tubing_bar_classification");
+    if (classElm && elementVisible(classElm)) {
+      const fiaPrimary = new Set(getAnswer("main_structure_layout").value === "253-2" ? ["front_laterals_left", "front_laterals_right", "transverse_member"] : ["main_rollbar"]);
+      const mainStructure = (id) => id === "main_rollbar" || id === "transverse_member" || /^(front_laterals|backstays|main_diagonal)/.test(id);
+      const primaryElm = path.elements.find((e) => e.id === "primary_tubing");
+      const meetsPrimary = (tube) => {
+        const od = toInches(tube.diameter), wall = toInches(tube.thickness);
+        if (od == null || wall == null || !tube.material || tube.material === "other" || !primaryElm) return false;
+        return tubingMinimums(primaryElm, tube.material).some((c) => od >= c.minDiameterIn - 1e-6 && wall >= c.minThicknessIn - 1e-6);
+      };
+      const upsized = [];
+      resolveRows(classElm).forEach((row) => {
+        const spec = getAnswer("tubing_bar_classification__" + row.id + "__spec").value;
+        if (!spec) return;
+        const target = { elementId: "tubing_bar_classification", rowId: row.id };
+        if (fiaPrimary.has(row.id) && spec === "secondary") {
+          violations += 1;
+          addRow("tube_spec__" + row.id, row.label + " tubing", "red", "Secondary tubing -- FIA requires the primary spec for this bar -- violation", -100, target);
+          return;
+        }
+        if (mainStructure(row.id)) return;
+        const tube = getAnswer(spec === "primary" ? "primary_tubing" : "secondary_tubing").value;
+        if (tube && meetsPrimary(tube)) upsized.push(row);
+      });
+      if (upsized.length) {
+        addRow("secondary_bars_primary_size", "Secondary bars at primary size", "green",
+          upsized.length + " bar" + (upsized.length === 1 ? "" : "s") + " that may use secondary tubing meet" + (upsized.length === 1 ? "s" : "") + " the primary minimum (+1 each, up to " + SECONDARY_UPSIZE_MAX + ")",
+          Math.min(SECONDARY_UPSIZE_MAX, upsized.length), { elementId: "tubing_bar_classification", rowId: upsized[0].id });
+      }
+    }
 
     // A bar joining further than the 100mm limit from its junction loses
     // 5 points per cm over (1 per 2mm, at least 1) -- every junction-distance
