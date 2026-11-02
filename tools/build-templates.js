@@ -213,7 +213,7 @@ const TEMPLATES = [
   { group: "sample", id: "porsche-gt3-cup", file: "Porsche GT3 Cup Car.json", withPictures: true },
   // `subtitle` replaces the card's default line (here, "Real world cage sample").
   {
-    group: "sample", id: "audi-rs4-rally", file: "RS4 Rally car.json", withPictures: true,
+    group: "sample", id: "audi-rs4-rally", file: "RS4 Rally car.json", withPictures: true, ownTubeSpecs: true,
     subtitleLink: { before: "Rollcage by ", label: "CAS Competition", url: "https://www.facebook.com/cas.competition/" },
     video: { id: "Hq8RB9Z1WEc", title: "Project Froooog" },
   },
@@ -330,6 +330,20 @@ function exportPictures(t, d) {
   });
   return { pictures, vehiclePhotos };
 }
+// Part 2's Tube specifications (each bar primary or secondary tubing): only
+// the RS4 (ownTubeSpecs) has its real ones -- the kit and design samples
+// were derived from its export and would otherwise carry its answers. The
+// others get the usual kit convention instead: the main rollbar, laterals,
+// transverse member and backstays primary, every other bar secondary (a kit
+// using one tube size everywhere still has every bar at primary size -- the
+// Frog Safety score reads the tubes' sizes, not just these labels).
+const TUBE_SPEC = /^tubing_bar_classification__(.+)__spec$/;
+const conventionalSpec = (row) => (row === "main_rollbar" || row === "transverse_member" || /^(front_laterals|backstays)_/.test(row) ? "primary" : "secondary");
+// Every bar row any sample answers, so each template has them all (rows a
+// design doesn't show are simply unused).
+const TUBE_ROWS = [...new Set(TEMPLATES.flatMap((t) => Object.keys(JSON.parse(fs.readFileSync(path.join(SAMPLES_DIR, t.file), "utf8")).answers || {})
+  .map((k) => (TUBE_SPEC.exec(k) || [])[1]).filter(Boolean)))].sort();
+
 // Identifies one real car or person (VIN, owner / builder / inspector
 // contacts, inspection and logbook details) -- never part of a template.
 const DROPPED_ANSWERS = /^vehicle_(vin|owner_|builder_|inspector_|inspection_|logbook_|description_notes)/;
@@ -350,6 +364,12 @@ const out = TEMPLATES.map((t) => {
   });
   const answers = {};
   Object.entries(d.answers || {}).forEach(([k, v]) => { if (!DROPPED_ANSWERS.test(k) && !(t.dropAnswers || []).includes(k)) answers[k] = { ...v, photos: [] }; });
+  if (!t.ownTubeSpecs) {
+    TUBE_ROWS.forEach((row) => {
+      const k = "tubing_bar_classification__" + row + "__spec";
+      answers[k] = { value: conventionalSpec(row), note: "", photos: [], extra: (answers[k] && answers[k].extra) || {} };
+    });
+  }
   return {
     templateId: t.id,
     group: t.group || "design",
