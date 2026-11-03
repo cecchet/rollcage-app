@@ -919,7 +919,7 @@
     {
       // A 253-13 roof bar with no backstay diagonals, or 253-22's (see
       // ROOF_253_13_BAD_BACKSTAYS).
-      match: (elementId, rowId, value) => elementId === "backstay_diagonals" && getAnswer("roof_bars").value === "253-13" && ROOF_253_13_BAD_BACKSTAYS.has(value),
+      match: (elementId, rowId, value) => elementId === "backstay_diagonals" && getAnswer("roof_bars").value === "253-13" && ROOF_253_13_BAD_BACKSTAYS.has(value || "none"),
       scoreRow: (row) => row.id === "roof_backstay_pairing" && getAnswer("roof_bars").value === "253-13",
       text: "Unsafe: a 253-13 roof bar already leaves a front roof corner unsupported -- without backstay diagonals bracing the main rollbar (253-22 doesn't), nothing stops the roof and main rollbar folding over",
       url: frogSection("h.76mft1nas0kt"),
@@ -7417,7 +7417,10 @@
     const backstayElm = path.elements.find((e) => e.id === "backstay_diagonals");
     if (roofBarsElm && elementVisible(roofBarsElm) && backstayElm && elementVisible(backstayElm)) {
       const roofVal = getAnswer("roof_bars").value;
-      const backstayVal = getAnswer("backstay_diagonals").value;
+      // A 253-13 roof with its backstay diagonals still unanswered has none
+      // on the model -- scored as none (a design built from pictures often
+      // leaves out what isn't there).
+      const backstayVal = getAnswer("backstay_diagonals").value || (roofVal === "253-13" ? "none" : "");
       if (roofVal && backstayVal) {
         const roofIs14 = roofVal === "253-14";
         const backstayIs22 = backstayVal === "253-22";
