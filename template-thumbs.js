@@ -7,7 +7,7 @@ window.TEMPLATE_MODEL_THUMBS = {
  },
  "rally-cage-double-v": {
   "src": "images/templates/model-3d/rally-cage-double-v.jpg",
-  "key": "fb7d000d"
+  "key": "5cb620db"
  },
  "road-racing-basic": {
   "src": "images/templates/model-3d/road-racing-basic.jpg",
@@ -35,7 +35,7 @@ window.TEMPLATE_MODEL_THUMBS = {
  },
  "ford-fiesta-mk6-custom-cages": {
   "src": "images/templates/model-3d/ford-fiesta-mk6-custom-cages.jpg",
-  "key": "51cca2ef"
+  "key": "8ad7ca91"
  },
  "mazda-mx5-cagekits": {
   "src": "images/templates/model-3d/mazda-mx5-cagekits.jpg",

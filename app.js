@@ -6243,8 +6243,7 @@
     }
     if (elm.evaluationType === "tubing3solo") {
       const v = answer.value || {};
-      const req = (elm.requirements || []).find((r) => r.material === v.material);
-      const matLabel = req ? req.label : v.material;
+      const matLabel = tubeMaterialLabel(v.material);
       const dim = (d) => (d ? d.val + (d.unit === "mm" ? "mm" : '"') : "");
       return matLabel + ", " + dim(v.diameter) + " x " + dim(v.thickness);
     }
@@ -6672,6 +6671,20 @@
     return el("div", { class: "tubing3-field" }, children);
   }
 
+  // Every tube material, whatever the sanctioning body: the cage is
+  // described as built, and judged against the body's own materials
+  // (its element's requirements -- one it doesn't list is left for the
+  // inspector) in tubing3Status / Part 7.
+  // (cds_dom, from when the two were one, is DOM.)
+  const TUBE_MATERIALS = [
+    ["cds_dom", "DOM"],
+    ["cds", "Cold drawn seamless (CDS)"],
+    ["docol_r8", "Docol R8"],
+    ["t45", "T45"],
+    ["chromoly_4130", "4130 chromoly"],
+    ["other", "Other"],
+  ];
+  const tubeMaterialLabel = (m) => (TUBE_MATERIALS.find(([id]) => id === m) || [m, m])[1];
   function renderTubing3Fields(sub, subId, subAnswer) {
     const v = subAnswer.value || {};
     const wrap = el("div", { class: "tubing3-fields" });
@@ -6680,14 +6693,11 @@
       onchange: (e) => setAnswer(subId, { value: Object.assign({}, v, { material: e.target.value }) }),
     });
     matSelect.appendChild(el("option", { value: "" }, ["-- material --"]));
-    sub.requirements.forEach((r) => {
-      const o = el("option", { value: r.material }, [r.label]);
-      if (v.material === r.material) o.selected = true;
+    TUBE_MATERIALS.forEach(([id, label]) => {
+      const o = el("option", { value: id }, [label]);
+      if (v.material === id) o.selected = true;
       matSelect.appendChild(o);
     });
-    const otherMatOpt = el("option", { value: "other" }, ["Other"]);
-    if (v.material === "other") otherMatOpt.selected = true;
-    matSelect.appendChild(otherMatOpt);
     wrap.appendChild(el("div", { class: "tubing3-field" }, [el("label", {}, ["Material"]), matSelect]));
 
     wrap.appendChild(renderDimField("Diameter", DIAMETER_PRESETS, v.diameter, (dim) => setAnswer(subId, { value: Object.assign({}, v, { diameter: dim }) })));
@@ -7209,7 +7219,7 @@
     // 1.496", just under the 1.5" the generic checklist lists).
     const own = state.vehicle.org === "none" ? fiaElm : elm;
     const req = sized(own.requirements) || sized(fiaElm.requirements)
-      || (fiaElm.requirements || []).find((r) => r.material === "cds_dom" && r.combos);
+      || (fiaElm.requirements || []).find((r) => r.material === "cds" && r.combos);
     return { combos: req ? req.combos : [], judged: true };
   }
 
@@ -10536,6 +10546,10 @@
     const cycle = elementValueCycle(path, elmId);
     if (!cycle.length) { jumpToSection(elmId); return; }
     const current = getAnswer(elmId).value;
+    // The base structure layout, once picked, only changes in its card: a
+    // stray double-click on the main rollbar would turn a whole cage into
+    // a roll bar.
+    if (elmId === "main_structure_layout" && current) { jumpToSection(elmId); return; }
     const nextValue = cycle[(current ? cycle.indexOf(current) : -1) + 1];
     setAnswer(elmId, { value: nextValue === undefined ? "" : nextValue });
   }
@@ -10735,6 +10749,8 @@
     }
     const answer = getAnswer(elmId);
     const base = elm.name + (answer.value ? " — " + elementSummary(elm, answer) : "");
+    // A picked base structure layout doesn't cycle (see handleCagePartDoubleClick).
+    if (elmId === "main_structure_layout" && answer.value) return base + " (change it in its card)";
     return elementValueCycle(path, elmId).length ? base + " (double-click to cycle options)" : base;
   }
   // Picture "Edit rollcage elements" mode's own hover label -- names the

@@ -63,12 +63,14 @@
   const TUBING_REF = "NRS GRR 3.7.3 acceptable-materials table";
   const NASA_PRIMARY_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
+    { material: "cds", label: "Cold drawn seamless (CDS)", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8 (CHS)", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
     { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   const NASA_SECONDARY_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
+    { material: "cds", label: "Cold drawn seamless (CDS)", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8 (CHS)", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
     { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
@@ -81,18 +83,21 @@
   const ARA_REF = "ARA RTR 2.2.2(c)(2)(c)/(d)";
   const ARA_PRIMARY_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
+    { material: "cds", label: "Cold drawn seamless (CDS)", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
     { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   const ARA_SECONDARY_STD_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
+    { material: "cds", label: "Cold drawn seamless (CDS)", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8 (\"all other parts\" spec)", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.065 }] },
     { material: "t45", label: "T45", manualOnly: true },
     { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   const ARA_SECONDARY_REINF_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
+    { material: "cds", label: "Cold drawn seamless (CDS)", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
     { material: "docol_r8", label: "Docol R8 (diagonal/reinforcement spec)", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
     { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
@@ -109,11 +114,13 @@
   const CARS_REF = "CARS NRR 12.3.2.4";
   const CARS_PRIMARY_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
+    { material: "cds", label: "Cold drawn seamless (CDS)", combos: [{ minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
     { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   const CARS_SECONDARY_REQ = [
     { material: "cds_dom", label: "DOM", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
+    { material: "cds", label: "Cold drawn seamless (CDS)", combos: [{ minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
     { material: "t45", label: "T45", manualOnly: true },
     { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
@@ -3220,7 +3227,8 @@
   // sizes (Ch.8.3.3), which are metric: 45 x 2.5 or 50 x 2.0 mm for the
   // main rollbar, lateral rollbars and their rear connections; 38 x 2.5 or
   // 40 x 2.0 mm for everything else -- cold drawn seamless unalloyed
-  // carbon steel, min 350 N/mm2. The usual imperial sizes are accepted as
+  // carbon steel, min 350 N/mm2 (DOM, welded before it's drawn, isn't
+  // seamless -- left for the inspector). The usual imperial sizes are accepted as
   // equivalent even where they're a hair under (1.75" = 44.45 mm, a
   // 0.095" wall = 2.41 mm): 1.75" x 0.095" / 2.0" x 0.083" for the main
   // structure, 1.5" x 0.095" / 1.6" x 0.083" for the rest -- the same
@@ -3229,13 +3237,15 @@
   const FIA_REF = "2020 FIA 253 Ch.8.3.3";
   const mm = (v) => v / 25.4;
   const FIA_PRIMARY_REQ = [
-    { material: "cds_dom", label: "Cold drawn seamless carbon steel (min 350 N/mm2)", combos: [{ minDiameterIn: mm(45), minThicknessIn: mm(2.5) }, { minDiameterIn: mm(50), minThicknessIn: mm(2.0) }, { minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
+    { material: "cds", label: "Cold drawn seamless carbon steel (min 350 N/mm2)", combos: [{ minDiameterIn: mm(45), minThicknessIn: mm(2.5) }, { minDiameterIn: mm(50), minThicknessIn: mm(2.0) }, { minDiameterIn: 1.75, minThicknessIn: 0.095 }, { minDiameterIn: 2.0, minThicknessIn: 0.083 }] },
+    { material: "cds_dom", label: "DOM (welded, then drawn -- not seamless)", manualOnly: true },
     { material: "docol_r8", label: "Docol R8", manualOnly: true },
     { material: "t45", label: "T45", manualOnly: true },
     { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
   const FIA_SECONDARY_REQ = [
-    { material: "cds_dom", label: "Cold drawn seamless carbon steel (min 350 N/mm2)", combos: [{ minDiameterIn: mm(38), minThicknessIn: mm(2.5) }, { minDiameterIn: mm(40), minThicknessIn: mm(2.0) }, { minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
+    { material: "cds", label: "Cold drawn seamless carbon steel (min 350 N/mm2)", combos: [{ minDiameterIn: mm(38), minThicknessIn: mm(2.5) }, { minDiameterIn: mm(40), minThicknessIn: mm(2.0) }, { minDiameterIn: 1.5, minThicknessIn: 0.095 }, { minDiameterIn: 1.6, minThicknessIn: 0.083 }] },
+    { material: "cds_dom", label: "DOM (welded, then drawn -- not seamless)", manualOnly: true },
     { material: "docol_r8", label: "Docol R8", manualOnly: true },
     { material: "t45", label: "T45", manualOnly: true },
     { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
@@ -3538,7 +3548,7 @@
     const od = helpers.toInches(v.diameter), wall = helpers.toInches(v.thickness);
     if (od == null || wall == null) return null;
     const ok = (d, t) => od >= d - 1e-6 && wall >= t - 1e-6;
-    const steel = v.material === "cds_dom";
+    const steel = v.material === "cds" || v.material === "cds_dom";
     const sizes = idx === 0 ? [[1.75, 0.095], [1.98, 0.08]] : [[1.5, 0.095], [1.58, 0.08]];
     const value = steel && sizes.some(([d, t]) => ok(d, t)) ? (idx === 0 ? "1.75x0.095_or_1.98x0.08" : "1.5x0.095_or_1.58x0.08")
       : steel && ok(1.75, 0.12) ? "flat_1.75x0.12"

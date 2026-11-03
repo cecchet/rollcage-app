@@ -180,19 +180,24 @@ body.wide-layout .cage-viewer-container { height: min(48vh, 600px); }
 }
 .cage-viewer-container canvas { display: block; }
 /* Branding watermark so a screenshot of the 3D view carries the Frog Racing
-   logo -- positioned/sized to stay out of the way of the model itself, and
-   pointer-events:none so it never intercepts the drag/zoom/click handlers
-   cage_view.js attaches to the canvas underneath it. */
-.cage-viewer-watermark {
+   logo -- positioned/sized to stay out of the way of the model itself. It
+   links to the Frog Racing rollcage page; only its own 44px square takes
+   clicks, the rest of the canvas keeps cage_view.js's drag/zoom/click. */
+.cage-viewer-watermark-link {
   position: absolute;
   top: 8px;
   right: 8px;
   width: 44px;
   height: 44px;
-  opacity: 0.8;
-  pointer-events: none;
   z-index: 2;
 }
+.cage-viewer-watermark {
+  display: block;
+  width: 44px;
+  height: 44px;
+  opacity: 0.8;
+}
+.cage-viewer-watermark-link:hover .cage-viewer-watermark { opacity: 1; }
 /* The first rollcage picture, bottom right -- no bigger than the logo. */
 .cage-viewer-first-picture {
   position: absolute;
