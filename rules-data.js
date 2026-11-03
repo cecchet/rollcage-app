@@ -580,6 +580,9 @@
       // see setAnswer).
       showIf: { id: "backstays", notEquals: "no" },
       evaluationType: "choice",
+      // With backstays, none picked is none on the model: judged as "None
+      // present" (see elementStatusByRules), not left to verify.
+      unansweredAs: { value: "none", when: { id: "backstays", equals: "yes" } },
       // Like 253-7/253-9/253-12, which physical leg of the X is fabricated
       // continuous vs. cut into 2 half-bars isn't fixed by the rule, so
       // 253-21 is offered as 2 mirror-image options. "-1" keeps "Rear

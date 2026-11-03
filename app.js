@@ -577,8 +577,12 @@
       return worst;
     }
     if (el.evaluationType === "choice") {
-      if (!answer.value) return el.requirement === "recommended" ? "neutral" : "warn";
-      const opt = el.options.find((o) => o.id === answer.value);
+      // An element whose unanswered design is a real answer (backstay
+      // diagonals with backstays: none) is judged as that answer.
+      const ua = el.unansweredAs;
+      const value = answer.value || (ua && getAnswer(ua.when.id).value === ua.when.equals ? ua.value : "");
+      if (!value) return el.requirement === "recommended" ? "neutral" : "warn";
+      const opt = el.options.find((o) => o.id === value);
       if (!opt) return "warn";
       if (opt.outcome === "exempt") return "pass";
       if (opt.outcome === "fail") {
