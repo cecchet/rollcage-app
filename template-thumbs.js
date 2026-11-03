@@ -49,6 +49,10 @@ window.TEMPLATE_MODEL_THUMBS = {
   "src": "images/templates/model-3d/bmw-e92-cagekits.jpg",
   "key": "bfb5aa08"
  },
+ "autopower-rally-cage-scca": {
+  "src": "images/templates/model-3d/autopower-rally-cage-scca.jpg",
+  "key": "47098490"
+ },
  "porsche-gt3-cup": {
   "src": "images/templates/model-3d/porsche-gt3-cup.jpg",
   "key": "fd1c4937"

@@ -911,9 +911,17 @@
     },
     {
       match: (elementId, rowId, value) => elementId === "backstay_diagonals" && value === "253-22" && !!getAnswer("roof_bars").value && getAnswer("roof_bars").value !== "253-14",
-      scoreRow: (row) => row.id === "roof_backstay_pairing" && getAnswer("backstay_diagonals").value === "253-22",
+      scoreRow: (row) => row.id === "roof_backstay_pairing" && getAnswer("backstay_diagonals").value === "253-22" && getAnswer("roof_bars").value !== "253-13",
       text: "Unsafe: 253-22 backstay diagonals are meant to support a 253-14 roof bar -- they don't brace this roof bar layout",
       images: unsafePics("253-14_no_253-22", ["253-22 and 253-14 are designed to be used together."]),
+      url: frogSection("h.76mft1nas0kt"),
+    },
+    {
+      // A 253-13 roof bar with no backstay diagonals, or 253-22's (see
+      // ROOF_253_13_BAD_BACKSTAYS).
+      match: (elementId, rowId, value) => elementId === "backstay_diagonals" && getAnswer("roof_bars").value === "253-13" && ROOF_253_13_BAD_BACKSTAYS.has(value),
+      scoreRow: (row) => row.id === "roof_backstay_pairing" && getAnswer("roof_bars").value === "253-13",
+      text: "Unsafe: a 253-13 roof bar already leaves a front roof corner unsupported -- without backstay diagonals bracing the main rollbar (253-22 doesn't), nothing stops the roof and main rollbar folding over",
       url: frogSection("h.76mft1nas0kt"),
     },
     {
@@ -7089,6 +7097,10 @@
   // Same idea for the roof: no front roof-corner support (253-13), a lone
   // center bar, or no roof bar at all.
   const UNSAFE_ROOF_BARS = new Set(["253-13", "single-center", "none"]);
+  // A 253-13 roof bar's backstay diagonals that leave it worse still: none,
+  // or 253-22 (made for 253-14) -- a violation on top of 253-13's own
+  // penalty (see computeSafetyScoreRows' roof / backstay pairing).
+  const ROOF_253_13_BAD_BACKSTAYS = new Set(["none", "253-22"]);
   // ...and the doors: one lone bar, or none at all.
   const UNSAFE_DOOR_BARS = new Set(["single-bar", "none"]);
   function isSingleDiagonalRoof(v) { return v === "single-front-left" || v === "single-front-right"; }
@@ -7151,6 +7163,8 @@
         if (roof === "253-12-1" || roof === "253-12-2") return "orange";
         return getAnswer("vehicle_codriver").value === "yes" ? "red" : "orange";
       }
+      // 253-22 bracing nothing (a 253-13 roof): no better than none.
+      if (v === "253-22" && getAnswer("roof_bars").value === "253-13") return "red";
       return { "253-21-1": "green", "253-21-2": "green", "253-22": "green", "none": "red" }[v] || null;
     },
     door_bars_left: doorBarSafetyTier,
@@ -7397,7 +7411,11 @@
         const backstayIs22 = backstayVal === "253-22";
         // Penalty only -- a correct pairing is already credited through the
         // roof and backstay rows' own points, so it gets no row of its own.
-        if (roofIs14 !== backstayIs22) {
+        if (roofVal === "253-13" && ROOF_253_13_BAD_BACKSTAYS.has(backstayVal)) {
+          addRow("roof_backstay_pairing", "253-13 roof bar / backstay diagonals", "red",
+            (backstayIs22 ? "253-22 backstay diagonals don't brace a 253-13 roof" : "No backstay diagonals with a 253-13 roof") + " -- violation", -100,
+            { elementId: "backstay_diagonals" }, { violation: true });
+        } else if (roofIs14 !== backstayIs22) {
           addRow("roof_backstay_pairing", "253-14 roof bar / 253-22 backstay pairing", "red",
             roofIs14 ? "Unsafe design -- 253-14 requires 253-22" : "Unsafe design -- 253-22 requires 253-14", UNSAFE_POINTS,
             { elementId: roofIs14 ? "backstay_diagonals" : "roof_bars" });
