@@ -5696,7 +5696,11 @@
     const byElement = new Map();
     state.pictures.forEach((pic) => {
       const sugg = new Map(picturesSuggestions(pic).map((s) => [s.elementId, s]));
-      (pic.elements || []).forEach((t) => { byElement.set(t.elementId, sugg.get(t.elementId) || { elementId: t.elementId, value: t.value || null }); });
+      (pic.elements || []).forEach((t) => {
+        const s = sugg.get(t.elementId) || { elementId: t.elementId, value: t.value || null };
+        // The tag's extra fields (a door bar's sill bar) ride along.
+        byElement.set(t.elementId, t.extra && Object.keys(t.extra).length ? Object.assign({}, s, { extra: t.extra }) : s);
+      });
     });
     return [...byElement.values()];
   }
@@ -5923,11 +5927,12 @@
   function retagPicturesToChecklist(elementId, notInDesign) {
     let current = notInDesign ? null : getAnswer(elementId).value;
     if (current === "none" || current === "no") current = null;
+    const extra = getAnswer(elementId).extra || {};
     state.pictures.forEach((pic) => {
       const tags = pic.elements || [];
       if (!tags.some((t) => t.elementId === elementId)) return;
       pic.elements = current
-        ? tags.map((t) => (t.elementId === elementId ? Object.assign({}, t, { value: current }) : t))
+        ? tags.map((t) => (t.elementId === elementId ? Object.assign({}, t, { value: current, extra: Object.assign({}, t.extra, extra) }) : t))
         : tags.filter((t) => t.elementId !== elementId);
     });
     markDirty();
@@ -5945,24 +5950,29 @@
       const elm = path.elements.find((e) => e.id === elementId);
       return !!target.unexpected || (elm ? !elementVisible(elm) : false);
     };
+    // A design's label with its sill bar (a door bar's extra field).
+    const withSill = (label, extra) => label + ((extra || {}).sill_bar === "yes" ? " + sill bar" : (extra || {}).sill_bar === "no" ? ", no sill bar" : "");
     const evaluated = aggregatePictureTags()
       .map((s) => ({ s, target: resolvePictureTagTarget(path, s.elementId) }))
       .filter((r) => r.target)
       .map(({ s, target }) => {
         const notInDesign = notInDesignNow(s.elementId, target);
         let current = notInDesign ? null : getAnswer(s.elementId).value;
+        const currentExtra = getAnswer(s.elementId).extra || {};
         const absent = notInDesign || !current || current === "none" || current === "no";
+        // The tag's extra fields have to agree too (its sill bar).
+        const extraMatches = Object.entries(s.extra || {}).every(([k, v]) => currentExtra[k] === v);
         return {
           s,
           target,
           notInDesign,
           absent, // keeping the current design removes the tag
-          optLabel: s.value ? elementSummary(target, { value: s.value }) : "Tagged (design not specified)",
-          currentLabel: notInDesign ? "Not part of the current design" : current ? elementSummary(target, { value: current }) : null,
+          optLabel: s.value ? withSill(elementSummary(target, { value: s.value }), s.extra) : "Tagged (design not specified)",
+          currentLabel: notInDesign ? "Not part of the current design" : current ? withSill(elementSummary(target, { value: current }), currentExtra) : null,
           blank: !current,
           // A manual tag with no specific design agrees with any answer
           // that has the element.
-          matches: s.value ? current === s.value : !absent,
+          matches: s.value ? current === s.value && extraMatches : !absent,
           canApply: !!s.value,
         };
       });
@@ -6010,6 +6020,8 @@
       // One line per detail (e.g. what keeping this side does, then the AI's reasoning).
       ...[].concat(detail || []).filter(Boolean).map((d) => el("div", { class: "compare-option-detail" }, [d])),
     ]);
+    // A picked picture tag as the answer: its design and extra fields.
+    const pictureAnswer = (s) => ({ value: s.value, extra: Object.assign({}, getAnswer(s.elementId).extra, s.extra) });
     const list = el("div", { class: "compare-list" });
     rows.forEach((r) => {
       list.appendChild(el("div", { class: "compare-row" }, [
@@ -6040,13 +6052,13 @@
             rows.forEach((r) => {
               const side = sideOf(r.s.elementId);
               if (side === "none") kept[r.s.elementId] = "none";
-              else if (side === "pictures" && r.canApply && !r.notInDesign) setAnswer(r.s.elementId, { value: r.s.value });
+              else if (side === "pictures" && r.canApply && !r.notInDesign) setAnswer(r.s.elementId, pictureAnswer(r.s));
               else if (side === "checklist") retagPicturesToChecklist(r.s.elementId, r.notInDesign);
             });
             rows.forEach((r) => {
               if (sideOf(r.s.elementId) !== "pictures" || !r.canApply || !r.notInDesign) return;
               const target = resolvePictureTagTarget(path, r.s.elementId);
-              if (target && !notInDesignNow(r.s.elementId, target)) setAnswer(r.s.elementId, { value: r.s.value });
+              if (target && !notInDesignNow(r.s.elementId, target)) setAnswer(r.s.elementId, pictureAnswer(r.s));
               else kept[r.s.elementId] = "pictures";
             });
             state.aiAnalysis.accepted = kept;

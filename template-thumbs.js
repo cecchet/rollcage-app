@@ -51,7 +51,7 @@ window.TEMPLATE_MODEL_THUMBS = {
  },
  "autopower-rally-cage-scca": {
   "src": "images/templates/model-3d/autopower-rally-cage-scca.jpg",
-  "key": "47098490"
+  "key": "33aa85b4"
  },
  "porsche-gt3-cup": {
   "src": "images/templates/model-3d/porsche-gt3-cup.jpg",

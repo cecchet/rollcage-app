@@ -216,9 +216,10 @@ const TEMPLATES = [
     ]),
   },
   // A bad cage: a 253-13 roof bar with no backstay diagonals. Its picture
-  // is the vendor's product photo, from the export.
+  // is the vendor's product photo, from the export. Every bar is the one
+  // primary size (its own tube specs, not the usual split).
   {
-    group: "kit", id: "autopower-rally-cage-scca", file: "AutoPower Rally Cage SCCA ProRally.json", withPictures: true,
+    group: "kit", id: "autopower-rally-cage-scca", file: "AutoPower Rally Cage SCCA ProRally.json", withPictures: true, ownTubeSpecs: true,
     source: { label: "AutoPower", url: "https://autopowerindustries.com/products/rally-cage-kit/", thumbnail: "images/templates/autopower-rally-cage-scca.jpg" },
   },
   // The Porsche replaces the former "Road racing" template. Rally cage 2.json
