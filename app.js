@@ -1762,7 +1762,9 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = (s.vehicle.name || NOUN) + ".json";
+    // A logbook's file carries its digital number (FL-...), so it's easy to tell apart.
+    const number = s.vehicle.server && s.vehicle.server.digitalNumber;
+    a.download = [(s.vehicle.name || NOUN).trim(), number && !(s.vehicle.name || "").includes(number) ? number : ""].filter(Boolean).join(" ").replace(/[\/:*?"<>|]+/g, "-") + ".json";
     a.click();
     URL.revokeObjectURL(url);
   }
