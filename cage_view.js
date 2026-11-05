@@ -20,7 +20,7 @@
   // is invisible to any browser or CDN that already cached the old ones
   // under that same URL. Bump this whenever any file in cage_parts/ changes,
   // even if PARTS itself doesn't.
-  const CAGE_PARTS_VERSION = 7;
+  const CAGE_PARTS_VERSION = 9;
   const DEFAULT_BACKGROUND = 0x1b1e22;
 
   const PARTS = [
@@ -32,12 +32,7 @@
     "Left door bar 1-  253-9.stl", "Left door bar 2-  253-9.stl",
     "Right door bar 1-  253-9.stl", "Right door bar 2-  253-9.stl",
     "253-15 Left.stl", "253-15 Right.stl",
-    // 2-bar build of 253-15 (2026-09-10 v3) -- extracted from the same 3mf,
-    // same MASTER_OFFSET pipeline, swapped in for "253-15 Left/Right.stl"
-    // instead of overlaid alongside it (see a_pillar_reinforcement's "2 bars"
-    // choice in app.js).
-    "253-15 left lower.stl", "253-15 left upper.stl",
-    "253-15 right lower.stl", "253-15 right upper.stl",
+    // (The 2-bar build of 253-15 is drawn here -- see GENERATED_FILES.)
     "253-18.stl", "Dash bar 253-29.stl",
     "Sill bar Left.stl", "Sill bar Right.stl",
     "Foot front left.stl", "Foot front right.stl",
@@ -71,41 +66,16 @@
     "253-31 windshield left.stl", "253-31 windshield right.stl",
     "Nascar left 1.stl", "Nascar left 2.stl",
     "Nascar right 1.stl", "Nascar right 2.stl",
-    // Extracted from "all options rollcage.3mf" (2026-09-10, gussets update) --
-    // same MASTER_OFFSET pipeline, no Z_FIXUPS entry needed. Each of these
-    // categories (253-7, roof bars, backstay diagonal) really does have 4
-    // real, independently-choosable gusset positions -- some cars only
-    // gusset an opposite pair (left+right, or upper+lower), others gusset
-    // all 4 -- so all 4 are real files here, not 2 with 2 unused
-    // alternates. "Rear backstay gusset" is for the 253-21 X-configuration
-    // diagonal brace itself (where it crosses/meets), not the backstay
-    // tubes -- its modeled position (near the car's centerline) is the
-    // real, correct one and is used as-is, no repositioning.
-    "253-7 gusset left.stl", "253-7 gusset right.stl",
-    "253-7 gusset upper.stl", "253-7 gusset lower.stl",
-    "Roof bars gusset left.stl", "Roof bars gusset right.stl",
-    "Roof bars gusset front.stl", "Roof bars gusset rear.stl",
-    "Door bar gusset front left.stl", "Door bar gusset front right.stl",
-    "Door bar gusset rear left.stl", "Door bar gusset rear right.stl",
-    "Rear backstay gusset left.stl", "Rear backstay gusset right.stl",
-    "Rear backstay gusset upper.stl", "Rear backstay gusset lower.stl",
+    // The junction gussets (253-7, roof bars, 253-21, 253-9's X and bend
+    // bars, 253-15) are drawn here, not loaded -- see GENERATED_FILES.
+    // 253-9's 2 bend bars, 1 or 2 bends per bar (tools/build-door-bends.mjs).
+    ...["Left", "Right"].flatMap((cap) => ["1 bend", "2 bends"].flatMap((b) => [cap + " door bar upper 253-9 " + b + ".stl", cap + " door bar lower 253-9 " + b + ".stl"])),
     // Re-extracted from an updated "all options rollcage.3mf" (2026-09-10 v2)
     // with the A-pillar gussets repositioned correctly by the user directly
-    // in CAD, plus 2 new "253-15 side gusset" parts for when the windscreen
-    // pillar bar is a single continuous bar (as opposed to 2 bars meeting the
-    // door bar) -- same MASTER_OFFSET pipeline as the rest, no Z_FIXUPS entry.
+    // in CAD -- same MASTER_OFFSET pipeline as the rest, no Z_FIXUPS entry.
     "A-pillar gusset left.stl", "A-pillar gusset right.stl",
-    "253-15 side gusset left.stl", "253-15 side gusset right.stl",
-    // 4 gussets per side (2026-09-10 v4) for the 2-bar build of 253-15,
-    // where the split upper/lower tube segments meet the door bar --
-    // same MASTER_OFFSET pipeline, no Z_FIXUPS entry.
-    "253-15 gusset left upper front.stl", "253-15 gusset left upper rear.stl",
-    "253-15 gusset left lower front.stl", "253-15 gusset left lower rear.stl",
-    "253-15 gusset right upper front.stl", "253-15 gusset right upper rear.stl",
-    "253-15 gusset right lower front.stl", "253-15 gusset right lower rear.stl",
     // Re-extracted from an updated "all options rollcage.3mf" (2026-09-14)
-    // with the 4 "upper" 253-15 gussets above resized, plus these 4 new
-    // corner-brace gussets -- same MASTER_OFFSET pipeline (freshly
+    // with these 4 new corner-brace gussets -- same MASTER_OFFSET pipeline (freshly
     // recalibrated against this revision's own unchanged reference parts),
     // no Z_FIXUPS entry. The 3mf's own part names had 2 left/right
     // mislabelings in this batch (a "side gusset" and one of two identically-
@@ -219,10 +189,17 @@
     { row: "backstay_right", plateFile: "Foot rear right.stl", hingeFace: "tilted", tubeFile: "Right backstay.stl" },
   ];
   function footCubeFile(row) { return "Foot cube " + row + ".virtual"; }
-  // 253-9 X door bar crossing's upper/lower gussets -- built from the
-  // modeled front plate (see createDoorXGussets), no STL of their own.
-  const DOOR_X_GUSSET_SIDES = ["left", "right"];
-  function doorXGussetFile(position, side) { return "Door bar gusset " + position + " " + side + ".virtual"; }
+  // Parts drawn here rather than loaded (see createGeneratedParts): every
+  // junction gusset joining 2 tubes, the 2-bar build of 253-15 and 253-9's
+  // bend bars' one-piece gusset -- from gusset_data.js (tools/build-
+  // gussets.mjs: where each sits, worked out from the tubes it joins), so
+  // each can be drawn at the size entered and against whichever door bar is
+  // there (see setGussets).
+  const GUSSET_DATA = window.CAGE_GUSSET_DATA || { plates: {}, pieces: {}, side: {}, bend: {}, scaled: {} };
+  const PIECE_FILES = Object.keys(GUSSET_DATA.pieces).flatMap((side) => ["253-15 " + side + " lower.stl", "253-15 " + side + " upper.stl"]);
+  const bendGussetFile = (side, bends, curved) => "Door bar gusset 253-9 " + (bends === "2" ? "2 bends" : "1 bend") + " " + (curved ? "curved" : "straight") + " " + side + ".stl";
+  const BEND_GUSSET_FILES = Object.keys(GUSSET_DATA.bend).flatMap((side) => ["1", "2"].flatMap((b) => [bendGussetFile(side, b, false), bendGussetFile(side, b, true)]));
+  const GENERATED_FILES = Object.keys(GUSSET_DATA.plates).concat(Object.keys(GUSSET_DATA.side), PIECE_FILES, BEND_GUSSET_FILES);
   // 253-53 (double plane plate) similarly has no modeled geometry of its
   // own -- it reuses the real base plate PLUS a duplicate of that same
   // plate, rotated 90 degrees about Y so it stands as a second plane
@@ -237,47 +214,6 @@
   // staircase profile.
   function rockerBaseFile(row) { return "Foot rocker base " + row + ".virtual"; }
   function rockerFoldFile(row) { return "Foot rocker fold " + row + ".virtual"; }
-
-  // Gusset locations. 253-7, roof bars, and the 253-21 backstay diagonal
-  // each really do have 4 real, independently-choosable positions (left/
-  // right/upper/lower or left/right/front/rear) -- most cars gusset just
-  // one opposite pair, but some use all 4, so all 4 map to real files here.
-  // Door bars are different: their 4 positions (front/rear x left/right)
-  // are all simultaneously real junctions, not alternates. "Rear backstay
-  // gusset" is for the 253-21 diagonal brace itself (where it crosses/
-  // meets), not the backstay tubes -- used at its modeled position as-is.
-  const GUSSET_LOCATIONS = [
-    { row: "main_hoop_diag_left", file: "253-7 gusset left.stl" },
-    { row: "main_hoop_diag_right", file: "253-7 gusset right.stl" },
-    { row: "main_hoop_diag_upper", file: "253-7 gusset upper.stl" },
-    { row: "main_hoop_diag_lower", file: "253-7 gusset lower.stl" },
-    { row: "roof_left", file: "Roof bars gusset left.stl" },
-    { row: "roof_right", file: "Roof bars gusset right.stl" },
-    { row: "roof_front", file: "Roof bars gusset front.stl" },
-    { row: "roof_rear", file: "Roof bars gusset rear.stl" },
-    { row: "backstay_diag_left", file: "Rear backstay gusset left.stl" },
-    { row: "backstay_diag_right", file: "Rear backstay gusset right.stl" },
-    { row: "backstay_diag_upper", file: "Rear backstay gusset upper.stl" },
-    { row: "backstay_diag_lower", file: "Rear backstay gusset lower.stl" },
-    { row: "door_front_left", file: "Door bar gusset front left.stl" },
-    { row: "door_front_right", file: "Door bar gusset front right.stl" },
-    { row: "door_rear_left", file: "Door bar gusset rear left.stl" },
-    { row: "door_rear_right", file: "Door bar gusset rear right.stl" },
-    { row: "a_pillar_left", file: "A-pillar gusset left.stl" },
-    { row: "a_pillar_right", file: "A-pillar gusset right.stl" },
-    { row: "b_pillar_left", file: "B-pillar gusset left.stl" },
-    { row: "b_pillar_right", file: "B-pillar gusset right.stl" },
-    { row: "a_pillar_side_left", file: "253-15 side gusset left.stl" },
-    { row: "a_pillar_side_right", file: "253-15 side gusset right.stl" },
-    { row: "a_pillar_2pc_left_upper_front", file: "253-15 gusset left upper front.stl" },
-    { row: "a_pillar_2pc_left_upper_rear", file: "253-15 gusset left upper rear.stl" },
-    { row: "a_pillar_2pc_left_lower_front", file: "253-15 gusset left lower front.stl" },
-    { row: "a_pillar_2pc_left_lower_rear", file: "253-15 gusset left lower rear.stl" },
-    { row: "a_pillar_2pc_right_upper_front", file: "253-15 gusset right upper front.stl" },
-    { row: "a_pillar_2pc_right_upper_rear", file: "253-15 gusset right upper rear.stl" },
-    { row: "a_pillar_2pc_right_lower_front", file: "253-15 gusset right lower front.stl" },
-    { row: "a_pillar_2pc_right_lower_rear", file: "253-15 gusset right lower rear.stl" },
-  ];
 
   let scene, camera, renderer, wrap;
   let target, radius, theta, phi, roll;
@@ -584,7 +520,7 @@
         loadedCount++;
         if (loadedCount === PARTS.length) {
           createFootExtras();
-          createDoorXGussets();
+          createGeneratedParts();
           ready = true;
           fitCamera();
           onReadyCbs.forEach((cb) => cb());
@@ -593,65 +529,16 @@
       });
     });
 
-    // The 253-9 X door bar crossing can be gusseted front/rear (the 2
-    // modeled "Door bar gusset front/rear <side>.stl" plates) OR upper/
-    // lower, which have no STL of their own -- built here from the front
-    // plate instead. The front plate is a triangle whose tip points at the
-    // crossing and whose 2 edges run along the 2 bars' front branches; a
-    // linear map pivoting on the crossing keeps one edge's bar direction
-    // and flips the other's onto that bar's rear branch, landing the plate
-    // in the upper (or lower) angle with the same clearance from each
-    // tube. The crossing is taken as the midpoint of the front and rear
-    // plates' tips.
-    function createDoorXGussets() {
-      DOOR_X_GUSSET_SIDES.forEach((side) => {
-        const front = meshes["Door bar gusset front " + side + ".stl"];
-        const rear = meshes["Door bar gusset rear " + side + ".stl"];
-        if (!front || !rear) return;
-        const verts = (mesh) => {
-          const p = mesh.userData.rawPositions, seen = new Map();
-          for (let i = 0; i < p.length; i += 3) seen.set(p[i].toFixed(2) + "," + p[i + 1].toFixed(2) + "," + p[i + 2].toFixed(2), new THREE.Vector3(p[i], p[i + 1], p[i + 2]));
-          return [...seen.values()];
-        };
-        const centroid = (vs) => vs.reduce((s, v) => s.add(v), new THREE.Vector3()).multiplyScalar(1 / vs.length);
-        // A plate is a triangle extruded through its thickness: group its
-        // vertices into the 3 corners (each a pair across the thickness),
-        // tip first -- the corner nearest the other plate.
-        const corners = (vs, other) => {
-          const groups = [];
-          vs.forEach((v) => {
-            const g = groups.find((gr) => gr[0].distanceTo(v) < 5);
-            if (g) g.push(v); else groups.push([v]);
-          });
-          const cs = groups.map(centroid);
-          const target = centroid(other);
-          cs.sort((a, b) => a.distanceTo(target) - b.distanceTo(target));
-          return cs;
-        };
-        const fv = verts(front), rv = verts(rear);
-        const [fTip, f1, f2] = corners(fv, rv);
-        const [rTip] = corners(rv, fv);
-        const cross = fTip.clone().add(rTip).multiplyScalar(0.5);
-        const [up, down] = f1.z >= f2.z ? [f1, f2] : [f2, f1];
-        const eUp = up.clone().sub(fTip).normalize();   // bar A, front-upper branch
-        const eDown = down.clone().sub(fTip).normalize(); // bar B, front-lower branch
-        const n = new THREE.Vector3().crossVectors(eUp, eDown).normalize();
-        const basisInv = new THREE.Matrix4().makeBasis(eUp, eDown, n).invert();
-        const build = (key, toUp, toDown) => {
-          const m = new THREE.Matrix4().makeBasis(toUp, toDown, n).multiply(basisInv);
-          const pivot = new THREE.Matrix4().makeTranslation(cross.x, cross.y, cross.z)
-            .multiply(m)
-            .multiply(new THREE.Matrix4().makeTranslation(-cross.x, -cross.y, -cross.z));
-          const geometry = front.geometry.clone();
-          geometry.applyMatrix4(pivot);
-          geometry.deleteAttribute("normal");
-          geometry.computeVertexNormals();
-          addProceduralPart(key, geometry, new THREE.Vector3());
-        };
-        // Upper angle: bar A's front-upper branch + bar B's rear-upper one.
-        build(doorXGussetFile("upper", side), eUp, eDown.clone().negate());
-        // Lower angle: bar A's rear-lower branch + bar B's front-lower one.
-        build(doorXGussetFile("lower", side), eUp.clone().negate(), eDown);
+    // The gussets and 253-15 pieces drawn rather than loaded (see
+    // GENERATED_FILES), at their default size and the X door bar's
+    // junction until setGussets says otherwise.
+    function createGeneratedParts() {
+      GENERATED_FILES.forEach((file) => {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(generatedPositions(file, {}), 3));
+        geometry.computeVertexNormals();
+        addProceduralPart(file, geometry, new THREE.Vector3());
+        meshes[file].userData.genKey = "{}";
       });
     }
 
@@ -1155,8 +1042,7 @@
     FOOT_LOCATIONS.forEach(({ row }) => {
       virtual.push(footCubeFile(row), doublePlaneFile(row), rockerBaseFile(row), rockerFoldFile(row));
     });
-    DOOR_X_GUSSET_SIDES.forEach((side) => { virtual.push(doorXGussetFile("upper", side), doorXGussetFile("lower", side)); });
-    return PARTS.slice().concat(virtual);
+    return PARTS.slice().concat(virtual, GENERATED_FILES);
   }
 
   // A mesh's own bounding box, reduced to whichever single axis (x/y/z) has
@@ -1950,6 +1836,202 @@
     return out;
   }
 
+  // ---- Drawn parts (GENERATED_FILES) ----
+  // Each drawn part's geometry from gusset_data.js and its current
+  // parameters (see setGussets): p.variant -- the door bar at a 253-15
+  // junction ("x", "upper", "bent1", "bent2"); p.size -- a gusset's length
+  // E as { ratio } (E/D, D the tubes' diameter) or { mm }, unknown = 3D;
+  // for 253-9's bend gusset, p.lb / p.lb2 / p.lc the same way.
+  const gv = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+  function sizeUnits(size, d, fallback) {
+    if (size && size.ratio != null && isFinite(size.ratio) && size.ratio > 0) return Math.min(size.ratio, 12) * d;
+    if (size && size.mm != null && isFinite(size.mm) && size.mm > 0) return Math.min(size.mm, 1200) / 10;
+    return fallback;
+  }
+  // A triangle (3 Vector3s) extruded T thick along n: 8 triangles.
+  function prismPositions(tri, n, T) {
+    const h = n.clone().multiplyScalar(T / 2);
+    const t = tri.map((p) => p.clone().add(h)), b = tri.map((p) => p.clone().sub(h));
+    const out = [];
+    const push = (...ps) => ps.forEach((p) => out.push(p.x, p.y, p.z));
+    push(t[0], t[1], t[2]);
+    push(b[0], b[2], b[1]);
+    for (let i = 0; i < 3; i++) {
+      const j = (i + 1) % 3;
+      push(t[i], b[i], t[j]);
+      push(t[j], b[i], b[j]);
+    }
+    return new Float32Array(out);
+  }
+  // A junction gusset: a plate in the 2 tubes' plane, from the inner corner
+  // between them (2020 FIA 253 drawing 253-34), each leg E along its tube.
+  // A taco wraps the tubes: as thick as they are, its faces flush with
+  // theirs and its edges on their axes; a single plate is a thin plate
+  // whose edges run a little inside each tube, as welded.
+  const isSinglePlate = (design) => design === "single_plate";
+  function platePositions(d, size, design) {
+    const P = gv(d.P), u = gv(d.u).normalize(), v = gv(d.v).normalize(), r = d.r;
+    const theta = Math.max(0.2, u.angleTo(v));
+    const bis = u.clone().add(v).normalize();
+    const o = isSinglePlate(design) ? 0.6 * r : 0;
+    const corner = P.clone().addScaledVector(bis, o / Math.sin(theta / 2));
+    const E = sizeUnits(size, 2 * r, 6 * r);
+    const L = (r - o) / Math.tan(theta / 2) + E;
+    const n = new THREE.Vector3().crossVectors(u, v).normalize();
+    return prismPositions([corner, corner.clone().addScaledVector(u, L), corner.clone().addScaledVector(v, L)], n, isSinglePlate(design) ? 0.4 * r : 2 * r);
+  }
+  // A continuous 253-15's side gusset: bridges the bar and the door bar
+  // passing beside it -- its long edge along 253-15, E each way from the
+  // point nearest the door bar, its tip inside the door bar.
+  function sidePositions(d, size, design) {
+    const P15 = gv(d.P15), PD = gv(d.PD), d15 = gv(d.d15).normalize();
+    const across = P15.clone().sub(PD);
+    const E = sizeUnits(size, 2 * d.r, 6 * d.r);
+    const tip = PD.clone().addScaledVector(across.clone().normalize(), 0.5 * d.rD);
+    const n = new THREE.Vector3().crossVectors(d15, across).normalize();
+    return prismPositions([tip, P15.clone().addScaledVector(d15, -E), P15.clone().addScaledVector(d15, E)], n, isSinglePlate(design) ? 0.4 * d.r : 2 * d.r);
+  }
+  // A straight tube from a to b (24 sides, 30 rings so a band of color
+  // along it has vertices to follow), closed at both ends.
+  function tubePositions(a, b, r) {
+    const S = 24, N = 30, t = b.clone().sub(a).normalize();
+    const n1 = new THREE.Vector3().crossVectors(t, Math.abs(t.z) < 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0)).normalize();
+    const n2 = new THREE.Vector3().crossVectors(t, n1);
+    const ring = (k) => {
+      const c = a.clone().lerp(b, k / N);
+      return Array.from({ length: S }, (_, i) => { const ang = (2 * Math.PI * i) / S; return c.clone().addScaledVector(n1, r * Math.cos(ang)).addScaledVector(n2, r * Math.sin(ang)); });
+    };
+    const rings = Array.from({ length: N + 1 }, (_, k) => ring(k));
+    const out = [];
+    const push = (...ps) => ps.forEach((p) => out.push(p.x, p.y, p.z));
+    for (let k = 0; k < N; k++) for (let i = 0; i < S; i++) {
+      const j = (i + 1) % S;
+      push(rings[k][i], rings[k + 1][i], rings[k][j]);
+      push(rings[k][j], rings[k + 1][i], rings[k + 1][j]);
+    }
+    for (let i = 0; i < S; i++) {
+      const j = (i + 1) % S;
+      push(a, rings[0][j], rings[0][i]);
+      push(b, rings[N][i], rings[N][j]);
+    }
+    return new Float32Array(out);
+  }
+  // 253-9's bend bars' one-piece gusset: as wide as the tubes, filling the
+  // space between the 2 bars from Lb ahead of the (front) bend to Lb'
+  // behind the (rear) one; curved: each end cut in by Lc at its middle.
+  function bendGussetPositions(sd, bends, curved, p) {
+    const bd = sd[bends], xs = bd.bends, D = 5;
+    const dflt = (bends === "2" ? 3.5 : 5) * D;
+    const lb = sizeUnits(p.lb, D, dflt), lb2 = sizeUnits(p.lb2, D, dflt);
+    const lc = curved ? Math.min(sizeUnits(p.lc, D, bends === "2" ? 6 : 5), 0.45 * (lb + lb2 + xs[xs.length - 1] - xs[0])) : 0;
+    const x0 = xs[0] - lb, x1 = xs[xs.length - 1] + lb2;
+    const atX = (line, x) => {
+      for (let i = 1; i < line.length; i++) {
+        if (line[i][0] >= x || i === line.length - 1) {
+          const a = gv(line[i - 1]), b = gv(line[i]);
+          return a.lerp(b, Math.max(0, Math.min(1, (x - a.x) / ((b.x - a.x) || 1))));
+        }
+      }
+      return gv(line[line.length - 1]);
+    };
+    const NU = 40, NV = 10, half = gv(sd.normal).normalize().multiplyScalar(D / 2);
+    const P = (u, v) => {
+      const cut = lc * Math.sin(Math.PI * v), xl = x0 + cut, xr = x1 - cut, x = xl + (xr - xl) * u;
+      return atX(bd.lower, x).lerp(atX(bd.upper, x), v);
+    };
+    const grid = Array.from({ length: NU + 1 }, (_, i) => Array.from({ length: NV + 1 }, (_, j) => P(i / NU, j / NV)));
+    const out = [];
+    const push = (...ps) => ps.forEach((q) => out.push(q.x, q.y, q.z));
+    [1, -1].forEach((sgn) => {
+      const off = half.clone().multiplyScalar(sgn);
+      for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
+        const a = grid[i][j].clone().add(off), b = grid[i + 1][j].clone().add(off), c = grid[i][j + 1].clone().add(off), d = grid[i + 1][j + 1].clone().add(off);
+        if (sgn > 0) { push(a, b, c); push(b, d, c); } else { push(a, c, b); push(b, c, d); }
+      }
+    });
+    const edge = (pts) => {
+      for (let k = 0; k < pts.length - 1; k++) {
+        const a = pts[k].clone().add(half), b = pts[k + 1].clone().add(half), c = pts[k].clone().sub(half), d = pts[k + 1].clone().sub(half);
+        push(a, c, b); push(b, c, d);
+      }
+    };
+    edge(grid.map((col) => col[0]));
+    edge(grid.map((col) => col[NV]));
+    edge(grid[0]);
+    edge(grid[NU]);
+    return new Float32Array(out);
+  }
+  function generatedPositions(file, p) {
+    const variant = p.variant || "x";
+    if (GUSSET_DATA.plates[file]) return platePositions(GUSSET_DATA.plates[file][variant] || GUSSET_DATA.plates[file].x, p.size, p.design);
+    if (GUSSET_DATA.side[file]) return sidePositions(GUSSET_DATA.side[file][variant] || GUSSET_DATA.side[file].x, p.size, p.design);
+    const piece = file.match(/^253-15 (left|right) (lower|upper)\.stl$/);
+    if (piece) {
+      const d = GUSSET_DATA.pieces[piece[1]][variant] || GUSSET_DATA.pieces[piece[1]].x;
+      return piece[2] === "lower" ? tubePositions(gv(d.F), gv(d.J), d.r) : tubePositions(gv(d.J), gv(d.T), d.r);
+    }
+    const bend = file.match(/^Door bar gusset 253-9 (1 bend|2 bends) (straight|curved) (left|right)\.stl$/);
+    if (bend) return bendGussetPositions(GUSSET_DATA.bend[bend[3]], bend[1] === "2 bends" ? "2" : "1", bend[2] === "curved", p);
+    return new Float32Array(0);
+  }
+  // The drawn parts' parameters, from app.js on every redraw:
+  //   doorVariant: { left, right } -- the door bar at each side's 253-15
+  //     junction ("x", "upper", "bent1", "bent2");
+  //   designs: { file: "taco" | "single_plate" } -- how thick it's drawn;
+  //   sizes: { file: { ratio } | { mm } } -- a gusset's length E (see
+  //     platePositions); for 253-9's bend gusset { lb, lb2, lc } of those;
+  //     for the A/B-pillar gussets (CAD parts), { ratio } scales them about
+  //     the middle of their weld along the tube, 3D being as modeled.
+  // A part is only rebuilt when its parameters changed.
+  function setGussets(spec) {
+    onReady(() => {
+      const sizes = (spec && spec.sizes) || {}, variants = (spec && spec.doorVariant) || {}, designs = (spec && spec.designs) || {};
+      let changed = false;
+      const replace = (mesh, positions) => {
+        mesh.userData.basePositions = positions;
+        mesh.geometry.setAttribute("position", new THREE.BufferAttribute(positions.slice(), 3));
+        mesh.geometry.deleteAttribute("normal");
+        mesh.geometry.computeVertexNormals();
+        mesh.geometry.boundingBox = null;
+        mesh.geometry.boundingSphere = null;
+        mesh.userData.leanKey = null;
+        mesh.userData.holeKey = null;
+        changed = true;
+      };
+      GENERATED_FILES.forEach((file) => {
+        const mesh = meshes[file];
+        if (!mesh) return;
+        const side = / left[ .]/.test(file) || /^253-15 left /.test(file) ? "left" : "right";
+        const s = sizes[file] || {};
+        const p = s.lb || s.lb2 || s.lc ? Object.assign({ variant: variants[side] }, s) : { variant: variants[side], size: sizes[file], design: designs[file] };
+        const key = JSON.stringify(p);
+        if (mesh.userData.genKey === key) return;
+        const positions = generatedPositions(file, p);
+        if (positions.length !== mesh.geometry.attributes.position.array.length) return;
+        mesh.userData.genKey = key;
+        replace(mesh, positions);
+      });
+      Object.keys(GUSSET_DATA.scaled).forEach((file) => {
+        const mesh = meshes[file];
+        if (!mesh || !mesh.userData.rawPositions || mesh.userData.geometryVariant) return;
+        const ratio = sizes[file] && sizes[file].ratio;
+        const f = ratio != null && isFinite(ratio) && ratio > 0 ? Math.max(0.2, Math.min(ratio, 12)) / 3 : 1;
+        const key = f.toFixed(4);
+        if ((mesh.userData.scaleKey || "1.0000") === key) return;
+        mesh.userData.scaleKey = key;
+        const raw = mesh.userData.rawPositions, a = GUSSET_DATA.scaled[file].anchor, dz = mesh.position.z;
+        const out = new Float32Array(raw.length);
+        for (let i = 0; i < raw.length; i += 3) {
+          out[i] = a[0] + (raw[i] - a[0]) * f;
+          out[i + 1] = a[1] + (raw[i + 1] - a[1]) * f;
+          out[i + 2] = a[2] - dz + (raw[i + 2] + dz - a[2]) * f;
+        }
+        replace(mesh, out);
+      });
+      if (changed) applyMainHoopLean();
+    });
+  }
+
   // A round hole through the middle of each listed plate (taco gussets --
   // see tacoGussetFiles in app.js), cut in the fragment shader rather than
   // the geometry: the plates are bare extruded triangles, and the main hoop
@@ -2060,7 +2142,7 @@
   // The camera's current angle (radians), for snapshot's opts.angle.
   function getAngle() { return { theta, phi, roll }; }
 
-  window.CageView = { getAngle, setHoles, setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
+  window.CageView = { getAngle, setGussets, setHoles, setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");

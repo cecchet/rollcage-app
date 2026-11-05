@@ -747,7 +747,7 @@
   // tube silently carry over onto a same-named row.
   function doorBarTubeRowsForSide(doorVal, side) {
     const cap = side === "left" ? "Left" : "Right";
-    if (doorVal === "253-9-bent") {
+    if (isDoor9Bent(doorVal)) {
       return [
         { id: "d9bent_" + side + "_upper", label: "253-9: Door bar -- " + cap + " upper (bend bar)" },
         { id: "d9bent_" + side + "_lower", label: "253-9: Door bar -- " + cap + " lower (bend bar)" },
@@ -926,10 +926,14 @@
     { id: "none", label: "None -- no mounting foot" },
   ];
 
+  // The bend options are 253-9's 2 bend bars' one-piece gusset only
+  // (onlyIfRestricted: offered just on a row that lists them).
   const GUSSET_DESIGN_OPTIONS = [
     { id: "", label: "None" },
     { id: "taco", label: "Taco" },
     { id: "single_plate", label: "Single plate" },
+    { id: "bend_straight", label: "One piece, straight edges", onlyIfRestricted: true },
+    { id: "bend_curved", label: "One piece, curved edges", onlyIfRestricted: true },
   ];
 
   // Gusset junctions -- only the ones that actually exist given what was
@@ -996,7 +1000,7 @@
     // Only the 253-9 (X-bar) designs need this gusset -- 253-10, 253-11,
     // NASCAR, and the single-bar variant don't. Left and right are gated
     // independently since the design can now differ side to side.
-    function isDoor9(v) { return v === "253-9-intersection-1" || v === "253-9-intersection-2" || v === "253-9-bent"; }
+    function isDoor9(v) { return v === "253-9-intersection-1" || v === "253-9-intersection-2" || isDoor9Bent(v); }
     // The X crossing of a 253-9 "1 continuous bar + 2 half bars" door bar
     // can instead be gusseted in its upper and lower angles (same
     // opposite-pair choice as 253-7's crossing -- see gussetRowGroups).
@@ -1012,20 +1016,21 @@
     // only need one combined gusset in practice; captured as 2 separate
     // rows for now regardless, since that design-specific exception needs
     // its own rule to be worked out later.
-    if (isDoor9(getAnswer("door_bars_left").value)) {
+    // The 2 bend bars instead take ONE gusset welded between them around
+    // the bend(s), with straight or curved (cut-out) ends.
+    ["left", "right"].forEach((side) => {
+      const v = getAnswer("door_bars_" + side).value;
+      if (isDoor9Bent(v)) {
+        rows.push({ id: "door_bend_" + side, label: "253-9: Door bar gusset between the 2 bend bars - " + side, restrictOptionIds: ["bend_straight", "bend_curved"] });
+        return;
+      }
+      if (!isDoor9(v)) return;
       rows.push(
-        { id: "door_front_left", label: "253-9: Door bar junction gusset - front left" },
-        { id: "door_rear_left", label: "253-9: Door bar junction gusset - rear left" }
+        { id: "door_front_" + side, label: "253-9: Door bar junction gusset - front " + side },
+        { id: "door_rear_" + side, label: "253-9: Door bar junction gusset - rear " + side }
       );
-      if (isDoor9Intersection(getAnswer("door_bars_left").value)) rows.push(...doorXUpperLowerRows("left"));
-    }
-    if (isDoor9(getAnswer("door_bars_right").value)) {
-      rows.push(
-        { id: "door_front_right", label: "253-9: Door bar junction gusset - front right" },
-        { id: "door_rear_right", label: "253-9: Door bar junction gusset - rear right" }
-      );
-      if (isDoor9Intersection(getAnswer("door_bars_right").value)) rows.push(...doorXUpperLowerRows("right"));
-    }
+      if (isDoor9Intersection(v)) rows.push(...doorXUpperLowerRows(side));
+    });
     // Lateral-to-A-pillar gusset -- bracing the front lateral to the body's
     // A-pillar, one per side. Independent of 253-15 (the windscreen pillar
     // reinforcement bar), so it only needs a front lateral to exist -- i.e.
@@ -1069,7 +1074,9 @@
     });
     const rearLowerXVal = getAnswer("rear_lower_x_present").value;
     if (rearLowerXVal === "253-19-1" || rearLowerXVal === "253-19-2") {
-      rows.push({ id: "rear_lower_x_left", label: "253-19: Rear lower X junction - left" }, { id: "rear_lower_x_right", label: "253-19: Rear lower X junction - right" });
+      // 4 positions at the crossing -- a left/right or a front/rear pair --
+      // all optional: "None" is a final answer, with no penalty.
+      ["left", "right", "front", "rear"].forEach((pos) => rows.push({ id: "rear_lower_x_" + pos, label: "253-19: Rear lower X junction - " + pos, optional: true }));
     }
     return rows;
   }
@@ -1102,6 +1109,7 @@
     });
     if (getAnswer("backstay_diagonals").value === "253-21-1" || getAnswer("backstay_diagonals").value === "253-21-2") xGroup("backstay_diag", ["_upper", "_lower"]);
     if (getAnswer("roof_bars").value === "253-12-1" || getAnswer("roof_bars").value === "253-12-2") xGroup("roof", ["_front", "_rear"]);
+    if (getAnswer("rear_lower_x_present").value === "253-19-1" || getAnswer("rear_lower_x_present").value === "253-19-2") xGroup("rear_lower_x", ["_front", "_rear"]);
     {
       ["left", "right"].forEach((side) => {
         if (aPillarSideDesign(getAnswer("a_pillar_reinforcement").value, side) !== "two_bars") return;
@@ -1144,10 +1152,10 @@
     if (gussetRowId.indexOf("roof_") === 0) {
       return roofBarTubeRows(getAnswer("roof_bars").value).map((r) => r.id);
     }
-    if (/^door_(front|rear|upper|lower)_left$/.test(gussetRowId)) {
+    if (/^door_(front|rear|upper|lower|bend)_left$/.test(gussetRowId)) {
       return doorBarTubeRowsForSide(getAnswer("door_bars_left").value, "left").map((r) => r.id);
     }
-    if (/^door_(front|rear|upper|lower)_right$/.test(gussetRowId)) {
+    if (/^door_(front|rear|upper|lower|bend)_right$/.test(gussetRowId)) {
       return doorBarTubeRowsForSide(getAnswer("door_bars_right").value, "right").map((r) => r.id);
     }
     // Lateral-to-A-pillar gusset -- ties the front lateral to the body, no
@@ -1711,7 +1719,8 @@
   const DOOR_BAR_DESIGN_OPTIONS = [
     { id: "253-9-intersection-1", label: "253-9: 1 continuous bar + 2 half bars", diagram: "253-9-intersection", outcome: "pass" },
     { id: "253-9-intersection-2", label: "253-9: 1 continuous bar + 2 half bars (other tube continuous)", diagram: "253-9-intersection-2", outcome: "pass" },
-    { id: "253-9-bent", label: "253-9: 2 bend bars", diagram: "253-9", outcome: "pass" },
+    { id: "253-9-bent", label: "253-9: 2 continuous bars (1 bend)", diagram: "253-9-bent-1", outcome: "pass" },
+    { id: "253-9-bent-2", label: "253-9: 2 continuous bars (2 bends)", diagram: "253-9-bent-2", outcome: "pass" },
     { id: "253-10", label: "253-10: Triangle design", diagram: "253-10", outcome: "pass" },
     { id: "253-11", label: "253-11: Double bars", diagram: "253-11", outcome: "pass" },
     { id: "nascar", label: "NASCAR door bars", diagram: "stock-car", note: "Requires prior scrutineer approval. Additional geometry/detail sections to follow.", outcome: "pass" },
@@ -1743,7 +1752,7 @@
           type: "boolean",
           diagram: "sill-bar-toggle",
           requirement: "recommended",
-          showIf: { in: ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-10", "single-bar"] },
+          showIf: { in: ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "single-bar"] },
         },
       ],
       tubing: null,
@@ -1771,8 +1780,12 @@
     { id: "door_bars_right", in: ["253-9-intersection-1", "253-9-intersection-2"] },
   ] };
   function door9xSides(getAnswer) { return ["left", "right"].filter((s) => isDoor9Intersection(getAnswer("door_bars_" + s).value)); }
-  const DOOR_9BENT_SHOWIF = { any: [{ id: "door_bars_left", equals: "253-9-bent" }, { id: "door_bars_right", equals: "253-9-bent" }] };
-  function door9bentSides(getAnswer) { return ["left", "right"].filter((s) => getAnswer("door_bars_" + s).value === "253-9-bent"); }
+  // 253-9's 2 continuous (bend) bars: 1 bend per bar ("253-9-bent") or 2
+  // ("253-9-bent-2") -- 2 separate designs.
+  function isDoor9Bent(v) { return v === "253-9-bent" || v === "253-9-bent-2"; }
+  function door9Bends(v) { return v === "253-9-bent-2" ? "2" : "1"; }
+  const DOOR_9BENT_SHOWIF = { any: [{ id: "door_bars_left", in: ["253-9-bent", "253-9-bent-2"] }, { id: "door_bars_right", in: ["253-9-bent", "253-9-bent-2"] }] };
+  function door9bentSides(getAnswer) { return ["left", "right"].filter((s) => isDoor9Bent(getAnswer("door_bars_" + s).value)); }
   const SECTION_5_1 = [
     doorBarDesignElement("left"),
     doorBarDesignElement("right"),
@@ -1807,27 +1820,54 @@
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: true,
     },
+    // Where 253-9's 2 bend bars bend (2020 FIA 253 Ch.8.3.2.1.2, the
+    // drawing's "Zone A"): every bend at least 300mm behind the front
+    // lateral (A-pillar) and at least 200mm ahead of the main rollbar. With
+    // 1 bend per bar both distances are to that bend; with 2, the front one
+    // to the front bend and the rear one to the rear bend.
     {
       id: "door_9_2bar_dims",
-      name: "Dimensions -- 2-bar configurations",
+      name: "253-9 bend positions",
       category: "Door bars -- 253-9 (X bar design)",
-      requirement: "required", reference: "", description: "",
+      requirement: "required",
+      reference: "2020 FIA 253 Ch.8.3.2.1.2",
+      description: "Each bend of the 2 bend bars sits in Zone A: at least 300mm (11.8in) behind the front lateral and at least 200mm (7.9in) ahead of the main rollbar, measured along the car. With 1 bend per bar, measure both to that bend; with 2 bends, the front lateral to the front bend and the rear bend to the main rollbar.",
       showIf: DOOR_9BENT_SHOWIF,
+      diagram: "253-9-bend-positions",
       evaluationType: "table",
       rows: (getAnswer) => {
         const rows = [];
         door9bentSides(getAnswer).forEach((side) => {
           const cap = side === "left" ? "Left" : "Right";
-          rows.push(
-            { id: side + "_front_dim", label: cap + " front dimension before gusset (min 300mm)" },
-            { id: side + "_rear_dim", label: cap + " rear dimension before gusset (min 200mm)" },
-            { id: side + "_space", label: cap + " space between bars (< diameter of larger bar)" }
-          );
+          const bends = door9Bends(getAnswer("door_bars_" + side).value);
+          const how = bends === "2" ? " (2 bends)" : bends === "1" ? " (1 bend)" : "";
+          rows.push({ id: side + "_upper", label: cap + " upper bar" + how }, { id: side + "_lower", label: cap + " lower bar" + how });
         });
         return rows;
       },
-      columns: [{ key: "value", label: "Value", type: "length" }],
+      columns: [
+        { key: "front", label: "Front lateral to the (front) bend (≥300mm/11.8in)", type: "length", compare: { op: "gte", value: 300 } },
+        { key: "rear", label: "The (rear) bend to the main rollbar (≥200mm/7.9in)", type: "length", compare: { op: "gte", value: 200 } },
+      ],
       visuallyVerifiable: false, hardFail: true,
+    },
+    // Where the 2 bars come closest (at the bend, or along the flat stretch
+    // between 2 bends): at most the bars' diameter D apart.
+    {
+      id: "door_9_2bar_gap",
+      name: "253-9 gap between the bend bars",
+      category: "Door bars -- 253-9 (X bar design)",
+      requirement: "required",
+      reference: "2020 FIA 253 Ch.8.3.2.1.2",
+      description: "Where the 2 bend bars come closest -- at the bend, or along the stretch between 2 bends -- the gap between them is at most D, the bars' outer diameter.",
+      showIf: DOOR_9BENT_SHOWIF,
+      evaluationType: "table",
+      rows: (getAnswer) => door9bentSides(getAnswer).map((side) => ({ id: side, label: (side === "left" ? "Left" : "Right") + " door bars" })),
+      columns: [{ key: "gap", label: "Gap between the bars", type: "radio", options: [
+        { id: "under", label: "≤ D" },
+        { id: "over", label: "> D", outcome: "fail" },
+      ] }],
+      visuallyVerifiable: true, hardFail: true,
     },
     {
       id: "door_9_2bar_welds",
@@ -2424,7 +2464,7 @@
       // 2-piece), which don't carry either feature on this build even
       // though they ARE taco.
       rows: (getAnswer) => gussetJunctionRows(getAnswer)
-        .filter((r) => getAnswer("gusset_design__" + r.id + "__design").value !== "")
+        .filter((r) => getAnswer("gusset_design__" + r.id + "__design").value !== "" && r.id.indexOf("door_bend_") !== 0)
         .map((r) => {
           const design = getAnswer("gusset_design__" + r.id + "__design").value;
           if (design === "single_plate" || GUSSETS_WITHOUT_CORNER_HOLE.has(r.id)) {
@@ -2458,8 +2498,73 @@
           { id: "over", label: "H>D", outcome: "fail" },
           { id: "none", label: "None" },
         ] },
-        { key: "weld", label: "Complete weld", type: "boolean" },
       ],
+      visuallyVerifiable: true,
+      hardFail: true,
+    },
+    // 253-9's 2 bend bars' one-piece gusset (2020 FIA 253 Ch.8.3.2.1.2's
+    // gusset drawings): Lb and Lb' from the (front / rear) bend to the
+    // gusset's ends, La between 2 bends, Lc a curved end's cutout. D: the
+    // biggest of the 2 tubes. 1 bend: 4D <= Lb, Lb' <= 6.5D, Lc <= 0.125 L
+    // (L = Lb + Lb'). 2 bends: 3D <= Lb, Lb' <= 4D, L = La + Lb + Lb' at
+    // least 0.3 W (W: front lateral to main rollbar), Lc <= 0.125 L (the 2-bend
+    // drawing's "1.5 L" taken as a typo for the 1-bend 0.125 L). No hole.
+    {
+      id: "door_9_bend_gusset",
+      name: "253-9 bend bars gusset dimensions",
+      category: "Gussets",
+      requirement: "required",
+      reference: "2020 FIA 253 Ch.8.3.2.1.2",
+      description: "The one-piece gusset between the 2 bend bars, per side. D = outer diameter of the biggest of the 2 tubes.\n1 bend: 4D ≤ Lb ≤ 6.5D and 4D ≤ Lb' ≤ 6.5D; curved ends: Lc ≤ 0.125 L (L = Lb + Lb').\n2 bends: 3D ≤ Lb ≤ 4D and 3D ≤ Lb' ≤ 4D; L = La + Lb + Lb' ≥ 0.3 W (W = front lateral to main rollbar); curved ends: Lc ≤ 0.125 L.\nThickness at least 1mm. No hole.",
+      showIf: DOOR_9BENT_SHOWIF,
+      diagram: (getAnswer) => {
+        const bends = door9bentSides(getAnswer).map((s) => door9Bends(getAnswer("door_bars_" + s).value));
+        return ["1", "2"].filter((n) => bends.includes(n)).map((n) => "253-9-bend-gusset-" + n);
+      },
+      evaluationType: "table",
+      rows: (getAnswer) => ["left", "right"].filter((side) => isDoor9Bent(getAnswer("door_bars_" + side).value) && getAnswer("gusset_design__door_bend_" + side + "__design").value !== "").map((side) => {
+        const two = door9Bends(getAnswer("door_bars_" + side).value) === "2";
+        const curved = getAnswer("gusset_design__door_bend_" + side + "__design").value === "bend_curved";
+        const range = two ? [3, 4] : [4, 6.5];
+        const sumCols = two ? ["la", "lb", "lb2"] : ["lb", "lb2"];
+        return {
+          id: "door_bend_" + side,
+          label: (side === "left" ? "Left" : "Right") + (two ? " (2 bends)" : " (1 bend)") + (curved ? ", curved edges" : ", straight edges"),
+          notApplicableColumns: [].concat(two ? [] : ["la", "w"], curved ? [] : ["lc"]),
+          diameterRanges: { lb: range, lb2: range },
+          diameterMultiples: { lb: range, lb2: range },
+          compareFor: {
+            lc: { op: "lteFractionOfColumns", fraction: 0.125, columns: sumCols },
+            la: { op: "sumGteFractionOfColumn", columns: sumCols, fraction: 0.3, column: "w" },
+          },
+        };
+      }),
+      tubeRowIdsForRow: (getAnswer, rowId) => gussetRowTubeRowIds(rowId, getAnswer),
+      columns: [
+        { key: "thickness", label: "Thickness (≥1mm)", type: "length", compare: { op: "gte", value: 1 } },
+        { key: "lb", label: "Lb (front)", type: "length", showDiameterHint: true },
+        { key: "lb2", label: "Lb' (rear)", type: "length", showDiameterHint: true },
+        { key: "la", label: "La (between the 2 bends)", type: "length" },
+        { key: "w", label: "W (front lateral to main rollbar)", type: "length" },
+        { key: "lc", label: "Lc (curved end cutout)", type: "length" },
+      ],
+      visuallyVerifiable: false,
+      hardFail: true,
+    },
+    // Each gusset's weld, with the other weld checks (the dimensions above
+    // are measured with the other distances). Its answers were once
+    // gusset_dimensions' own "weld" column: app.js reads those as these
+    // (see answerAlias).
+    {
+      id: "gusset_welds",
+      name: "Gusset welds",
+      category: "Welds",
+      requirement: "required",
+      reference: "2020 FIA 253 Ch.8.3.2.1",
+      description: "One row per gusset location confirmed present in " + PART(1) + ": is it welded all around? Its dimensions are measured in " + PART(3) + ".",
+      evaluationType: "table",
+      rows: (getAnswer) => gussetJunctionRows(getAnswer).filter((r) => getAnswer("gusset_design__" + r.id + "__design").value !== ""),
+      columns: WELD_COLUMNS,
       visuallyVerifiable: true,
       hardFail: true,
     },
@@ -3489,7 +3594,7 @@
   // the app (true / false / null).
   const val = (getAnswer, id) => getAnswer(id).value;
   const FULL_CAGES = ["253-1", "253-2", "253-3"];
-  const DOOR_BAR_DESIGNS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-10", "253-11", "nascar"];
+  const DOOR_BAR_DESIGNS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "253-11", "nascar"];
   const SIDES = ["left", "right"];
   // A full cage yes, a rollbar-only cage no; "Other design" is left to the user.
   const fullCage = (getAnswer) => {

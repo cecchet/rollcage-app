@@ -141,7 +141,15 @@
   // fabricated as the continuous one isn't fixed by the rule, so both are
   // offered as separate design picks (see DOOR_BAR_DESIGN_OPTIONS).
   D["253-9-intersection-2"] = wrap(doorOpening + `<path d="M30,80 L110,20" ${HI}/><path d="M30,20 L62,46 M78,54 L110,80" ${HI}/>`);
-  D["253-9"] = wrap(doorOpening + `<path d="M30,25 Q70,75 110,25" ${HI}/><path d="M30,75 Q70,25 110,75" ${HI}/>`);
+  // (The 2 bend bars come close at mid-door but never cross.)
+  D["253-9"] = wrap(doorOpening + `<path d="M30,25 Q70,67 110,25" ${HI}/><path d="M30,75 Q70,33 110,75" ${HI}/>`);
+  // 253-9's 2 bend bars, by bends per bar: 1 bend (a V each, the bars
+  // coming closest at mid-door) or 2 bends (a flat stretch between the 2
+  // bends, the bars running parallel there) -- never crossing.
+  D["253-9-bent-1"] = wrap(doorOpening +
+    `<path d="M27,28 L62,44 Q70,48 78,44 L113,28" ${HI}/><path d="M27,72 L62,56 Q70,52 78,56 L113,72" ${HI}/>`);
+  D["253-9-bent-2"] = wrap(doorOpening +
+    `<path d="M27,28 L46,42 Q50,45 55,45 L85,45 Q90,45 94,42 L113,28" ${HI}/><path d="M27,72 L46,58 Q50,55 55,55 L85,55 Q90,55 94,58 L113,72" ${HI}/>`);
   D["253-10"] = wrap(doorOpening + `<path d="M30,35 L70,55 L110,35 Z" ${HI}/>`);
   // 253-11 (double bars) is the single diagonal bar plus the sill bar
   // (the horizontal bottom line) -- 2 bars total, not 2 parallel diagonals.
@@ -196,6 +204,15 @@
   // ---- Gusset dimensions (D/E/R/H callouts, Part 3) -- user-supplied
   // original artwork (their own redrawing, not sourced from the FIA PDF).
   D["gusset-dims"] = wrapImg("gusset_dimensions.png");
+
+  // ---- 253-9's 2 bend bars: Zone A (bends >= 300mm from the front
+  // lateral, >= 200mm from the main rollbar; bars at most D apart), and the
+  // one-piece gusset's Lb/Lb'/La/Lc/W -- user-supplied drawings, shown
+  // wider than the usual icon (.diagram-wide).
+  const wide = (src) => '<div class="diagram-wide">' + wrapImg(src) + "</div>";
+  D["253-9-bend-positions"] = wide("253-9_bend_positions.png");
+  D["253-9-bend-gusset-1"] = wide("253-9_bend_gusset_1_bend.png");
+  D["253-9-bend-gusset-2"] = wide("253-9_bend_gusset_2_bends.png");
 
   // ---- Main hoop leaning angle (+/-10 degrees from vertical) ----
   D["lean-angle"] = wrapImg("main_hoop_angle.jpg");

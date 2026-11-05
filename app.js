@@ -323,10 +323,24 @@
   let pictureTriageState = {};
 
   function getAnswer(id) {
-    return derivedAnswer(id) || state.answers[id] || { value: "", note: "", photos: [], extra: {} };
+    return derivedAnswer(id) || state.answers[id] || aliasedAnswer(id) || { value: "", note: "", photos: [], extra: {} };
   }
   function storedAnswer(id) {
-    return state.answers[id] || { value: "", note: "", photos: [], extra: {} };
+    return state.answers[id] || aliasedAnswer(id) || { value: "", note: "", photos: [], extra: {} };
+  }
+  // An answer kept under the id an item used to have: a gusset's "Complete
+  // weld" was gusset_dimensions' own column before it moved to its own
+  // gusset_welds table (Part 5; the dimensions stayed with the other
+  // measurements). Files, templates and logbooks saved before still say
+  // gusset_dimensions__<row>__weld; answering the item again saves it
+  // under its new id (setAnswer).
+  function answerAlias(id) {
+    const m = /^gusset_welds__(.+)__weld$/.exec(id);
+    return m ? "gusset_dimensions__" + m[1] + "__weld" : null;
+  }
+  function aliasedAnswer(id) {
+    const old = answerAlias(id);
+    return old ? state.answers[old] || null : null;
   }
   // A grandfathered rule item the design checklist already answers (its
   // rules-data.js derive): that answer, with derivedFrom listing the design
@@ -429,6 +443,7 @@
 
   function setAnswer(id, patch) {
     state.answers[id] = Object.assign({}, getAnswer(id), patch);
+    if (answerAlias(id)) delete state.answers[answerAlias(id)];
     // No backstays: the (now hidden) backstay diagonal question goes too,
     // so its tables and 3D bars don't linger from a stale answer.
     if (id === "backstays" && state.answers[id].value === "no") delete state.answers.backstay_diagonals;
@@ -442,6 +457,7 @@
   // answer (see the safety score's cellAnswered).
   function clearAnswer(id) {
     delete state.answers[id];
+    if (answerAlias(id)) delete state.answers[answerAlias(id)];
     failingGussetCache = null;
     markDirty();
     render();
@@ -489,6 +505,14 @@
   // own current answer.value (e.g. a "Sill bar" sub-field merged onto a
   // door-bar-design choice, only relevant for some of that choice's
   // options).
+  // An element's diagram: a DIAGRAMS key, or a function of getAnswer giving
+  // one or more keys (e.g. 253-9's bend gusset: the 1-bend and/or 2-bend
+  // drawing, by what each side uses).
+  function elementDiagramHtml(elm) {
+    if (!elm.diagram || !window.DIAGRAMS) return "";
+    const keys = [].concat(typeof elm.diagram === "function" ? elm.diagram(getAnswer) : elm.diagram);
+    return keys.filter((k) => k && window.DIAGRAMS[k]).map((k) => window.DIAGRAMS[k]).join("");
+  }
   function extraFieldApplies(f, parentValue) {
     if (!f.showIf) return true;
     if (f.showIf.equals !== undefined) return parentValue === f.showIf.equals;
@@ -498,6 +522,11 @@
 
   function extraFieldStatus(f, raw, parentRequirement) {
     const requirement = f.requirement || parentRequirement;
+    if (f.type === "choice") {
+      if (raw === "" || raw == null) return requirement === "recommended" ? "neutral" : "warn";
+      const opt = (f.options || []).find((o) => o.id === raw);
+      return opt && opt.outcome === "fail" ? "fail" : "pass";
+    }
     if (f.type === "boolean") {
       if (raw !== "yes" && raw !== "no") return requirement === "recommended" ? "neutral" : "warn";
       if (raw === "no") return requirement === "recommended" ? "warn" : "fail";
@@ -717,7 +746,7 @@
     const unit = gussetRowLengthUnit(elm, row);
     const perUnit = unit === "in" ? 1 / 25.4 : 1;
     const fmt = (n) => (unit === "in" ? n.toFixed(2) : n.toFixed(1));
-    const text = (col.diameterMultiples || [1])
+    const text = ((row.diameterMultiples && row.diameterMultiples[col.key]) || col.diameterMultiples || [1])
       .map((m) => (m === 1 ? "D" : m + "D") + " = " + fmt(m * dMM * perUnit) + " " + unit)
       .join(" / ");
     return el("div", { class: "cell-hint" }, [text]);
@@ -797,6 +826,27 @@
   // Returns true/false, or null when there's nothing to judge yet (the
   // dependency it needs isn't answered), which callers treat as "warn"
   // rather than guessing pass or fail.
+  // Checks between a row's own length columns (253-9 bend bars' gusset):
+  // {op: "lteFractionOfColumns", fraction, columns} -- at most that
+  // fraction of the columns' sum (Lc <= 0.125 L, L = Lb + Lb');
+  // {op: "sumGteFractionOfColumn", columns, fraction, column} -- the
+  // columns' sum at least that fraction of another column (La + Lb + Lb'
+  // >= 0.3 W). null while one of them isn't entered.
+  function rowColumnsCompare(v, compare, elm, row) {
+    const mmOf = (key) => {
+      const a = getAnswer(elm.id + "__" + row.id + "__" + key).value;
+      return a && a.value !== "" && a.value != null ? toMM({ val: a.value, unit: a.unit || "mm" }) : null;
+    };
+    const vals = compare.columns.map(mmOf);
+    if (vals.some((x) => x === null)) return null;
+    const sum = vals.reduce((a, b) => a + b, 0);
+    if (compare.op === "lteFractionOfColumns") return v <= compare.fraction * sum;
+    if (compare.op === "sumGteFractionOfColumn") {
+      const other = mmOf(compare.column);
+      return other === null ? null : sum >= compare.fraction * other;
+    }
+    return null;
+  }
   function resolveCompare(v, compare, elm, col) {
     if (!compare) return true;
     if (compare.op === "lteFractionOfRow") {
@@ -1122,13 +1172,19 @@
       // A gusset length must fall between [min, max] x D, D being the
       // biggest tube joined (see gussetRowDiameterMM) -- only judged once D
       // is known from Part 2's tube sizes.
-      if (col.type === "length" && col.diameterRange && row) {
+      const dRange = row && ((row.diameterRanges && row.diameterRanges[col.key]) || col.diameterRange);
+      if (col.type === "length" && dRange) {
         const mm = toMM({ val: v.value, unit: v.unit || "mm" });
         const dMM = gussetRowDiameterMM(row.id);
         if (mm === null || dMM === null) return "pass";
-        return mm >= col.diameterRange[0] * dMM && mm <= col.diameterRange[1] * dMM ? "pass" : "fail";
+        return mm >= dRange[0] * dMM && mm <= dRange[1] * dMM ? "pass" : "fail";
       }
-      const compareSpec = row && row.compare !== undefined ? row.compare : col.compare;
+      const compareSpec = row && row.compareFor && row.compareFor[col.key] ? row.compareFor[col.key] : row && row.compare !== undefined ? row.compare : col.compare;
+      if (col.type === "length" && compareSpec && /OfColumns?$/.test(compareSpec.op)) {
+        const mm = toMM({ val: v.value, unit: v.unit || "mm" });
+        const ok = mm === null ? null : rowColumnsCompare(mm, compareSpec, elm, row);
+        return ok === null ? "warn" : ok ? "pass" : "fail";
+      }
       if (col.type === "length" && compareSpec) {
         let mm = toMM({ val: v.value, unit: v.unit || "mm" });
         // A junction distance can be entered negative (off the junction the
@@ -2828,7 +2884,7 @@
   // pre-rendered template thumbnails then count as stale until they're
   // rebuilt, and pictures' "Selected parts" snapshots are redrawn (see
   // refreshPartsShots).
-  const MODEL_LOOK_REV = 3;
+  const MODEL_LOOK_REV = 4;
   // What a template's thumbnail was drawn from: a hash of its design.
   function templateThumbKey(t) {
     const s = MODEL_LOOK_REV + JSON.stringify([t.vehicle, t.pathId, t.answers]);
@@ -2855,7 +2911,7 @@
       state.activeTab = 1;
       window.CageView.applyState(computeCageColors(), false);
       if (window.CageView.setHoles) window.CageView.setHoles(tacoGussetFiles());
-      window.CageView.setMeshTransforms(computeCageTransforms());
+      if (window.CageView.setGussets) window.CageView.setGussets(gussetShapes());
       if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value), mainHoopTwistDeg());
       if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
       if (window.CageView.setFrontRollbarAngle) window.CageView.setFrontRollbarAngle(parseFloat((getAnswer("front_rollbar_angle").value || {}).angle));
@@ -4357,14 +4413,9 @@
     if (PHASE_1_DESIGN_CHOICE_IDS.has(elm.id)) return 1;
     if (isTubingSizingTable(elm)) return 2;
     if (PHASE_4_CATEGORIES.has(elm.category)) return SEATS_PHASE;
-    // gusset_dimensions carries its own "Complete weld" column now (see
-    // rules-data.js) alongside its D/H/R/E dimensions, so it belongs with
-    // the other weld tables even though its own category is "Gussets", not
-    // "Welds" -- the 3D model's weld-view coloring/click-to-jump for
-    // gussets only works while this element's own rows are on screen (see
-    // GUSSET_LOCATIONS/gussetRowForFile), so it has to live in the same
-    // phase that view is shown in.
-    if (elm.id === "gusset_dimensions") return WELDS_PHASE;
+    // (gusset_dimensions -- a gusset's D/H/R/E -- is measured with the
+    // other distances, at the end of Installation constraints; its weld is
+    // gusset_welds, with the other welds.)
     if (elm.category === "Welds") return WELDS_PHASE;
     // Everything else that used to fall into the old catch-all Part 3 --
     // installation clearances, junction distances (sorted to the end of
@@ -4480,7 +4531,7 @@
   // The designs a foot row offers (a backstay foot has fewer).
   function footRowOptions(feetElm, row) {
     const options = (feetElm.columns.find((c) => c.key === "design") || {}).options || [];
-    return row && row.restrictOptionIds ? options.filter((o) => row.restrictOptionIds.includes(o.id)) : options;
+    return row && row.restrictOptionIds ? options.filter((o) => row.restrictOptionIds.includes(o.id)) : options.filter((o) => !o.onlyIfRestricted);
   }
   // Which picture category a gusset junction belongs to -- the photo of
   // that area is where it shows (and where the vision model is asked
@@ -6088,7 +6139,9 @@
     // after everything else in that same phase -- a stable sort so it only
     // moves that one category, leaving every other element's relative
     // order exactly as elementPhase/the source document already gave it.
-    phases[INSTALLATION_PHASE].sort((a, b) => (a.category === "Bar junction distances" ? 1 : 0) - (b.category === "Bar junction distances" ? 1 : 0));
+    // Gusset dimensions come last, after them: the other measurements.
+    const installRank = (e) => (e.id === "gusset_dimensions" || e.id === "door_9_bend_gusset" ? 2 : e.category === "Bar junction distances" ? 1 : 0);
+    phases[INSTALLATION_PHASE].sort((a, b) => installRank(a) - installRank(b));
     const usedPhases = [1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE].filter((p) => phases[p].length);
     // Logbook isn't element-driven (renderResults reads path/answers
     // directly, gated on this phase in render()) so nothing ever populates
@@ -6326,9 +6379,8 @@
     card.appendChild(el("div", { class: "element-ref" }, [elm.reference]));
     card.appendChild(el("div", { class: "element-desc" }, [elm.description]));
 
-    if (elm.diagram && window.DIAGRAMS && window.DIAGRAMS[elm.diagram]) {
-      card.appendChild(el("div", { class: "element-diagram", html: window.DIAGRAMS[elm.diagram] }));
-    }
+    const elmDiagramHtml = elementDiagramHtml(elm);
+    if (elmDiagramHtml) card.appendChild(el("div", { class: "element-diagram", html: elmDiagramHtml }));
 
     if (elm.evaluationType === "choice") {
       const group = el("div", { class: "choice-radio-group" });
@@ -6495,6 +6547,17 @@
       const extra = answer.extra || {};
       elm.extraFields.forEach((f) => {
         if (!extraFieldApplies(f, answer.value)) return;
+        if (f.type === "choice") {
+          const setVal = (val) => setAnswer(elm.id, { extra: Object.assign({}, getAnswer(elm.id).extra || {}, { [f.key]: val }) });
+          card.appendChild(
+            el("div", { class: "extra-field-row" }, [
+              el("span", { class: "numeric-field-label" }, [f.label]),
+              el("div", { class: "answer-row" }, (f.options || []).map((o) =>
+                el("button", { class: "answer-btn " + (extra[f.key] === o.id ? "active yes" : ""), onclick: () => setVal(o.id) }, [o.label]))),
+            ])
+          );
+          return;
+        }
         if (f.type === "boolean") {
           const setVal = (val) => {
             const next = Object.assign({}, getAnswer(elm.id).extra || {}, { [f.key]: val });
@@ -6799,7 +6862,7 @@
       // backstay feet can't be a 253-55/56 rocker plate).
       const options = row && row.restrictOptionIds && col.key === "design"
         ? (col.options || []).filter((o) => row.restrictOptionIds.includes(o.id))
-        : (col.options || []);
+        : (col.options || []).filter((o) => !o.onlyIfRestricted);
       options.forEach((opt) => {
         const o = el("option", { value: opt.id }, [opt.label]);
         if (cellAnswer.value === opt.id) o.selected = true;
@@ -6881,7 +6944,7 @@
       // options at all for every restricted row.
       const options = row && row.restrictOptionIds && col.key === "design"
         ? (col.options || []).filter((o) => o.id === "" || row.restrictOptionIds.includes(o.id))
-        : (col.options || []);
+        : (col.options || []).filter((o) => !o.onlyIfRestricted);
       const buttons = el(
         "div",
         { class: "cell-answer-row" },
@@ -6960,9 +7023,8 @@
     card.appendChild(el("div", { class: "element-head" }, headChildren));
     card.appendChild(el("div", { class: "element-ref" }, [elm.reference]));
     if (elm.description) card.appendChild(el("div", { class: "element-desc" }, [elm.description]));
-    if (elm.diagram && window.DIAGRAMS && window.DIAGRAMS[elm.diagram]) {
-      card.appendChild(el("div", { class: "element-diagram", html: window.DIAGRAMS[elm.diagram] }));
-    }
+    const elmDiagramHtml = elementDiagramHtml(elm);
+    if (elmDiagramHtml) card.appendChild(el("div", { class: "element-diagram", html: elmDiagramHtml }));
 
     let quickChecked = false;
     const quickDef = quickCheckDef(elm);
@@ -7063,7 +7125,7 @@
   // app, so per the user's own framing, solo (no codriver) stands in for
   // road racing/hillclimb, and driver+codriver stands in for rally.
   function doorBarSafetyTier(v, getAnswer) {
-    if (v === "253-9-intersection-1" || v === "253-9-intersection-2" || v === "253-9-bent") return "green";
+    if (v === "253-9-intersection-1" || v === "253-9-intersection-2" || isDoor9Bent(v)) return "green";
     if (v === "nascar") {
       // NASCAR-style door bars are the right call for road racing, but not
       // really the rally choice -- same tier as 253-10/253-11 there.
@@ -7510,6 +7572,13 @@
       ["left", "right"].forEach((side) => {
         addTacoPairGusset("door_gussets_" + side, "door_front_" + side, "253-9: Door bar gusset (" + side + ")",
           [["door_front_" + side, "door_rear_" + side], ["door_upper_" + side, "door_lower_" + side]]);
+        // The 2 bend bars: one gusset between them -- scored like a taco pair.
+        const bend = "door_bend_" + side;
+        if (rowsById.has(bend) && cellAnswered("gusset_design__" + bend + "__design")) {
+          const target = { elementId: "gusset_design", rowId: bend, gussetRows: [bend] };
+          if (hasGusset(bend)) addRow("door_gussets_" + side, "253-9: Door bar gusset (" + side + ")", "green", optionLabel(bend), DESIGN_PAIR_POINTS.taco, target);
+          else addRow("door_gussets_" + side, "253-9: Door bar gusset (" + side + ")", "red", "Missing -- one gusset between the 2 bend bars", DESIGN_PAIR_POINTS.bad, target);
+        }
       });
       // 253-15 2-piece build, per side: needs one gusset above the door bar
       // (front or rear) AND one below it -- 0 when both are there, -50 when
@@ -8180,10 +8249,18 @@
     { row: "backstay_diag_right", file: "Rear backstay gusset right.stl" },
     { row: "backstay_diag_upper", file: "Rear backstay gusset upper.stl" },
     { row: "backstay_diag_lower", file: "Rear backstay gusset lower.stl" },
+    // 253-19's rear lower X (drawn by cage_view.js, no STL of its own).
+    ...["left", "right", "front", "rear"].map((pos) => ({ row: "rear_lower_x_" + pos, file: "253-19 gusset " + pos + ".stl" })),
     { row: "door_front_left", file: "Door bar gusset front left.stl" },
     { row: "door_front_right", file: "Door bar gusset front right.stl" },
     { row: "door_rear_left", file: "Door bar gusset rear left.stl" },
     { row: "door_rear_right", file: "Door bar gusset rear right.stl" },
+    // 253-9's 2 bend bars: one gusset between them, its part depending on
+    // the bends per bar and its edges (see gussetLocationActive).
+    ...["left", "right"].flatMap((side) => ["1", "2"].flatMap((bends) => ["bend_straight", "bend_curved"].map((design) => ({
+      row: "door_bend_" + side, bends, design,
+      file: "Door bar gusset 253-9 " + (bends === "2" ? "2 bends" : "1 bend") + " " + (design === "bend_curved" ? "curved" : "straight") + " " + side + ".stl",
+    })))),
     // Built by cage_view.js from the front plate (no STL of their own).
     { row: "door_upper_left", file: "Door bar gusset upper left.virtual" },
     { row: "door_upper_right", file: "Door bar gusset upper right.virtual" },
@@ -8217,6 +8294,24 @@
   // gusset file always belongs to exactly one row, so this is unambiguous
   // the same way the simple bar toggles are.
   const GUSSET_FILE_TO_ROW = new Map(GUSSET_LOCATIONS.map((l) => [l.file, l.row]));
+  // A gusset location that's one of several parts for its row (the bend
+  // bars' gusset): only the one matching the bends per bar and the edges
+  // picked (straight while not picked yet) is the row's part.
+  function gussetLocationActive(l) {
+    if (!l.design) return true;
+    const side = /left$/.test(l.row) ? "left" : "right";
+    const bends = door9Bends(getAnswer("door_bars_" + side).value);
+    const design = getAnswer("gusset_design__" + l.row + "__design").value || "bend_straight";
+    return l.bends === bends && l.design === design;
+  }
+  const activeGussetLocations = () => GUSSET_LOCATIONS.filter(gussetLocationActive);
+  // 253-9's 2 bend bars, per side: the upper and lower bar, bent once or twice.
+  function door9BentFiles(side, bends) {
+    const cap = side === "left" ? "Left" : "Right";
+    const tag = (bends || door9Bends(getAnswer("door_bars_" + side).value)) === "2" ? "2 bends" : "1 bend";
+    return [cap + " door bar upper 253-9 " + tag + ".stl", cap + " door bar lower 253-9 " + tag + ".stl"];
+  }
+  const ALL_DOOR_9BENT_FILES = ["left", "right"].flatMap((side) => door9BentFiles(side, "1").concat(door9BentFiles(side, "2")));
   const ROOF_CORNER_GUSSET_FILE_TO_ROW = new Map(ROOF_CORNER_GUSSET_LOCATIONS.map((l) => [l.file, l.row]));
   // Verified against each file's own geometry (top/bottom Y at Z=99.89/Z=0,
   // cross-checked against "Foot main rollbar left/right.stl": low Y = left,
@@ -8269,7 +8364,9 @@
     const sillFile = cap === "Left" ? "Sill bar Left.stl" : "Sill bar Right.stl";
     const bottomFrontLegFile = side === "left" ? "Left door bar 2-  253-9.stl" : "Right door bar 1-  253-9.stl";
     let files = [];
-    if (v === "253-9-intersection-1" || v === "253-9-intersection-2" || v === "253-9-bent") {
+    if (isDoor9Bent(v)) {
+      files = door9BentFiles(side);
+    } else if (v === "253-9-intersection-1" || v === "253-9-intersection-2") {
       files = [cap + " door bar 1-  253-9.stl", cap + " door bar 2-  253-9.stl"];
     } else if (v === "253-10") {
       files = ["Door bar 253-10 upper " + side + ".stl", "Door bar 253-10 front " + side + ".stl", "Door bar 253-10 rear " + side + ".stl"];
@@ -8371,7 +8468,7 @@
     }
     if (elementId.indexOf(GUSSET_TAG_PREFIX) === 0 && elementId.endsWith(GUSSET_TAG_SUFFIX)) {
       const rowId = elementId.slice(GUSSET_TAG_PREFIX.length, -GUSSET_TAG_SUFFIX.length);
-      const loc = GUSSET_LOCATIONS.find((l) => l.row === rowId);
+      const loc = activeGussetLocations().find((l) => l.row === rowId);
       return loc ? [loc.file] : [];
     }
     if (elementId === "main_structure_layout") {
@@ -8681,6 +8778,10 @@
   // doorBarTubeRowsForSide() in rules-data.js) -- so which row a given mesh
   // belongs to depends on which
   // design is currently selected.
+  // 253-9's 2 continuous (bend) bars: 1 bend per bar ("253-9-bent") or 2
+  // ("253-9-bent-2").
+  function isDoor9Bent(v) { return v === "253-9-bent" || v === "253-9-bent-2"; }
+  function door9Bends(v) { return v === "253-9-bent-2" ? "2" : "1"; }
   function isDoor9Intersection(v) { return v === "253-9-intersection-1" || v === "253-9-intersection-2"; }
   // Which of the 2 physical tubes per side is actually fabricated as the
   // continuous leg (vs. cut into 2 half-tubes) isn't fixed by the FIA rule
@@ -8715,9 +8816,9 @@
       ? "left"
       : "right";
     const doorVal = getAnswer("door_bars_" + side).value;
-    if (doorVal === "253-9-bent") {
-      if (file === (side === "left" ? "Left" : "Right") + " door bar 1-  253-9.stl") return "d9bent_" + side + "_upper";
-      if (file === (side === "left" ? "Left" : "Right") + " door bar 2-  253-9.stl") return "d9bent_" + side + "_lower";
+    if (isDoor9Bent(doorVal)) {
+      if (file === door9BentFiles(side)[0]) return "d9bent_" + side + "_upper";
+      if (file === door9BentFiles(side)[1]) return "d9bent_" + side + "_lower";
     }
     if (doorVal === "253-9-intersection-1" || doorVal === "253-9-intersection-2") {
       // The continuous leg is NOT mapped here -- it's handled by
@@ -9000,14 +9101,14 @@
   const WINDSHIELD_DIST_ID = "windshield_distances";
   function doorWeldElementId(doorVal) {
     if (isDoor9Intersection(doorVal)) return "door_9_intersection_welds";
-    if (doorVal === "253-9-bent") return "door_9_2bar_welds";
+    if (isDoor9Bent(doorVal)) return "door_9_2bar_welds";
     if (doorVal === "253-10") return "door_10_welds";
     if (doorVal === "253-11") return "door_11_welds";
     return null;
   }
   function doorWeldRowIds(side, doorVal) {
     if (isDoor9Intersection(doorVal)) return ["front_top_" + side, "front_bottom_" + side, "center_front_" + side, "center_rear_" + side, "top_rear_" + side, "bottom_rear_" + side];
-    if (doorVal === "253-9-bent") return ["front_top_" + side, "front_bottom_" + side, "top_rear_" + side, "bottom_rear_" + side];
+    if (isDoor9Bent(doorVal)) return ["front_top_" + side, "front_bottom_" + side, "top_rear_" + side, "bottom_rear_" + side];
     if (doorVal === "253-10") return ["front_top_" + side, "front_lower_" + side, "center_" + side, "rear_top_" + side, "rear_lower_" + side];
     if (doorVal === "253-11") return ["front_top_" + side, "front_lower_" + side, "rear_top_" + side, "rear_lower_" + side];
     return [];
@@ -9019,7 +9120,7 @@
   // one worst-case aggregate of the whole side's rows instead.
   function doorSideFiles(side, doorVal) {
     if (isDoor9Intersection(doorVal)) return [continuousDoorTubeFile(side), otherDoorTubeFile(side)];
-    if (doorVal === "253-9-bent") { const cap = side === "left" ? "Left" : "Right"; return [cap + " door bar 1-  253-9.stl", cap + " door bar 2-  253-9.stl"]; }
+    if (isDoor9Bent(doorVal)) return door9BentFiles(side);
     if (doorVal === "253-10") return ["Door bar 253-10 upper " + side + ".stl", "Door bar 253-10 front " + side + ".stl", "Door bar 253-10 rear " + side + ".stl"];
     if (doorVal === "253-11") return [side === "left" ? "Left door bar 2-  253-9.stl" : "Right door bar 1-  253-9.stl"];
     return [];
@@ -9249,10 +9350,9 @@
         }
         continue;
       }
-      if (doorVal === "253-9-bent") {
-        const cap = side === "left" ? "Left" : "Right";
-        if (file === cap + " door bar 1-  253-9.stl") return { rowIds: ["front_top_" + side, "top_rear_" + side], weldElementId: elementId, distElementId: null };
-        if (file === cap + " door bar 2-  253-9.stl") return { rowIds: ["front_bottom_" + side, "bottom_rear_" + side], weldElementId: elementId, distElementId: null };
+      if (isDoor9Bent(doorVal)) {
+        if (file === door9BentFiles(side)[0]) return { rowIds: ["front_top_" + side, "top_rear_" + side], weldElementId: elementId, distElementId: null };
+        if (file === door9BentFiles(side)[1]) return { rowIds: ["front_bottom_" + side, "bottom_rear_" + side], weldElementId: elementId, distElementId: null };
         continue;
       }
       if (doorVal === "253-10") {
@@ -9271,9 +9371,9 @@
   // just doorSideFiles()'s active-design subset) -- setIfActive() hides
   // whichever of these aren't part of the real, current `colors`, so a
   // phantom bar from an unselected design/side never lingers as a ghost.
-  const ALL_DOOR_BAR_VALS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-10", "253-11", "nascar", "single-bar"];
+  const ALL_DOOR_BAR_VALS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "253-11", "nascar", "single-bar"];
   function part3CandidateFiles() {
-    const files = ROOF_BAR_FILES.concat(BACKSTAY_DIAG_FILES, [
+    const files = ROOF_BAR_FILES.concat(BACKSTAY_DIAG_FILES, ALL_DOOR_9BENT_FILES, [
       "Roof bar 253-13 left.stl", "Roof bar 253-13 right.stl",
       "Roof bar 253-14 left.stl", "Roof bar 253-14 right.stl",
       "Roof bar single center.stl",
@@ -9416,11 +9516,10 @@
       // across PILLAR_TUBE_POINTS' entries regardless of which table(s)
       // they come from.
       Object.keys(PILLAR_TUBE_POINTS).forEach((file) => setIfActive(file, pillarTubeSpec(file)));
-      // Gussets -- "Gusset dimensions" (Part 3) has its own "weld" column
-      // now, keyed by the same row ids GUSSET_LOCATIONS already maps to
-      // mesh files for Part 1's design table, so no separate lookup table
-      // is needed here.
-      GUSSET_LOCATIONS.forEach(({ row, file }) => setIfActive(file, weldCellColor("gusset_dimensions", row)));
+      // Gussets -- "Gusset welds" is keyed by the same row ids
+      // GUSSET_LOCATIONS already maps to mesh files for the design table,
+      // so no separate lookup table is needed here.
+      activeGussetLocations().forEach(({ row, file }) => setIfActive(file, weldCellColor("gusset_welds", row)));
       // setIfActive is called for EVERY candidate file, even ones with no
       // weld target (color stays null then) -- it has to run regardless so
       // its own "not part of this car" hiding check always gets a chance,
@@ -9460,6 +9559,8 @@
       // null for all of them now) so this combined-group coloring has the
       // final say.
       Object.keys(GROUPED_JUNCTION_FILES).forEach((file) => setIfActive(file, groupedJunctionSpec(file, GROUPED_JUNCTION_FILES[file]())));
+      // Gussets: by their dimensions (red too short/long, green within).
+      activeGussetLocations().forEach(({ row, file }) => setIfActive(file, gussetSizeColor(row)));
     }
     return view;
   }
@@ -9518,6 +9619,16 @@
     const colors = {};
     const owner = {};
     HIDDEN_WHILE_TUNING_FILES.forEach((f) => { colors[f] = "hidden"; });
+    // 253-9 bend bars' parts not in use (the other bends count, the other
+    // gusset edges, or not a bend bar design at all): never shown, not
+    // even as ghosts -- they'd sit right over the X bars.
+    ["left", "right"].forEach((side) => {
+      const active = isDoor9Bent(getAnswer("door_bars_" + side).value) ? door9BentFiles(side) : [];
+      ALL_DOOR_9BENT_FILES.filter((f) => (side === "left" ? /^Left/ : /^Right/).test(f) && active.indexOf(f) === -1).forEach((f) => { colors[f] = "hidden"; });
+    });
+    GUSSET_LOCATIONS.forEach((l) => {
+      if (l.design && (!gussetLocationActive(l) || !isDoor9Bent(getAnswer("door_bars_" + (/left$/.test(l.row) ? "left" : "right")).value))) colors[l.file] = "hidden";
+    });
 
     // Driver/Codriver mannequins -- not tied to any checklist answer, so
     // resolved independently of everything below. The driver is always
@@ -9701,11 +9812,11 @@
     const gussetRowsById = gussetDesignRows(path);
     function gussetDesignColor(row) {
       const design = gussetDesign(gussetRowsById, row);
-      if (design === "taco") return CAGE_COLOR.gussetTaco;
+      if (design === "taco" || design === "bend_straight" || design === "bend_curved") return CAGE_COLOR.gussetTaco;
       if (design === "single_plate") return CAGE_COLOR.gussetSinglePlate;
       return null;
     }
-    GUSSET_LOCATIONS.forEach(({ row, file }) => {
+    activeGussetLocations().forEach(({ row, file }) => {
       const color = gussetDesignColor(row);
       if (!color) return;
       colors[file] = color;
@@ -9738,7 +9849,7 @@
     // purely because it happens to appear earlier in path.elements.
     claimUnowned(["253-26,27 harness bar.stl"], "harness_bar_present");
     FOOT_LOCATIONS.forEach(({ plateFile }) => claimUnowned([plateFile], "mounting_feet_design"));
-    GUSSET_LOCATIONS.forEach(({ row, file }) => {
+    activeGussetLocations().forEach(({ row, file }) => {
       if (gussetRowsById && !gussetRowsById.has(row)) return; // not a currently real/visible row
       claimUnowned([file], "gusset_design");
     });
@@ -10289,7 +10400,7 @@
     }
     const gussetRow = gussetRowForFile(file);
     if (gussetRow) {
-      return expandThenFindRows(["gusset_dimensions"], ["row-gusset_dimensions__" + gussetRow]);
+      return expandThenFindRows(["gusset_welds"], ["row-gusset_welds__" + gussetRow]);
     }
     const target = part3RowTargetsForFile(file);
     if (!target || !target.weldElementId) return false;
@@ -10445,12 +10556,12 @@
       const group = nearestRowGroupByFraction(points.map((p) => [p]), frac);
       return { label: group.map((p) => rowLabelFor(p.elementId, p.rowId)).join(" / "), keys: group.map((p) => p.elementId + "__" + p.rowId + "__weld") };
     }
-    // Gussets: same "Gusset dimensions" table (Part 3) whose rows already
+    // Gussets: the "Gusset welds" table, whose rows already
     // mirror GUSSET_LOCATIONS 1:1, one mesh per row, so no band-split/
     // nearest-fraction logic is needed here -- just its own "weld" cell.
     const gussetRow = gussetRowForFile(file);
     if (gussetRow) {
-      return { label: rowLabelFor("gusset_dimensions", gussetRow), keys: ["gusset_dimensions__" + gussetRow + "__weld"] };
+      return { label: rowLabelFor("gusset_welds", gussetRow), keys: ["gusset_welds__" + gussetRow + "__weld"] };
     }
     // Every other weld-tracked bar: part3RowTargetsForFile already lists
     // that file's own weld points (2 for most crossing-cut bars, more for
@@ -11094,37 +11205,52 @@
     state.pictureSelectMode = null;
     render();
   }
-  // The 253-15 2-piece gusset meshes were modeled at the pillar bar's
-  // crossing with a 253-9 door bar. A 253-10 or NASCAR door bar meets the
-  // pillar bar higher up, at its own upper horizontal bar ("Door bar 253-10
-  // upper <side>.stl", shared by both designs) -- so on that side the 4
-  // gussets move to that junction AND re-angle to it: each keeps its edge
-  // along the pillar bar while its door-bar edge swings from the 253-9
-  // bar's slope onto the horizontal bar. One transform for the 2 upper
-  // gussets and one for the 2 lower ones per side (the 2 pillar pieces
-  // meet at an angle at the old junction). Computed from the STLs by
-  // tools/apillar-gusset-transforms.js -- re-run it if those parts change.
-  const A_PILLAR_2PC_GUSSET_UPPER_BAR_TRANSFORMS = {
-    left: {
-      upper: [1.02472, -0.04368, 0.26399, 0, 0.11627, 0.988, -0.07215, 0, -0.04923, 0.02787, 0.87573, 0, -7.77075, 6.16357, -11.4616, 1],
-      lower: [1.03193, 0.03213, 0.25318, 0, 0.04739, 0.94687, -0.31788, 0, -0.02929, 0.28467, 0.8218, 0, -3.35131, -9.03787, 13.41886, 1],
-    },
-    right: {
-      upper: [1.0771, -0.00889, 0.38923, 0, -0.1011, 0.98625, 0.07694, 0, -0.07404, 0.00068, 0.80784, 0, 21.12375, 2.37969, -44.62519, 1],
-      lower: [1.08069, -0.12385, 0.35723, 0, 0.01275, 0.94769, 0.31945, 0, -0.0565, -0.2438, 0.76205, 0, -5.36853, 33.38624, -93.37719, 1],
-    },
-  };
-  function computeCageTransforms() {
-    const transforms = {};
-    ["left", "right"].forEach((side) => {
-      if (aPillarSideDesign(getAnswer("a_pillar_reinforcement").value, side) !== "two_bars") return;
-      const door = getAnswer("door_bars_" + side).value;
-      if (door !== "253-10" && door !== "nascar") return;
-      ["upper front", "upper rear", "lower front", "lower rear"].forEach((pos) => {
-        transforms["253-15 gusset " + side + " " + pos + ".stl"] = A_PILLAR_2PC_GUSSET_UPPER_BAR_TRANSFORMS[side][pos.split(" ")[0]];
-      });
+  // The 3D model's drawn gussets (cage_view.js setGussets): which door bar
+  // each side's 253-15 meets -- the 2-piece bar splits there and its
+  // gussets sit there -- and each gusset's length as entered in Part 4.
+  function doorGussetVariant(side) {
+    const v = getAnswer("door_bars_" + side).value;
+    if (v === "253-10" || v === "nascar") return "upper";
+    if (isDoor9Bent(v)) return door9Bends(v) === "2" ? "bent2" : "bent1";
+    return "x";
+  }
+  // A gusset length cell as the model takes it: relative to the row's D
+  // once Part 3's tube sizes give it ({ ratio }), else as entered ({ mm }).
+  function gussetModelSize(elementId, rowId, colKey) {
+    const v = getAnswer(elementId + "__" + rowId + "__" + colKey).value;
+    if (!v || v.value === "" || v.value == null) return undefined;
+    const mm = toMM({ val: v.value, unit: v.unit || "mm" });
+    if (mm === null || mm <= 0) return undefined;
+    const d = gussetRowDiameterMM(rowId);
+    return d ? { ratio: mm / d } : { mm };
+  }
+  function gussetShapes() {
+    const sizes = {}, designs = {};
+    const path = currentPathElement("gusset_design") && RULES[state.vehicle.org].paths[state.pathId];
+    const designRows = path ? gussetDesignRows(path) : null;
+    activeGussetLocations().forEach(({ row, file }) => {
+      const design = designRows ? gussetDesign(designRows, row) : null;
+      if (design) designs[file] = design;
+      if (row.indexOf("door_bend_") === 0) {
+        sizes[file] = { lb: gussetModelSize("door_9_bend_gusset", row, "lb"), lb2: gussetModelSize("door_9_bend_gusset", row, "lb2"), lc: gussetModelSize("door_9_bend_gusset", row, "lc") };
+        return;
+      }
+      const size = gussetModelSize("gusset_dimensions", row, "length");
+      if (size) sizes[file] = size;
     });
-    return transforms;
+    return { doorVariant: { left: doorGussetVariant("left"), right: doorGussetVariant("right") }, sizes, designs };
+  }
+  // A gusset's color in Part 4: red when any of its dimensions fails, green
+  // once its lengths are all entered and within limits -- judged against D,
+  // so not before Part 3's tube sizes give it (else ghost).
+  function gussetSizeColor(row) {
+    const elm = currentPathElement(row.indexOf("door_bend_") === 0 ? "door_9_bend_gusset" : "gusset_dimensions");
+    const r = elm && resolveRows(elm).find((x) => x.id === row);
+    if (!r) return null;
+    const status = (col) => tableCellStatusByRules(col, getAnswer(tableCellId(elm, r, col)), r, elm);
+    if (elm.columns.some((col) => status(col) === "fail")) return CAGE_COLOR.statusFail;
+    if (gussetRowDiameterMM(row) === null) return null;
+    return elm.columns.filter((col) => col.type === "length").every((col) => status(col) === "pass") ? CAGE_COLOR.statusPass : null;
   }
   // Draws the open rollcage on the 3D model: colors, visible parts, and the
   // entered angles and junction distances.
@@ -11132,9 +11258,10 @@
     const colors = computeCageColors();
     window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE || state.pictureSelectMode || state.damageSelectMode || state.damageViewEventId) ? true : state.showGhostBars);
     if (window.CageView.setHoles) window.CageView.setHoles(tacoGussetFiles());
-    window.CageView.setMeshTransforms(computeCageTransforms());
-    // Tilts the modeled main hoop / backstays to the entered angles (after
-    // the transforms -- the deformation works on each part's final placement).
+    // The drawn gussets' junctions and sizes, then the main hoop / backstays
+    // tilted to the entered angles (the deformation works on each part's
+    // final shape).
+    if (window.CageView.setGussets) window.CageView.setGussets(gussetShapes());
     if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value), mainHoopTwistDeg());
     if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
     if (window.CageView.setFrontRollbarAngle) window.CageView.setFrontRollbarAngle(parseFloat((getAnswer("front_rollbar_angle").value || {}).angle));

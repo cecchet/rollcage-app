@@ -524,6 +524,8 @@ textarea { resize: vertical; min-height: 50px; }
    253-48/253-49 drawings) gets more width to lay out side by side --
    wrapping to stacked automatically once that width won't fit. */
 .element-diagram:has(.diagram-pair) { max-width: 480px; }
+.element-diagram:has(.diagram-wide) { max-width: 720px; }
+.element-diagram .diagram-wide + .diagram-wide { margin-top: 8px; }
 .diagram-pair { display: flex; gap: 10px; flex-wrap: wrap; }
 .diagram-pair > div { flex: 1 1 200px; min-width: 140px; }
 .diagram-cheat-sheet {
