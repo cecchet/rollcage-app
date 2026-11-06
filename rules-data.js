@@ -1840,7 +1840,7 @@
       category: "Door bars -- 253-9 (X bar design)",
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1.2",
-      description: "Each bend of the 2 bend bars sits in Zone A: at least 300mm (11.8in) behind the front lateral and at least 200mm (7.9in) ahead of the main rollbar, measured along the car. With 1 bend per bar, measure both to that bend; with 2 bends, the front lateral to the front bend and the rear bend to the main rollbar.",
+      description: "Each bend of the 2 bend bars sits in Zone A: at least 300mm (11.8in) behind the front lateral and at least 200mm (7.9in) ahead of the main rollbar, measured along the car. First W, the front lateral to the main rollbar. With 1 bend per bar, measure both to that bend; with 2 bends, the front lateral to the front bend and the rear bend to the main rollbar. The upper and lower bars bend at the same places.",
       showIf: DOOR_9BENT_SHOWIF,
       diagram: "253-9-bend-positions",
       evaluationType: "table",
@@ -1850,14 +1850,38 @@
           const cap = side === "left" ? "Left" : "Right";
           const bends = door9Bends(getAnswer("door_bars_" + side).value);
           const how = bends === "2" ? " (2 bends)" : bends === "1" ? " (1 bend)" : "";
-          rows.push({ id: side + "_upper", label: cap + " upper bar" + how }, { id: side + "_lower", label: cap + " lower bar" + how });
+          // W once per side, on its upper bar's row.
+          rows.push({ id: side + "_upper", label: cap + " upper bar" + how }, { id: side + "_lower", label: cap + " lower bar" + how, notApplicableColumns: ["w"] });
         });
         return rows;
       },
       columns: [
+        { key: "w", label: "W (front lateral to main rollbar)", type: "length" },
         { key: "front", label: "Front lateral to the (front) bend (≥300mm/11.8in)", type: "length", compare: { op: "gte", value: 300 } },
         { key: "rear", label: "The (rear) bend to the main rollbar (≥200mm/7.9in)", type: "length", compare: { op: "gte", value: 200 } },
       ],
+      // The 2 bars of a side bend at the same places (their angles may
+      // differ): the upper and lower bar's front distances match, and so do
+      // their rear ones (within 10mm). The reason a cell fails that, or null.
+      cellFail: (getAnswer, rowId, colKey) => {
+        const m = /^(left|right)_(upper|lower)$/.exec(rowId);
+        if (!m) return null;
+        const mm = (which) => {
+          const v = getAnswer("door_9_2bar_dims__" + m[1] + "_" + which + "__" + colKey).value;
+          if (!v || v.value === "" || v.value == null) return null;
+          const n = parseFloat(v.value);
+          return isNaN(n) ? null : v.unit === "in" ? n * 25.4 : v.unit === "cm" ? n * 10 : n;
+        };
+        if (colKey === "w") return null;
+        // The bends inside W: front + rear distances at most W.
+        const w = (() => { const v = getAnswer("door_9_2bar_dims__" + m[1] + "_upper__w").value; if (!v || v.value === "" || v.value == null) return null; const n = parseFloat(v.value); return isNaN(n) ? null : v.unit === "in" ? n * 25.4 : v.unit === "cm" ? n * 10 : n; })();
+        const own = (col) => { const v = getAnswer("door_9_2bar_dims__" + rowId + "__" + col).value; if (!v || v.value === "" || v.value == null) return null; const n = parseFloat(v.value); return isNaN(n) ? null : v.unit === "in" ? n * 25.4 : v.unit === "cm" ? n * 10 : n; };
+        const f = own("front"), r = own("rear");
+        if (w != null && f != null && r != null && f + r > w + 10) return "The front and rear distances (" + Math.round(f) + " + " + Math.round(r) + " mm) add up to more than W (" + Math.round(w) + " mm).";
+        const up = mm("upper"), low = mm("lower");
+        if (up == null || low == null || Math.abs(up - low) <= 10) return null;
+        return "The upper and lower bars must bend at the same place: their " + (colKey === "front" ? "front" : "rear") + " distances differ (" + Math.round(up) + " vs " + Math.round(low) + " mm).";
+      },
       visuallyVerifiable: false, hardFail: true,
     },
     // Where the 2 bars come closest (at the bend, or along the flat stretch
@@ -2528,7 +2552,9 @@
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1.2",
       description: "The one-piece gusset between the 2 bend bars, per side. D = outer diameter of the biggest of the 2 tubes.\n1 bend: 4D ≤ Lb ≤ 6.5D and 4D ≤ Lb' ≤ 6.5D; curved ends: Lc ≤ 0.125 L (L = Lb + Lb').\n2 bends: 3D ≤ Lb ≤ 4D and 3D ≤ Lb' ≤ 4D; L = La + Lb + Lb' ≥ 0.3 W (W = front lateral to main rollbar); curved ends: Lc ≤ 0.125 L.\nThickness at least 1mm. No hole.",
-      showIf: DOOR_9BENT_SHOWIF,
+      // Only once a side's bend gusset is picked in Part 2 (its rows are
+      // those sides): with none, the card would show an empty table.
+      showIf: [DOOR_9BENT_SHOWIF, { any: ["left", "right"].map((side) => ({ id: "gusset_design__door_bend_" + side + "__design", in: ["bend_straight", "bend_curved"] })) }],
       diagram: (getAnswer) => {
         const bends = door9bentSides(getAnswer).map((s) => door9Bends(getAnswer("door_bars_" + s).value));
         return ["1", "2"].filter((n) => bends.includes(n)).map((n) => "253-9-bend-gusset-" + n);

@@ -1151,6 +1151,81 @@
   // exactly that far instead of the set amounts above (negative: the same
   // distance; a 253-15 top then goes back along the roof).
   let junctionOffsets = [];
+  // 253-9's bend bars drawn with their bends where they were measured (see
+  // setDoorBends): file -> { front, rear (cm, from the bar's front / rear
+  // end to its front / rear bend, null = as modeled), bends: 1 or 2, from:
+  // the bar whose bends to follow (a bend gusset follows its upper bar) }.
+  let doorBends = {};
+  const bendKnotCache = new Map();
+  // A bend bar's ends and bends along the car (world x, front = low x), read
+  // off its undeformed centerline: { xf, xr, bends: [x, ...] }.
+  function bendKnots(file, nBends) {
+    const mesh = meshes[file];
+    const base = mesh && mesh.userData.basePositions;
+    if (!base) return null;
+    const ck = file + "|" + nBends + "|" + base.length;
+    if (bendKnotCache.has(ck)) return bendKnotCache.get(ck);
+    mesh.updateMatrix();
+    const v = new THREE.Vector3();
+    let xf = Infinity, xr = -Infinity;
+    const pts = [];
+    for (let i = 0; i < base.length; i += 3) {
+      v.set(base[i], base[i + 1], base[i + 2]).applyMatrix4(mesh.matrix);
+      pts.push([v.x, v.z]);
+      xf = Math.min(xf, v.x); xr = Math.max(xr, v.x);
+    }
+    // The centerline's height every 2cm along the car.
+    const step = 2, n = Math.max(2, Math.ceil((xr - xf) / step));
+    const sum = new Array(n + 1).fill(0), cnt = new Array(n + 1).fill(0);
+    pts.forEach(([x, z]) => { const k = Math.round((x - xf) / step); sum[k] += z; cnt[k]++; });
+    const zs = [];
+    for (let k = 0; k <= n; k++) if (cnt[k]) zs.push([xf + k * step, sum[k] / cnt[k]]);
+    if (zs.length < 3) return null;
+    const z0 = zs[0][1], z1 = zs[zs.length - 1][1];
+    // How far each slice sits off the straight line between the 2 ends.
+    const off = zs.map(([x, z]) => [x, z - (z0 + ((z1 - z0) * (x - xf)) / Math.max(1, xr - xf))]);
+    const far = off.reduce((b, c) => (Math.abs(c[1]) > Math.abs(b[1]) ? c : b));
+    let bends;
+    if (nBends === 2) {
+      // The flat stretch between the 2 bends: within 1cm of the farthest.
+      const flat = off.filter(([, d]) => Math.abs(d - far[1]) < 1);
+      bends = [Math.min(...flat.map((f) => f[0])), Math.max(...flat.map((f) => f[0]))];
+    } else bends = [far[0]];
+    const out = { xf, xr, bends };
+    bendKnotCache.set(ck, out);
+    return out;
+  }
+  // The bend move for a point (world x): piecewise linear, the bar's ends
+  // fixed and each bend moved to its measured place.
+  function bendRemap(spec, knots) {
+    const { xf, xr, bends } = knots;
+    const to = bends.slice();
+    // spec.frontFrac / rearFrac: the same as a share of the bar's length
+    // along the car (of W), else spec.front / rear in cm.
+    const len = xr - xf;
+    const front = spec.frontFrac != null ? spec.frontFrac * len : spec.front;
+    const rear = spec.rearFrac != null ? spec.rearFrac * len : spec.rear;
+    if (bends.length === 1) {
+      if (front != null) to[0] = xf + front;
+      else if (rear != null) to[0] = xr - rear;
+    } else {
+      if (front != null) to[0] = xf + front;
+      if (rear != null) to[1] = xr - rear;
+    }
+    for (let i = 0; i < to.length; i++) to[i] = Math.max(xf + 1, Math.min(xr - 1, to[i]));
+    if (to.length === 2 && to[1] < to[0] + 1) to[1] = Math.min(xr - 1, to[0] + 1);
+    const from = [xf].concat(bends, [xr]), dest = [xf].concat(to, [xr]);
+    return (x) => {
+      if (x <= from[0] || x >= from[from.length - 1]) return x;
+      for (let i = 0; i < from.length - 1; i++) {
+        if (x <= from[i + 1]) {
+          const span = from[i + 1] - from[i];
+          return span <= 0 ? dest[i] : dest[i] + ((x - from[i]) / span) * (dest[i + 1] - dest[i]);
+        }
+      }
+      return x;
+    };
+  }
   // How far (model units, cm) an offset moves its end: the distance entered,
   // or `fallback` without one.
   function offsetDist(o, fallback) { return o.mm != null && isFinite(o.mm) ? Math.abs(o.mm) / 10 : fallback; }
@@ -1506,7 +1581,10 @@
       if (mesh.matrixAutoUpdate) mesh.updateMatrix();
       const offs = a.hoopTopWidth ? junctionOffsets.filter((o) => o.file === file) : [];
       const follows = hostMoves.length && FOLLOWS_BACKSTAY.test(file);
-      const key = k === 0 && kt === 0 && shift === 0 && frontK === 0 && !offs.length && !follows ? "0" : k.toFixed(6) + "|" + kt.toFixed(6) + "|" + shift.toFixed(3) + "|" + frontK.toFixed(6) + "|" + JSON.stringify(offs) + "|" + (follows ? hostKey : "") + "|" + mesh.matrix.elements.map((e) => e.toFixed(3)).join(",");
+      const bend = doorBends[file];
+      const bendKnot = bend ? bendKnots(bend.from || file, bend.bends) : null;
+      const remapX = bend && bendKnot ? bendRemap(bend, bendKnot) : null;
+      const key = k === 0 && kt === 0 && shift === 0 && frontK === 0 && !offs.length && !follows && !remapX ? "0" : k.toFixed(6) + "|" + kt.toFixed(6) + "|" + shift.toFixed(3) + "|" + frontK.toFixed(6) + "|" + JSON.stringify(offs) + "|" + (follows ? hostKey : "") + "|" + (remapX ? JSON.stringify(bend) : "") + "|" + mesh.matrix.elements.map((e) => e.toFixed(3)).join(",");
       if ((mesh.userData.leanKey || "0") === key) return;
       mesh.userData.leanKey = key;
       const geometry = mesh.geometry;
@@ -1580,6 +1658,7 @@
           v.set(base[i], base[i + 1], base[i + 2]).applyMatrix4(mesh.matrix);
           // Both weights are read off the undeformed point.
           const dAngles = fieldDx(v);
+          if (remapX) v.x = remapX(v.x);
           if (follow) {
             const t = Math.max(0, Math.min(1, (v.z - follow.zLo) / follow.span));
             v.y += follow.sLo + (follow.sHi - follow.sLo) * t;
@@ -1631,6 +1710,13 @@
     const d = degrees === "" || degrees == null ? NaN : Number(degrees);
     onReady(() => {
       frontDeg = Number.isFinite(d) ? Math.max(-15, Math.min(30, d)) : null;
+      applyMainHoopLean();
+    });
+  }
+  // See doorBends above.
+  function setDoorBends(map) {
+    onReady(() => {
+      doorBends = map || {};
       applyMainHoopLean();
     });
   }
@@ -1786,24 +1872,180 @@
   // width, height (CSS px, drawn at 2x), color, base (files), colors (file
   // -> color for the bars it touches). Null before
   // the model has loaded or for an unknown part.
-  function focusShots(file, opts) {
-    const tgt = meshes[file];
-    if (!ready || !renderer || !tgt) return null;
+  // The target: a part's file (a gusset: both pictures, the part in
+  // opts.color and the bars it touches in their colors), or a point on a bar
+  // (a junction or a weld: its close-up only -- overview null -- the bar
+  // green (opts.measuredColor), the bars it's measured from / welded to red
+  // (opts.refColor: target.refs, else the parts touching the point), the
+  // rest ghost). The point:
+  //   { file, end }      the bar's farthest point that way: "top", "bottom",
+  //                      "front", "rear", "left", "right" (front is -x, left
+  //                      -y, up +z) or a direction [x, y, z];
+  //   { files, end }     the same over several bars (the one holding it is
+  //                      the bar shown green);
+  //   { file, crossWith } where the bar passes closest to another one (that
+  //                      one red);
+  //   { file, k, n }     row k of the n weld points along the bar (low to
+  //                      high along its longest extent): the ends for the
+  //                      first and last, the nearest crossing with another
+  //                      bar for the ones between (among target.crossAmong
+  //                      first; that bar red; only this bar's half on the
+  //                      row's side green, unless target.whole);
+  //   target.half: [x, y, z] -- of a crossing, the half bar to show green.
+  // target.view: a direction to look from ([x, y, z], toward the camera).
+  const FOCUS_DIRS = { top: [0, 0, 1], bottom: [0, 0, -1], front: [-1, 0, 0], rear: [1, 0, 0], left: [0, -1, 0], right: [0, 1, 0] };
+  // The farthest vertex of these meshes along a direction: { mesh, point }.
+  function farthestPoint(list, end) {
+    const d = Array.isArray(end) ? end : FOCUS_DIRS[end] || FOCUS_DIRS.top;
+    const v = new THREE.Vector3();
+    let best = -Infinity, out = null;
+    list.forEach((m) => {
+      if (!m) return;
+      m.updateMatrixWorld(true);
+      const pos = m.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+        const k = d[0] * v.x + d[1] * v.y + d[2] * v.z;
+        if (k > best) { best = k; out = { mesh: m, point: v.clone() }; }
+      }
+    });
+    return out;
+  }
+  // The point on bar a's axis closest to bar b's axis, and how far apart.
+  function axisCrossing(ma, mb) {
+    const a = barAxis(ma), b = barAxis(mb);
+    const r = a.c.clone().sub(b.c);
+    const dd = a.d.dot(b.d), e = a.d.dot(r), f = b.d.dot(r);
+    const den = 1 - dd * dd;
+    if (den < 1e-6) return null;
+    const t = (dd * f - e) / den, u = (f - dd * e) / den;
+    const pa = a.c.clone().addScaledVector(a.d, t), pb = b.c.clone().addScaledVector(b.d, u);
+    return { point: pa, gap: pa.distanceTo(pb) };
+  }
+  // How far a mesh's surface passes from a point.
+  function meshDistance(m, p) {
+    m.updateMatrixWorld(true);
+    const pos = m.geometry.attributes.position, idx = m.geometry.index;
+    const n = idx ? idx.count : pos.count;
+    const tri = new THREE.Triangle(), q = new THREE.Vector3();
+    const at = (k, v) => v.fromBufferAttribute(pos, idx ? idx.getX(k) : k).applyMatrix4(m.matrixWorld);
+    let best = Infinity;
+    for (let k = 0; k + 2 < n; k += 3) {
+      at(k, tri.a); at(k + 1, tri.b); at(k + 2, tri.c);
+      best = Math.min(best, tri.closestPointToPoint(p, q).distanceTo(p));
+    }
+    return best;
+  }
+  // A target's bar and point (see focusShots), or null.
+  function focusPoint(target, isBar) {
+    if (target.files) {
+      // Only the ones showing, when any is (a foot's active design).
+      const all = target.files.map((f) => meshes[f]).filter(Boolean);
+      const shown = all.filter((m) => m.visible);
+      const r = farthestPoint(shown.length ? shown : all, target.end);
+      return r ? { mesh: r.mesh, point: r.point } : null;
+    }
+    const m = meshes[target.file];
+    if (!m) return null;
+    m.updateMatrixWorld(true);
+    if (target.crossWith) {
+      const o = meshes[target.crossWith];
+      const c = o && axisCrossing(m, o);
+      return c ? { mesh: m, point: c.point, crossFile: target.crossWith, half: target.half || null } : null;
+    }
+    if (target.n != null) {
+      const b = meshAxisBounds(m);
+      const ax = b.axis;
+      if (target.k <= 0) return { mesh: m, point: farthestPoint([m], ax === "x" ? [-1, 0, 0] : ax === "y" ? [0, -1, 0] : [0, 0, -1]).point };
+      if (target.k >= target.n - 1) return { mesh: m, point: farthestPoint([m], ax === "x" ? [1, 0, 0] : ax === "y" ? [0, 1, 0] : [0, 0, 1]).point };
+      // A point between: the crossing with another bar nearest this row's
+      // share of the bar.
+      const want = b.min + ((target.k + 0.5) / target.n) * (b.max - b.min);
+      // target.crossAmong: the bars to look at first (the other bars of
+      // the same weld table: 253-7's crossing is with the other 253-7
+      // diagonal, not a harness bar across it), then any.
+      const search = (files) => {
+        let best = null;
+        files.forEach((f) => {
+          const o = meshes[f];
+          if (!o || o === m || !o.visible || !isBar(f)) return;
+          const c = axisCrossing(m, o);
+          if (!c || c.gap > 8) return;
+          const at = c.point[ax];
+          if (at < b.min + 0.08 * (b.max - b.min) || at > b.max - 0.08 * (b.max - b.min)) return;
+          if (!best || Math.abs(at - want) < Math.abs(best.point[ax] - want)) best = Object.assign({ file: f }, c);
+        });
+        return best;
+      };
+      const best = (target.crossAmong && search(target.crossAmong)) || search(Object.keys(meshes));
+      if (best) {
+        // The half bar this row welds: on its side of the crossing.
+        const unit = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }[ax];
+        const sign = want < best.point[ax] ? -1 : 1;
+        return { mesh: m, point: best.point, crossFile: best.file, half: target.whole ? null : unit.map((u) => u * sign) };
+      }
+      const a = barAxis(m);
+      return { mesh: m, point: a.c.clone().addScaledVector(a.d, (want - a.c[ax]) / (a.d[ax] || 1)) };
+    }
+    return { mesh: m, point: farthestPoint([m], target.end).point };
+  }
+  function focusShots(target, opts) {
+    if (!ready || !renderer) return null;
+    const junction = typeof target !== "string";
     const W = (opts && opts.width) || 120, H = (opts && opts.height) || 90, color = (opts && opts.color) || "#ff3b30";
     const base = new Set((opts && opts.base) || []);
+    // A bar of the design: one opts.colors gives a color (the design's,
+    // whatever the live view shows), else one showing in its own color.
+    const designedFile = (f) => {
+      const m = meshes[f];
+      const c = opts && opts.colors ? opts.colors[f] : null;
+      return opts && opts.colors ? typeof c === "string" && c !== "hidden" : m.visible && !ghostFiles.has(f);
+    };
+    const isBar = (f) => designedFile(f) && !/gusset|^Foot|^(Driver|Codriver)/i.test(f);
+    let tgt, g, gSize;
+    let givenRefs = junction && target.refs ? new Set(target.refs) : null;
+    let half = null;
+    if (junction) {
+      const fp = focusPoint(target, isBar);
+      if (!fp) return null;
+      // A crossing weld: welded to the bar it crosses, only.
+      if (!givenRefs && fp.crossFile) givenRefs = new Set([fp.crossFile]);
+      // target.nearestOf: welded to whichever of these bars passes closest
+      // (a 253-15 half bar to the door bar it meets), only.
+      if (target.nearestOf) {
+        let best = null;
+        target.nearestOf.forEach((f) => {
+          const o = meshes[f];
+          if (!o || !o.visible) return;
+          const d = meshDistance(o, fp.point);
+          if (!best || d < best.d) best = { f, d };
+        });
+        if (best) givenRefs = new Set([best.f]);
+      }
+      half = fp.half || null;
+      tgt = fp.mesh;
+      g = fp.point;
+      gSize = 18;
+    } else {
+      tgt = meshes[target];
+      if (!tgt) return null;
+      tgt.updateMatrixWorld(true);
+      const gBox = new THREE.Box3().setFromObject(tgt);
+      g = gBox.getCenter(new THREE.Vector3());
+      gSize = gBox.getSize(new THREE.Vector3()).length();
+    }
     const size = renderer.getSize(new THREE.Vector2());
     const ratio = renderer.getPixelRatio();
     const savedAspect = camera.aspect;
     const ghost = new THREE.MeshStandardMaterial({ color: 0x8a9099, roughness: 0.8, metalness: 0, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide });
     const hi = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide });
-    tgt.updateMatrixWorld(true);
-    const gBox = new THREE.Box3().setFromObject(tgt);
-    const g = gBox.getCenter(new THREE.Vector3());
-    const gSize = gBox.getSize(new THREE.Vector3()).length();
+
+    const measured = new THREE.MeshStandardMaterial({ color: (opts && opts.measuredColor) || "#22c55e", roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide });
+    const against = new THREE.MeshStandardMaterial({ color: (opts && opts.refColor) || "#ef4444", roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide });
     // A bar touches the part when its surface passes within about half the
     // part's size of the part's center (its triangles, not its points: an
     // STL tube has points only at its 2 ends).
-    const reach = gSize * 0.5 + 2;
+    const reach = junction ? 5 : gSize * 0.5 + 2;
     const near = new THREE.Box3().setFromCenterAndSize(g, new THREE.Vector3(1, 1, 1).multiplyScalar(2 * reach));
     const touches = (m) => {
       m.updateMatrixWorld(true);
@@ -1820,6 +2062,7 @@
     };
     const saved = [];
     const own = {};
+    const refBars = [];
     const box = new THREE.Box3();
     Object.keys(meshes).forEach((f) => {
       const m = meshes[f];
@@ -1829,9 +2072,21 @@
       // A bar of the design: one opts.colors gives a color (the design's,
       // whatever the live view shows), else one showing in its own color.
       const c = opts && opts.colors ? opts.colors[f] : null;
-      const designed = opts && opts.colors ? typeof c === "string" && c !== "hidden" : m.visible && !ghostFiles.has(f);
+      const designed = designedFile(f);
       const bar = designed && !/gusset|^Foot|^(Driver|Codriver)/i.test(f);
-      if (m === tgt) { m.visible = true; m.material = hi; }
+      if (junction) {
+        // A junction or a weld: the bar green, the bars it's measured from
+        // / welded to red, the rest of the cage (and opts.base) ghost bars.
+        halves.forEach((h) => { h.visible = false; });
+        const ref = givenRefs ? givenRefs.has(f) : designed && !/gusset|^(Driver|Codriver)/i.test(f) && touches(m);
+        // target.same: other parts of the same piece (a multiplane foot's
+        // other plates), green with it.
+        if (m === tgt || (junction && target.same && target.same.includes(f) && m.visible)) { m.visible = true; m.material = measured; }
+        else if (ref) { m.visible = true; m.material = against; if (bar) refBars.push(m); }
+        else if (bar || base.has(f)) { m.visible = true; m.material = ghost; }
+        else m.visible = false;
+      }
+      else if (m === tgt) { m.visible = true; m.material = hi; }
       else if (bar && touches(m)) {
         m.visible = true;
         if (c) {
@@ -1845,14 +2100,55 @@
       else m.visible = false;
       if (m.visible) { m.updateMatrixWorld(true); box.expandByObject(m); }
     });
+    // A crossing weld on a cut bar: only the half bar it welds green, the
+    // other half a ghost (2 clipped copies of the bar, removed below).
+    const halfCopies = [];
+    const hiddenBar = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+    const prevLocal = renderer.localClippingEnabled;
+    if (half) {
+      const ax = barAxis(tgt).d.clone();
+      if (ax.dot(new THREE.Vector3(half[0], half[1], half[2])) < 0) ax.negate();
+      const keep = new THREE.Plane(ax.clone(), -ax.dot(g));
+      const other = keep.clone().negate();
+      [[measured, keep], [ghost, other]].forEach(([mat, plane]) => {
+        const copy = new THREE.Mesh(tgt.geometry, mat.clone());
+        copy.material.clippingPlanes = [plane];
+        copy.raycast = () => {};
+        tgt.add(copy);
+        halfCopies.push(copy);
+      });
+      tgt.material = hiddenBar;
+      renderer.localClippingEnabled = true;
+    }
     const sphere = new THREE.Sphere();
     box.getBoundingSphere(sphere);
     // From the cage's middle out toward the part, raised a little.
-    const dir = g.clone().sub(sphere.center);
-    dir.z = 0;
-    if (dir.lengthSq() < 1) dir.set(1, 1, 0);
-    dir.normalize();
-    dir.z = 0.6;
+    // target.view: a direction of its own to look from ([x, y, z], toward
+    // the camera), else from the cage's middle out toward the part.
+    const view = junction && target.view;
+    // A junction or a weld: looking square at the plane of the green bar
+    // and the red bar most across it, from outside the cage and a little
+    // above (else from the cage's middle out toward the point).
+    let plane = null;
+    if (junction && !view) {
+      const ta = barAxis(tgt);
+      refBars.forEach((m) => {
+        const n = ta.d.clone().cross(barAxis(m).d);
+        if (n.length() > 0.35 && (!plane || n.length() > plane.length())) plane = n;
+      });
+      if (plane) {
+        plane.normalize();
+        if (plane.dot(g.clone().sub(sphere.center)) < 0) plane.negate();
+        plane.z += 0.25;
+      }
+    }
+    const dir = view ? new THREE.Vector3(view[0], view[1], view[2]) : plane || g.clone().sub(sphere.center);
+    if (!view && !plane) {
+      dir.z = 0;
+      if (dir.lengthSq() < 1) dir.set(1, 1, 0);
+      dir.normalize();
+      dir.z = 0.6;
+    }
     dir.normalize();
     renderer.setPixelRatio(2);
     renderer.setSize(W, H, false);
@@ -1879,11 +2175,53 @@
       ctx.stroke();
       return c.toDataURL("image/png");
     };
-    const overview = shot(Math.max(gSize * 2.4, 45), true);
-    const zoom = shot(Math.max(gSize * 0.9, 14), false);
+    // A junction or a weld seen from whichever of a few directions shows the
+    // most of its green bar (and some of the red ones): both sides of their
+    // plane, out from the cage's middle, that turned 60 degrees either way,
+    // and from above.
+    if (junction && !view) {
+      const out = g.clone().sub(sphere.center);
+      out.z = 0;
+      if (out.lengthSq() < 1) out.set(1, 1, 0);
+      out.normalize();
+      const turn = (v, deg) => v.clone().applyAxisAngle(new THREE.Vector3(0, 0, 1), (deg * Math.PI) / 180);
+      const cands = [out.clone().setZ(0.6), turn(out, 60).setZ(0.6), turn(out, -60).setZ(0.6), new THREE.Vector3(out.x * 0.3, out.y * 0.3, 1)];
+      if (plane) cands.unshift(plane.clone(), plane.clone().setX(-plane.x).setY(-plane.y));
+      const probe = document.createElement("canvas");
+      probe.width = 60; probe.height = 45;
+      const pctx = probe.getContext("2d", { willReadFrequently: true });
+      let best = null;
+      cands.forEach((cnd) => {
+        dir.copy(cnd).normalize();
+        camera.position.copy(g).addScaledVector(dir, 30 / fit);
+        camera.up.set(0, 0, 1);
+        camera.lookAt(g);
+        camera.updateMatrixWorld(true);
+        renderer.render(scene, camera);
+        pctx.drawImage(renderer.domElement, 0, 0, 60, 45);
+        const px = pctx.getImageData(0, 0, 60, 45).data;
+        let green = 0, red = 0;
+        for (let i = 0; i < px.length; i += 4) {
+          const r = px[i], gr = px[i + 1], b = px[i + 2];
+          if (gr > r + 40 && gr > b + 30) green++;
+          else if (r > gr + 60 && r > b + 60) red++;
+        }
+        const score = green + 0.3 * Math.min(red, green * 2);
+        if (!best || score > best.score) best = { score, d: dir.clone() };
+      });
+      dir.copy(best.d);
+    }
+    // A junction or a weld: its close-up only.
+    const overview = junction ? null : shot(Math.max(gSize * 2.4, 45), true);
+    const zoom = shot(junction ? 30 : Math.max(gSize * 0.9, 14), false);
+    halfCopies.forEach((c) => { tgt.remove(c); c.material.dispose(); });
+    hiddenBar.dispose();
+    if (half) renderer.localClippingEnabled = prevLocal;
     saved.forEach(([m, visible, material]) => { m.visible = visible; m.material = material; });
     ghost.dispose();
     hi.dispose();
+    measured.dispose();
+    against.dispose();
     Object.values(own).forEach((mat) => mat.dispose());
     renderer.setPixelRatio(ratio);
     renderer.setSize(size.x, size.y, false);
@@ -2367,7 +2705,7 @@
   // The camera's current angle (radians), for snapshot's opts.angle.
   function getAngle() { return { theta, phi, roll }; }
 
-  window.CageView = { getAngle, setGussets, setHoles, setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setGaps, focusShots, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
+  window.CageView = { getAngle, setGussets, setHoles, setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setGaps, focusShots, setDoorBends, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
