@@ -1834,13 +1834,37 @@
     // lateral (A-pillar) and at least 200mm ahead of the main rollbar. With
     // 1 bend per bar both distances are to that bend; with 2, the front one
     // to the front bend and the rear one to the rear bend.
+    // 253-9's W, per side: the front lateral to the main rollbar, measured
+    // along the car -- what the bend positions (below) and the bend
+    // gusset's 0.3 W are measured against.
+    {
+      id: "door_9_w",
+      name: "253-9 W and gap between the bend bars",
+      category: "Door bars -- 253-9 (X bar design)",
+      requirement: "required",
+      reference: "2020 FIA 253 Ch.8.3.2.1.2",
+      description: "Per side: W, the front lateral to the main rollbar measured along the car at the door bars, and the gap between the 2 bend bars where they come closest (at the bend, or along the stretch between 2 bends) -- at most D, the bars' outer diameter.",
+      // Shown inside the bend positions card, above its table (embedIn).
+      embedIn: "door_9_2bar_dims",
+      showIf: DOOR_9BENT_SHOWIF,
+      evaluationType: "table",
+      rows: (getAnswer) => door9bentSides(getAnswer).map((side) => ({ id: side, label: side === "left" ? "Left side" : "Right side" })),
+      columns: [
+        { key: "w", label: "W (front lateral to main rollbar)", type: "length" },
+        { key: "gap", label: "Gap between the bars", type: "radio", options: [
+          { id: "under", label: "≤ D" },
+          { id: "over", label: "> D", outcome: "fail" },
+        ] },
+      ],
+      visuallyVerifiable: true, hardFail: true,
+    },
     {
       id: "door_9_2bar_dims",
       name: "253-9 bend positions",
       category: "Door bars -- 253-9 (X bar design)",
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.2.1.2",
-      description: "Each bend of the 2 bend bars sits in Zone A: at least 300mm (11.8in) behind the front lateral and at least 200mm (7.9in) ahead of the main rollbar, measured along the car. First W, the front lateral to the main rollbar. With 1 bend per bar, measure both to that bend; with 2 bends, the front lateral to the front bend and the rear bend to the main rollbar. The upper and lower bars bend at the same places.",
+      description: "Each bend of the 2 bend bars sits in Zone A: at least 300mm (11.8in) behind the front lateral and at least 200mm (7.9in) ahead of the main rollbar, measured along the car. First, per side, W (the front lateral to the main rollbar) and the gap between the 2 bars (at most D). Then each bar: with 1 bend per bar, measure both to that bend (with W, any 2 of the 3 fill in the third); with 2 bends, the front lateral to the front bend and the rear bend to the main rollbar. The upper and lower bars bend at the same places.",
       showIf: DOOR_9BENT_SHOWIF,
       diagram: "253-9-bend-positions",
       evaluationType: "table",
@@ -1850,13 +1874,11 @@
           const cap = side === "left" ? "Left" : "Right";
           const bends = door9Bends(getAnswer("door_bars_" + side).value);
           const how = bends === "2" ? " (2 bends)" : bends === "1" ? " (1 bend)" : "";
-          // W once per side, on its upper bar's row.
-          rows.push({ id: side + "_upper", label: cap + " upper bar" + how }, { id: side + "_lower", label: cap + " lower bar" + how, notApplicableColumns: ["w"] });
+          rows.push({ id: side + "_upper", label: cap + " upper bar" + how }, { id: side + "_lower", label: cap + " lower bar" + how });
         });
         return rows;
       },
       columns: [
-        { key: "w", label: "W (front lateral to main rollbar)", type: "length" },
         { key: "front", label: "Front lateral to the (front) bend (≥300mm/11.8in)", type: "length", compare: { op: "gte", value: 300 } },
         { key: "rear", label: "The (rear) bend to the main rollbar (≥200mm/7.9in)", type: "length", compare: { op: "gte", value: 200 } },
       ],
@@ -1874,7 +1896,7 @@
         };
         if (colKey === "w") return null;
         // The bends inside W: front + rear distances at most W.
-        const w = (() => { const v = getAnswer("door_9_2bar_dims__" + m[1] + "_upper__w").value; if (!v || v.value === "" || v.value == null) return null; const n = parseFloat(v.value); return isNaN(n) ? null : v.unit === "in" ? n * 25.4 : v.unit === "cm" ? n * 10 : n; })();
+        const w = (() => { const v = getAnswer("door_9_w__" + m[1] + "__w").value; if (!v || v.value === "" || v.value == null) return null; const n = parseFloat(v.value); return isNaN(n) ? null : v.unit === "in" ? n * 25.4 : v.unit === "cm" ? n * 10 : n; })();
         const own = (col) => { const v = getAnswer("door_9_2bar_dims__" + rowId + "__" + col).value; if (!v || v.value === "" || v.value == null) return null; const n = parseFloat(v.value); return isNaN(n) ? null : v.unit === "in" ? n * 25.4 : v.unit === "cm" ? n * 10 : n; };
         const f = own("front"), r = own("rear");
         if (w != null && f != null && r != null && f + r > w + 10) return "The front and rear distances (" + Math.round(f) + " + " + Math.round(r) + " mm) add up to more than W (" + Math.round(w) + " mm).";
@@ -1883,24 +1905,6 @@
         return "The upper and lower bars must bend at the same place: their " + (colKey === "front" ? "front" : "rear") + " distances differ (" + Math.round(up) + " vs " + Math.round(low) + " mm).";
       },
       visuallyVerifiable: false, hardFail: true,
-    },
-    // Where the 2 bars come closest (at the bend, or along the flat stretch
-    // between 2 bends): at most the bars' diameter D apart.
-    {
-      id: "door_9_2bar_gap",
-      name: "253-9 gap between the bend bars",
-      category: "Door bars -- 253-9 (X bar design)",
-      requirement: "required",
-      reference: "2020 FIA 253 Ch.8.3.2.1.2",
-      description: "Where the 2 bend bars come closest -- at the bend, or along the stretch between 2 bends -- the gap between them is at most D, the bars' outer diameter.",
-      showIf: DOOR_9BENT_SHOWIF,
-      evaluationType: "table",
-      rows: (getAnswer) => door9bentSides(getAnswer).map((side) => ({ id: side, label: (side === "left" ? "Left" : "Right") + " door bars" })),
-      columns: [{ key: "gap", label: "Gap between the bars", type: "radio", options: [
-        { id: "under", label: "≤ D" },
-        { id: "over", label: "> D", outcome: "fail" },
-      ] }],
-      visuallyVerifiable: true, hardFail: true,
     },
     {
       id: "door_9_2bar_welds",

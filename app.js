@@ -336,7 +336,10 @@
   // under its new id (setAnswer).
   function answerAlias(id) {
     const m = /^gusset_welds__(.+)__weld$/.exec(id);
-    return m ? "gusset_dimensions__" + m[1] + "__weld" : null;
+    if (m) return "gusset_dimensions__" + m[1] + "__weld";
+    // 253-9's gap between the bend bars, once its own card.
+    const g = /^door_9_w__(left|right)__gap$/.exec(id);
+    return g ? "door_9_2bar_gap__" + g[1] + "__gap" : null;
   }
   function aliasedAnswer(id) {
     const old = answerAlias(id);
@@ -445,13 +448,14 @@
     // 253-9's W (front lateral to main rollbar), entered with the bend
     // positions, is the bend gusset's W too: copied there while that one is
     // blank or still holds the previous copy.
-    const wSide = /^door_9_2bar_dims__(left|right)_upper__w$/.exec(id);
+    const wSide = /^door_9_w__(left|right)__w$/.exec(id);
     if (wSide) {
       const gid = "door_9_bend_gusset__door_bend_" + wSide[1] + "__w";
       const before = JSON.stringify(getAnswer(id).value || ""), there = getAnswer(gid).value;
       if (!there || !there.value || JSON.stringify(there) === before) state.answers[gid] = Object.assign({}, getAnswer(gid), { value: patch.value });
     }
     state.answers[id] = Object.assign({}, getAnswer(id), patch);
+    door9FillThird(id);
     if (answerAlias(id)) delete state.answers[answerAlias(id)];
     // No backstays: the (now hidden) backstay diagonal question goes too,
     // so its tables and 3D bars don't linger from a stale answer.
@@ -460,6 +464,32 @@
     normalizeUnavailableChoices();
     markDirty();
     render();
+  }
+
+  // 253-9 with 1 bend per bar: W = the front distance + the rear one, so
+  // with 2 of the 3 entered the third is filled in (marked extra.auto, and
+  // kept up to date -- an entered value is never overwritten).
+  function door9FillThird(changedId) {
+    const m = /^door_9_(?:w__(left|right)__w|2bar_dims__(left|right)_(upper|lower)__(front|rear))$/.exec(changedId);
+    if (!m) return;
+    const side = m[1] || m[2];
+    if (door9Bends(getAnswer("door_bars_" + side).value) !== "1") return;
+    const wId = "door_9_w__" + side + "__w";
+    const mm = (id) => { const v = getAnswer(id).value; return v && v.value !== "" && v.value != null ? toMM({ val: v.value, unit: v.unit || "mm" }) : null; };
+    const auto = (id) => !!(getAnswer(id).extra || {}).auto;
+    const fill = (id, value) => { state.answers[id] = Object.assign({}, getAnswer(id), { value: { value: String(Math.round(value)), unit: "mm" }, extra: Object.assign({}, getAnswer(id).extra || {}, { auto: true }) }); };
+    // An entered value isn't automatic any more.
+    if (state.answers[changedId] && state.answers[changedId].extra && state.answers[changedId].extra.auto) {
+      state.answers[changedId] = Object.assign({}, state.answers[changedId], { extra: Object.assign({}, state.answers[changedId].extra, { auto: false }) });
+    }
+    (m[3] ? [m[3]] : ["upper", "lower"]).forEach((which) => {
+      const fId = "door_9_2bar_dims__" + side + "_" + which + "__front", rId = "door_9_2bar_dims__" + side + "_" + which + "__rear";
+      const w = mm(wId), f = mm(fId), r = mm(rId);
+      const given = (id, v) => v != null && !auto(id);
+      if (given(wId, w) && given(fId, f) && (r == null || auto(rId))) fill(rId, w - f);
+      else if (given(wId, w) && given(rId, r) && (f == null || auto(fId))) fill(fId, w - r);
+      else if (given(fId, f) && given(rId, r) && (w == null || auto(wId))) fill(wId, f + r);
+    });
   }
 
   // Removes an answer entirely -- back to never answered, not an empty
@@ -769,10 +799,10 @@
   // with no D.
   function rowDTubeRows(elm, row) {
     if (elm.id === "gusset_dimensions" && elm.tubeRowIdsForRow) return elm.tubeRowIdsForRow(getAnswer, row.id);
-    if (elm.id === "door_9_2bar_gap") return ["d9bent_" + row.id + "_upper", "d9bent_" + row.id + "_lower"];
+    if (elm.id === "door_9_w") return ["d9bent_" + row.id + "_upper", "d9bent_" + row.id + "_lower"];
     return null;
   }
-  // Under a Part 4 row's name: its D (253-9's gap, which shows it nowhere
+  // Under a Part 4 row's name: its D (253-9's W and gap, which shows it nowhere
   // else), or -- D not known yet -- a warning that the row can't be checked
   // until the tube size is in Part 3, with a link there.
   function rowDNote(elm, row) {
@@ -785,7 +815,7 @@
         el("a", { href: "#", onclick: (e) => { e.preventDefault(); jumpToSafetyTarget(d.missing); } }, ["Go to Part 3"]),
       ]);
     }
-    if (elm.id !== "door_9_2bar_gap") return null;
+    if (elm.id !== "door_9_w") return null;
     return el("div", { class: "row-d-note" }, ["D = " + d.mm.toFixed(1) + " mm (" + (d.mm / 25.4).toFixed(2) + "\")"]);
   }
   // Every diameter hint in a gusset_dimensions row (length's 2D/4D, corner
@@ -1321,6 +1351,13 @@
   function tableElementStatus(elm) {
     if (quickCheckActive(elm)) return "pass";
     let worst = "pass";
+    // A table embedded in this card (embedIn) counts toward its color.
+    const path = state.pathId && RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    (path ? path.elements : []).filter((e) => e.embedIn === elm.id && e.evaluationType === "table" && elementVisible(e)).forEach((e) => {
+      const st = tableElementStatus(e);
+      if (st === "fail") worst = "fail";
+      else if (st === "warn" && worst !== "fail") worst = "warn";
+    });
     resolveRows(elm).forEach((row) => {
       elm.columns.forEach((col) => {
         if (col.optional) return;
@@ -6268,7 +6305,11 @@
         // "Cage Design" is skipped here -- it would just repeat the "Rollcage
         // design" panel heading right above it.
         if (cat !== "Cage Design") panel.appendChild(el("div", { class: "category-heading" }, [cat]));
-        byCategory[cat].forEach((elm) => panel.appendChild(elm.evaluationType === "table" ? renderTableElement(elm) : renderElementCard(elm)));
+        byCategory[cat].forEach((elm) => {
+          // A table shown inside another card (embedIn) isn't a card of its own.
+          if (elm.embedIn && byCategory[cat].some((e) => e.id === elm.embedIn)) return;
+          panel.appendChild(elm.evaluationType === "table" ? renderTableElement(elm) : renderElementCard(elm));
+        });
       });
     });
 
@@ -7331,6 +7372,16 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
+    // A table embedded in this card (its embedIn): above this one's table,
+    // its own answers and checks unchanged.
+    const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
+    (path ? path.elements : []).filter((e) => e.embedIn === elm.id && elementVisible(e) && e.evaluationType === "table").forEach((e) => {
+      // Always unfolded: it has no card of its own to open (a complete
+      // table's card renders folded, without its table).
+      state.expandedIds[e.id] = true;
+      const inner = renderTableElement(e).querySelector(".row-table-wrap");
+      if (inner) { inner.classList.add("row-table-embedded"); card.appendChild(inner); }
+    });
     card.appendChild(el("div", { class: "row-table-wrap" }, [table]));
     return card;
   }
@@ -11520,6 +11571,10 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
   // 253-9's bend bars with their bends where Part 4's "253-9 bend positions"
   // puts them (cm, for CageView.setDoorBends): each bar by its own row, the
   // side's bend gusset following its upper bar. Empty when nothing's entered.
+  function door9W(side) {
+    const v = getAnswer("door_9_w__" + side + "__w").value;
+    return v && v.value !== "" && v.value != null ? toMM({ val: v.value, unit: v.unit || "mm" }) : null;
+  }
   function door9BendMM(side, which, col) {
     const v = getAnswer("door_9_2bar_dims__" + side + "_" + which + "__" + col).value;
     return v && v.value !== "" && v.value != null ? toMM({ val: v.value, unit: v.unit || "mm" }) : null;
@@ -11536,7 +11591,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
         if (front == null && rear == null) return;
         // As a share of W when it's entered (the model's car isn't this
         // one's size), else as entered (cm).
-        const w = door9BendMM(side, "upper", "w");
+        const w = door9W(side);
         out[file] = w ? { frontFrac: front == null ? null : front / w, rearFrac: rear == null ? null : rear / w, bends }
           : { front: front == null ? null : front / 10, rear: rear == null ? null : rear / 10, bends };
         if (which === "upper") {
@@ -11560,7 +11615,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       return a != null && b != null && Math.abs(a - b) > 10;
     };
     if (differs("front") || differs("rear")) return CAGE_COLOR.statusFail;
-    const gap = getAnswer("door_9_2bar_gap__" + side + "__gap").value;
+    const gap = getAnswer("door_9_w__" + side + "__gap").value;
     if (gap === "over") return CAGE_COLOR.statusFail;
     return front != null && rear != null && gap === "under" ? CAGE_COLOR.statusPass : null;
   }

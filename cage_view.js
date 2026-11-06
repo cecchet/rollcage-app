@@ -1158,7 +1158,8 @@
   let doorBends = {};
   const bendKnotCache = new Map();
   // A bend bar's ends and bends along the car (world x, front = low x), read
-  // off its undeformed centerline: { xf, xr, bends: [x, ...] }.
+  // off its undeformed centerline: { xf, xr, bends: [x, ...], at(x) -> the
+  // centerline point there }.
   function bendKnots(file, nBends) {
     const mesh = meshes[file];
     const base = mesh && mesh.userData.basePositions;
@@ -1171,19 +1172,30 @@
     const pts = [];
     for (let i = 0; i < base.length; i += 3) {
       v.set(base[i], base[i + 1], base[i + 2]).applyMatrix4(mesh.matrix);
-      pts.push([v.x, v.z]);
+      pts.push([v.x, v.y, v.z]);
       xf = Math.min(xf, v.x); xr = Math.max(xr, v.x);
     }
-    // The centerline's height every 2cm along the car.
+    // The centerline (mean y and z) every 2cm along the car.
     const step = 2, n = Math.max(2, Math.ceil((xr - xf) / step));
-    const sum = new Array(n + 1).fill(0), cnt = new Array(n + 1).fill(0);
-    pts.forEach(([x, z]) => { const k = Math.round((x - xf) / step); sum[k] += z; cnt[k]++; });
-    const zs = [];
-    for (let k = 0; k <= n; k++) if (cnt[k]) zs.push([xf + k * step, sum[k] / cnt[k]]);
-    if (zs.length < 3) return null;
-    const z0 = zs[0][1], z1 = zs[zs.length - 1][1];
+    const sy = new Array(n + 1).fill(0), sz = new Array(n + 1).fill(0), cnt = new Array(n + 1).fill(0);
+    pts.forEach(([x, y, z]) => { const k = Math.round((x - xf) / step); sy[k] += y; sz[k] += z; cnt[k]++; });
+    const line = [];
+    for (let k = 0; k <= n; k++) if (cnt[k]) line.push([xf + k * step, sy[k] / cnt[k], sz[k] / cnt[k]]);
+    if (line.length < 3) return null;
+    const at = (x) => {
+      if (x <= line[0][0]) return new THREE.Vector3(x, line[0][1], line[0][2]);
+      for (let k = 0; k < line.length - 1; k++) {
+        if (x <= line[k + 1][0]) {
+          const t = (x - line[k][0]) / Math.max(1e-6, line[k + 1][0] - line[k][0]);
+          return new THREE.Vector3(x, line[k][1] + t * (line[k + 1][1] - line[k][1]), line[k][2] + t * (line[k + 1][2] - line[k][2]));
+        }
+      }
+      const l = line[line.length - 1];
+      return new THREE.Vector3(x, l[1], l[2]);
+    };
+    const z0 = line[0][2], z1 = line[line.length - 1][2];
     // How far each slice sits off the straight line between the 2 ends.
-    const off = zs.map(([x, z]) => [x, z - (z0 + ((z1 - z0) * (x - xf)) / Math.max(1, xr - xf))]);
+    const off = line.map(([x, , z]) => [x, z - (z0 + ((z1 - z0) * (x - xf)) / Math.max(1, xr - xf))]);
     const far = off.reduce((b, c) => (Math.abs(c[1]) > Math.abs(b[1]) ? c : b));
     let bends;
     if (nBends === 2) {
@@ -1191,14 +1203,20 @@
       const flat = off.filter(([, d]) => Math.abs(d - far[1]) < 1);
       bends = [Math.min(...flat.map((f) => f[0])), Math.max(...flat.map((f) => f[0]))];
     } else bends = [far[0]];
-    const out = { xf, xr, bends };
+    // The ends a little in from the tips (the centerline's own ends are
+    // pulled by the cut ends' slant).
+    const out = { xf, xr, bends, at, a: at(xf + 4), c: at(xr - 4) };
     bendKnotCache.set(ck, out);
     return out;
   }
-  // The bend move for a point (world x): piecewise linear, the bar's ends
-  // fixed and each bend moved to its measured place.
+  // The bend move for a point (world): each straight stretch of the bar
+  // (end to bend, bend to bend, bend to end) redrawn between its ends'
+  // new places -- a point keeps its place across the tube (its offset off
+  // the centerline), so the tube stays round and the stretches stay joined
+  // at the bends. The bar's ends stay put; each bend moves along the car to
+  // its measured place, keeping its height.
   function bendRemap(spec, knots) {
-    const { xf, xr, bends } = knots;
+    const { xf, xr, bends, at } = knots;
     const to = bends.slice();
     // spec.frontFrac / rearFrac: the same as a share of the bar's length
     // along the car (of W), else spec.front / rear in cm.
@@ -1212,20 +1230,22 @@
       if (front != null) to[0] = xf + front;
       if (rear != null) to[1] = xr - rear;
     }
-    for (let i = 0; i < to.length; i++) to[i] = Math.max(xf + 1, Math.min(xr - 1, to[i]));
-    if (to.length === 2 && to[1] < to[0] + 1) to[1] = Math.min(xr - 1, to[0] + 1);
-    const from = [xf].concat(bends, [xr]), dest = [xf].concat(to, [xr]);
-    return (x) => {
-      if (x <= from[0] || x >= from[from.length - 1]) return x;
-      for (let i = 0; i < from.length - 1; i++) {
-        if (x <= from[i + 1]) {
-          const span = from[i + 1] - from[i];
-          return span <= 0 ? dest[i] : dest[i] + ((x - from[i]) / span) * (dest[i + 1] - dest[i]);
-        }
-      }
-      return x;
+    for (let i = 0; i < to.length; i++) to[i] = Math.max(xf + 6, Math.min(xr - 6, to[i]));
+    if (to.length === 2 && to[1] < to[0] + 1) to[1] = Math.min(xr - 5, to[0] + 1);
+    const xs = [xf].concat(bends, [xr]);
+    const knotsFrom = [knots.a].concat(bends.map((x) => at(x)), [knots.c]);
+    const knotsTo = knotsFrom.map((p, i) => (i === 0 || i === knotsFrom.length - 1 ? p.clone() : new THREE.Vector3(to[i - 1], p.y, p.z)));
+    return (v) => {
+      let i = 0;
+      while (i < xs.length - 2 && v.x > xs[i + 1]) i++;
+      const a = knotsFrom[i], b = knotsFrom[i + 1];
+      const t = (v.x - a.x) / Math.max(1e-6, b.x - a.x);
+      const p = a.clone().lerp(b, t);
+      const q = knotsTo[i].clone().lerp(knotsTo[i + 1], t);
+      v.add(q.sub(p));
     };
   }
+
   // How far (model units, cm) an offset moves its end: the distance entered,
   // or `fallback` without one.
   function offsetDist(o, fallback) { return o.mm != null && isFinite(o.mm) ? Math.abs(o.mm) / 10 : fallback; }
@@ -1658,7 +1678,7 @@
           v.set(base[i], base[i + 1], base[i + 2]).applyMatrix4(mesh.matrix);
           // Both weights are read off the undeformed point.
           const dAngles = fieldDx(v);
-          if (remapX) v.x = remapX(v.x);
+          if (remapX) remapX(v);
           if (follow) {
             const t = Math.max(0, Math.min(1, (v.z - follow.zLo) / follow.span));
             v.y += follow.sLo + (follow.sHi - follow.sLo) * t;

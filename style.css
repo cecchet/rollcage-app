@@ -1224,3 +1224,6 @@ img.zoomable, #cageViewerPictureModeThumb { cursor: zoom-in; }
 .row-d-note { margin-top: 4px; font-size: 0.78rem; font-weight: 400; color: var(--muted); }
 .row-d-note.row-d-missing { color: var(--warn, #b45309); }
 .row-d-note a { color: inherit; text-decoration: underline; }
+
+/* A table embedded above its host card's own table (see embedIn). */
+.row-table-embedded { margin-bottom: 12px; }
