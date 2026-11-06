@@ -105,12 +105,10 @@ const TEMPLATES = [
       // The diagram: every element of the cage.
       ["1.jpg", "overview", [
         ["main_hoop_diagonals", "253-7-2"], ["backstays", "yes"], ["backstay_diagonals", "253-22"], ["roof_bars", "253-14"],
-        ["door_bars_left", "253-9-intersection-1"], ["door_bars_right", "253-9-intersection-1"],
+        ["door_bars_left", "253-9-bent"], ["gusset_design__door_bend_left__design", "bend_straight"], ["door_bars_right", "253-9-bent"], ["gusset_design__door_bend_right__design", "bend_straight"],
         ["harness_bar_present", "253-26-27"], ["rear_lateral_reinforcement_present", "lower"], ["dash_bar_present", "yes"],
         ["temple_bar_present", "both"], ["windshield_reinforcement_present", "both"],
         ["gusset_design__main_hoop_diag_upper__design", "taco"], ["gusset_design__main_hoop_diag_lower__design", "taco"],
-        ["gusset_design__door_front_left__design", "taco"], ["gusset_design__door_rear_left__design", "taco"],
-        ["gusset_design__door_front_right__design", "taco"], ["gusset_design__door_rear_right__design", "taco"],
         ["gusset_design__a_pillar_left__design", "single_plate"], ["gusset_design__a_pillar_right__design", "single_plate"],
         ["a_pillar_reinforcement", "continuous"],
         ["gusset_design__a_pillar_side_left__design", "taco"], ["gusset_design__a_pillar_side_right__design", "taco"],
@@ -149,19 +147,16 @@ const TEMPLATES = [
       ["8.jpg", "roof_bars", [["roof_bars", "253-14"], ["main_hoop_diagonals", "253-7-2"]]],
       // Left side, with the front end.
       ["3.jpg", "door_bars_left", [
-        ["door_bars_left", "253-9-intersection-1"],
-        ["gusset_design__door_front_left__design", "taco"], ["gusset_design__door_rear_left__design", "taco"],
+        ["door_bars_left", "253-9-bent"], ["gusset_design__door_bend_left__design", "bend_straight"],
         ["a_pillar_reinforcement", "continuous"], ["windshield_reinforcement_present", "both"], ["dash_bar_present", "yes"],
       ]],
       ["5.jpg", "door_bars_left", [
-        ["door_bars_left", "253-9-intersection-1"],
-        ["gusset_design__door_front_left__design", "taco"], ["gusset_design__door_rear_left__design", "taco"],
+        ["door_bars_left", "253-9-bent"], ["gusset_design__door_bend_left__design", "bend_straight"],
         ["main_hoop_diagonals", "253-7-2"],
       ]],
       // Right door.
       ["2.jpg", "door_bars_right", [
-        ["door_bars_right", "253-9-intersection-1"],
-        ["gusset_design__door_front_right__design", "taco"], ["gusset_design__door_rear_right__design", "taco"],
+        ["door_bars_right", "253-9-bent"], ["gusset_design__door_bend_right__design", "bend_straight"],
         ["main_hoop_diagonals", "253-7-2"],
       ]],
     ]),
@@ -176,11 +171,9 @@ const TEMPLATES = [
       ["4.jpg", "overview", [
         ["main_hoop_diagonals", "diag-left"], ["backstays", "yes"], ["backstay_diagonals", "253-21-1"],
         ["roof_bars", "single-front-left"],
-        ["door_bars_left", "253-9-intersection-1"], ["door_bars_right", "253-9-intersection-1"],
+        ["door_bars_left", "253-9-bent"], ["door_bars_right", "253-9-bent"],
         ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"],
         ["temple_bar_present", "both"], ["windshield_reinforcement_present", "both"],
-        ["gusset_design__door_front_left__design", "taco"], ["gusset_design__door_rear_left__design", "taco"],
-        ["gusset_design__door_front_right__design", "taco"], ["gusset_design__door_rear_right__design", "taco"],
         ...FEET(),
       ]],
       ["5.jpg", "roof_bars"],
@@ -237,8 +230,8 @@ const TEMPLATES = [
   ...[
     // Each frame tagged with the elements it shows.
     ["brz-rally-9hio", "9hio Subaru BRZ rally.json", [
-      // Left door: both X door bars, the 253-15, the dash bar.
-      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1"], ["door_bars_right", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"], ["dash_bar_present", "yes"]]],
+      // Left door: both door bars, the 253-15, the dash bar.
+      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-bent"], ["gusset_design__door_bend_left__design", "bend_straight"], ["door_bars_right", "253-9-bent"], ["gusset_design__door_bend_right__design", "bend_straight"], ["a_pillar_reinforcement", "continuous"], ["dash_bar_present", "yes"]]],
       // Behind the seats: main hoop X, harness bar, backstays.
       ["2.jpg", "main_rollbar", [["main_hoop_diagonals", "253-7-2"], ["harness_bar_present", "253-26-27"], ["backstays", "yes"]]],
       // From the trunk: main hoop X, 253-14 roof, backstays and their 253-22 V.
@@ -246,27 +239,27 @@ const TEMPLATES = [
       // From the rear seat forward: main hoop X with its gussets, harness bar, dash bar.
       ["4.jpg", "overview", [["main_hoop_diagonals", "253-7-2"], ["gusset_design__main_hoop_diag_upper__design", "taco"], ["gusset_design__main_hoop_diag_lower__design", "taco"],
         ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"]]],
-      // Right side: right X door bars, main hoop X, 253-15.
-      ["5.jpg", "door_bars_right", [["door_bars_right", "253-9-intersection-1"], ["main_hoop_diagonals", "253-7-2"], ["a_pillar_reinforcement", "continuous"]]],
+      // Right side: right door bars, main hoop X, 253-15.
+      ["5.jpg", "door_bars_right", [["door_bars_right", "253-9-bent"], ["gusset_design__door_bend_right__design", "bend_straight"], ["main_hoop_diagonals", "253-7-2"], ["a_pillar_reinforcement", "continuous"]]],
       // Looking up at the 253-14 roof, the 253-22 backstay V and the main hoop X.
       ["6.jpg", "roof_bars", [["roof_bars", "253-14"], ["backstay_diagonals", "253-22"], ["main_hoop_diagonals", "253-7-2"]]]]],
     ["subaru-sti-hillclimb-9hio", "9hio Subaru STI hillclimb.json", [
       // Driver's area: dash bar, 2-piece 253-15, left door bars.
-      ["1.jpg", "overview", [["dash_bar_present", "yes"], ["a_pillar_reinforcement", "two_bars"], ["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }]]],
-      // Left door: X door bars, 2-piece 253-15 with its upper front gusset, dash bar.
-      ["2.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }], ["a_pillar_reinforcement", "two_bars"],
+      ["1.jpg", "overview", [["dash_bar_present", "yes"], ["a_pillar_reinforcement", "two_bars"], ["door_bars_left", "253-9-bent", { sill_bar: "yes" }], ["gusset_design__door_bend_left__design", "bend_straight"]]],
+      // Left door: door bars, 2-piece 253-15 with its upper front gusset, dash bar.
+      ["2.jpg", "door_bars_left", [["door_bars_left", "253-9-bent", { sill_bar: "yes" }], ["gusset_design__door_bend_left__design", "bend_straight"], ["a_pillar_reinforcement", "two_bars"],
         ["gusset_design__a_pillar_2pc_left_upper_front__design", "taco"], ["dash_bar_present", "yes"]]],
       // From the rear: the 253-14 roof, the 253-22 backstay V and the main hoop X.
       ["3.jpg", "main_rollbar", [["roof_bars", "253-14"], ["backstays", "yes"], ["backstay_diagonals", "253-22"], ["main_hoop_diagonals", "253-7-2"]]],
-      // Right side: X door bars, main hoop X, harness bar, 253-17 lower bar.
-      ["4.jpg", "door_bars_right", [["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }], ["main_hoop_diagonals", "253-7-2"],
+      // Right side: door bars, main hoop X, harness bar, 253-17 lower bar.
+      ["4.jpg", "door_bars_right", [["door_bars_right", "253-9-bent", { sill_bar: "yes" }], ["gusset_design__door_bend_right__design", "bend_straight"], ["main_hoop_diagonals", "253-7-2"],
         ["harness_bar_present", "253-26-27"], ["rear_lateral_reinforcement_present", "lower"]]]]],
     ["bmw-road-racing-9hio", "9hio BMW road racing.json", [
-      // Left door: both X door bars (with sill bars), 2-piece 253-15, 253-31 windshield plates.
-      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1", { sill_bar: "yes" }], ["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }],
+      // Left door: both door bars (with sill bars), 2-piece 253-15, 253-31 windshield plates.
+      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-bent", { sill_bar: "yes" }], ["gusset_design__door_bend_left__design", "bend_straight"], ["door_bars_right", "253-9-bent", { sill_bar: "yes" }], ["gusset_design__door_bend_right__design", "bend_straight"],
         ["a_pillar_reinforcement", "two_bars"], ["windshield_reinforcement_present", "both"]]],
-      // Through the rear door: the right X door bars.
-      ["2.jpg", "overview", [["door_bars_right", "253-9-intersection-1", { sill_bar: "yes" }]]],
+      // Through the rear door: the right door bars.
+      ["2.jpg", "overview", [["door_bars_right", "253-9-bent", { sill_bar: "yes" }], ["gusset_design__door_bend_right__design", "bend_straight"]]],
       // Through the rear window: backstays and the 253-21 X, harness bar.
       ["3.jpg", "backstay_diagonals", [["backstays", "yes"], ["backstay_diagonals", "253-21-1"], ["harness_bar_present", "253-26-27"]]],
       // Rear of the cabin: backstays, 253-21 X, 253-17 lower bar.
@@ -275,11 +268,11 @@ const TEMPLATES = [
       ["5.jpg", "overview", [["temple_bar_present", "both"], ["windshield_reinforcement_present", "both"]]]]],
     // 9hio's own photos (not video frames).
     ["honda-fit-rally-9hio", "9hio Honda Fit rally.json", [
-      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1"], ["main_hoop_diagonals", "253-7-2"], ["backstays", "yes"],
+      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-bent"], ["gusset_design__door_bend_left__design", "bend_straight"], ["main_hoop_diagonals", "253-7-2"], ["backstays", "yes"],
         ["rear_lateral_reinforcement_present", "upper"]]],
-      ["2.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1"], ["a_pillar_reinforcement", "two_bars"], ["dash_bar_present", "yes"],
+      ["2.jpg", "door_bars_left", [["door_bars_left", "253-9-bent"], ["gusset_design__door_bend_left__design", "bend_straight"], ["a_pillar_reinforcement", "two_bars"], ["dash_bar_present", "yes"],
         ["anti_intrusion_present", "yes"]]],
-      ["3.jpg", "door_bars_right", [["door_bars_right", "253-9-intersection-1"], ["a_pillar_reinforcement", "two_bars"],
+      ["3.jpg", "door_bars_right", [["door_bars_right", "253-9-bent"], ["gusset_design__door_bend_right__design", "bend_straight"], ["a_pillar_reinforcement", "two_bars"],
         ["gusset_design__a_pillar_2pc_right_upper_front__design", "taco"], ["gusset_design__a_pillar_2pc_right_lower_rear__design", "taco"],
         ["dash_bar_present", "yes"], ["anti_intrusion_present", "yes"]]],
       ["4.jpg", "overview", [["main_hoop_diagonals", "253-7-2"], ["harness_bar_present", "253-26-27"], ["dash_bar_present", "yes"],
@@ -293,12 +286,12 @@ const TEMPLATES = [
     ]],
     // The user's own frame grabs from the video.
     ["mustang-road-racing-9hio", "9hio Ford Mustang road racing.json", [
-      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"]]],
+      ["1.jpg", "door_bars_left", [["door_bars_left", "253-9-bent"], ["gusset_design__door_bend_left__design", "bend_straight"], ["a_pillar_reinforcement", "continuous"]]],
       ["2.jpg", "main_rollbar", [["main_hoop_diagonals", "diag-left"], ["harness_bar_present", "253-26-27"]]],
-      ["3.jpg", "door_bars_right", [["door_bars_right", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"]]],
+      ["3.jpg", "door_bars_right", [["door_bars_right", "253-9-bent"], ["gusset_design__door_bend_right__design", "bend_straight"], ["a_pillar_reinforcement", "continuous"]]],
       ["4.jpg", "backstay_diagonals", [["backstays", "yes"], ["backstay_diagonals", "253-21-1"], ["main_hoop_diagonals", "diag-left"], ["harness_bar_present", "253-26-27"]]],
       // The video's first frame: 3/4 front of the car (also its vehicle photo).
-      ["5.jpg", "overview", [["door_bars_left", "253-9-intersection-1"], ["a_pillar_reinforcement", "continuous"], ["windshield_reinforcement_present", "both"]]],
+      ["5.jpg", "overview", [["door_bars_left", "253-9-bent"], ["gusset_design__door_bend_left__design", "bend_straight"], ["a_pillar_reinforcement", "continuous"], ["windshield_reinforcement_present", "both"]]],
     ]],
   ].map(([id, file, list]) => ({
     group: "sample", id, file,
@@ -359,6 +352,27 @@ const conventionalSpec = (row) => (row === "main_rollbar" || row === "transverse
 const TUBE_ROWS = [...new Set(TEMPLATES.flatMap((t) => Object.keys(JSON.parse(fs.readFileSync(path.join(SAMPLES_DIR, t.file), "utf8")).answers || {})
   .map((k) => (TUBE_SPEC.exec(k) || [])[1]).filter(Boolean)))].sort();
 
+// Every gusset a template has (a taco or single plate in Part 2) gets the
+// sizes its sample left out, as compliant: its length 2.5 D of the primary
+// tube (within 2D-4D of the tubes it joins), no corner cutout or hole,
+// welded all round. (253-9's bend bar gusset is sized by its own sample.)
+const answer = (value) => ({ value, note: "", photos: [], extra: {} });
+function fillGussetSizes(answers) {
+  const has = (k) => answers[k] && answers[k].value != null && answers[k].value !== "" && !(typeof answers[k].value === "object" && !answers[k].value.value);
+  const tube = answers.primary_tubing && answers.primary_tubing.value && answers.primary_tubing.value.diameter;
+  const dMM = tube && +tube.val ? +tube.val * (tube.unit === "in" ? 25.4 : 1) : 45;
+  const length = String(Math.round((2.5 * dMM) / 5) * 5);
+  Object.keys(answers).forEach((k) => {
+    const m = /^gusset_design__(.+)__design$/.exec(k);
+    if (!m || m[1].indexOf("door_bend_") === 0 || !["taco", "single_plate"].includes(answers[k].value)) return;
+    const dim = (col) => "gusset_dimensions__" + m[1] + "__" + col;
+    if (!has(dim("length"))) answers[dim("length")] = answer({ value: length, unit: "mm" });
+    if (!has(dim("corner_cutout"))) answers[dim("corner_cutout")] = answer("none");
+    if (!has(dim("hole_diameter"))) answers[dim("hole_diameter")] = answer("none");
+    if (!has(dim("weld")) && !has("gusset_welds__" + m[1] + "__weld")) answers["gusset_welds__" + m[1] + "__weld"] = answer("yes");
+  });
+}
+
 // Identifies one real car or person (VIN, owner / builder / inspector
 // contacts, inspection and logbook details) -- never part of a template.
 const DROPPED_ANSWERS = /^vehicle_(vin|owner_|builder_|inspector_|inspection_|logbook_|description_notes)/;
@@ -385,6 +399,7 @@ const out = TEMPLATES.map((t) => {
       answers[k] = { value: conventionalSpec(row), note: "", photos: [], extra: (answers[k] && answers[k].extra) || {} };
     });
   }
+  fillGussetSizes(answers);
   return {
     templateId: t.id,
     group: t.group || "design",

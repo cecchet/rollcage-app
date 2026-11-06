@@ -52,8 +52,39 @@ const common = {
   backstays: { value: "yes" },
 };
 
+// 253-9 as 2 continuous bars with 1 bend each, both sides, with the
+// one-piece taco gusset between them (straight edges): the X door bars'
+// answers (welds, tubes, junction gussets) of the base sample dropped, the
+// bend bars' own filled in as compliant -- bends in Zone A, the bars at
+// most D apart, the gusset 200 mm each way from the bend (4D-6.5D for
+// 38 mm tube), secondary tubing. sill: "yes" / "no"; gusset false: none
+// between the bars (answered None).
+const SIDES = ["left", "right"];
+const bendDoorBars = (sill, gusset = true) => Object.assign(
+  Object.fromEntries(SIDES.flatMap((s) => [
+    ["door_bars_" + s, { value: "253-9-bent", extra: { sill_bar: sill } }],
+    ...["front_top", "front_bottom", "center_front", "center_rear", "top_rear", "bottom_rear"].map((w) => ["door_9_intersection_welds__" + w + "_" + s + "__weld", undefined]),
+    ...["continuous", "upper_half", "lower_half"].map((t) => ["tubing_bar_classification__d9x_" + s + "_" + t + "__spec", undefined]),
+    ...["front", "rear"].flatMap((fr) => [["gusset_design__door_" + fr + "_" + s + "__design", undefined],
+      ...["corner_cutout", "hole_diameter", "length", "weld"].map((c) => ["gusset_dimensions__door_" + fr + "_" + s + "__" + c, undefined])]),
+    ...["front_top", "front_bottom", "top_rear", "bottom_rear"].map((w) => ["door_9_2bar_welds__" + w + "_" + s + "__weld", { value: "yes" }]),
+    ...["upper", "lower"].flatMap((b) => [
+      ["tubing_bar_classification__d9bent_" + s + "_" + b + "__spec", { value: "secondary" }],
+      ["door_9_2bar_dims__" + s + "_" + b + "__front", { value: { value: "400", unit: "mm" } }],
+      ["door_9_2bar_dims__" + s + "_" + b + "__rear", { value: { value: "300", unit: "mm" } }]]),
+    ["door_9_2bar_gap__" + s + "__gap", { value: "under" }],
+    ["gusset_design__door_bend_" + s + "__design", { value: gusset ? "bend_straight" : "" }],
+    ...(gusset ? [
+      ["gusset_welds__door_bend_" + s + "__weld", { value: "yes" }],
+      ["door_9_bend_gusset__door_bend_" + s + "__thickness", { value: { value: "2", unit: "mm" } }],
+      ["door_9_bend_gusset__door_bend_" + s + "__lb", { value: { value: "200", unit: "mm" } }],
+      ["door_9_bend_gusset__door_bend_" + s + "__lb2", { value: { value: "200", unit: "mm" } }],
+    ] : []),
+  ])));
+
 // customcages.co.uk -- Subaru Impreza VAB "International" multipoint T45
-// kit, FIA certificated: X door bars with gusset plates, X roof, X main
+// kit, FIA certificated: 253-9 door bars (2 continuous bars, 1 bend, taco
+// gusset), X roof, X main
 // hoop, harness bar, front and rear strut-top tie-ins (not modelled).
 make("Custom Cages Subaru VAB.json", "Subaru Impreza VAB -- Custom Cages FIA T45", Object.assign({}, common, {
   // 253-14 roof with its mandatory 253-22 backstay V, 253-17 (lower bar
@@ -64,6 +95,7 @@ make("Custom Cages Subaru VAB.json", "Subaru Impreza VAB -- Custom Cages FIA T45
   temple_bar_present: { value: "both" },
   windshield_reinforcement_present: { value: "both" },
   // 253-15 as 1 continuous bar, with its side taco gussets.
+  ...bendDoorBars("no"),
   a_pillar_reinforcement: { value: "continuous" },
   gusset_design__a_pillar_side_left__design: { value: "taco" },
   gusset_design__a_pillar_side_right__design: { value: "taco" },
@@ -81,7 +113,7 @@ make("Custom Cages Subaru VAB.json", "Subaru Impreza VAB -- Custom Cages FIA T45
 // front strut tower tie-ins (not modelled), DOM tube.
 // customcages.co.uk -- Ford Fiesta Mk6 "Junior International" multipoint
 // CDS kit, FIA / MSUK certificated: X roof with a centre gusset, X main
-// hoop, X door bars, harness bar (optional tube), dash bar, front strut-top
+// hoop, 253-9 door bars (2 continuous bars, 1 bend, taco gusset), harness bar (optional tube), dash bar, front strut-top
 // tie-ins (not modelled). UK car, so right-hand drive.
 make("Custom Cages Ford Fiesta Mk6.json", "Ford Fiesta Mk6 -- Custom Cages FIA/MSUK CDS", Object.assign({}, common, {
   // 253-14 roof with its 253-22 backstay V, 253-17 (both bars), 253-18
@@ -92,6 +124,7 @@ make("Custom Cages Ford Fiesta Mk6.json", "Ford Fiesta Mk6 -- Custom Cages FIA/M
   rear_lateral_reinforcement_present: { value: "both" },
   rear_transversal_present: { value: "yes" },
   windshield_reinforcement_present: { value: "both" },
+  ...bendDoorBars("no"),
   a_pillar_reinforcement: { value: "continuous" },
   gusset_design__a_pillar_side_left__design: { value: "taco" },
   gusset_design__a_pillar_side_right__design: { value: "taco" },
@@ -114,12 +147,15 @@ make("Custom Cages Ford Fiesta Mk6.json", "Ford Fiesta Mk6 -- Custom Cages FIA/M
 }));
 
 // cagekits.org -- MX-5 Miata NA/NB road race kit (NASA / SCCA inspired):
-// X door bars, single front-left roof diagonal, X between the backstays
+// 253-9 door bars (2 continuous bars, 1 bend, no gusset), single
+// front-left roof diagonal, X between the backstays
 // (no gussets), single main hoop diagonal topping out on the driver side,
 // 253-31 temple bars and windshield reinforcements on both sides, no
 // A-pillar gussets, harness bar, dash bar, 1.5" x .095" DOM throughout.
 // Driver only.
 make("CageKits Mazda MX-5 Miata.json", "Mazda MX-5 Miata NA/NB -- CageKits road race", Object.assign({}, common, {
+  // 253-9 as 2 continuous bars with 1 bend, no gusset between them.
+  ...bendDoorBars("no", false),
   roof_bars: { value: "single-front-left" },
   backstay_diagonals: { value: "253-21-1" },
   main_hoop_diagonals: { value: "diag-left" },
@@ -221,12 +257,13 @@ make("CageKits BMW E92 roll bar.json", "BMW E92 -- CageKits roll bar", {
   vehicle_builder: { value: "CageKits (kit)" },
 }, ROLLBAR_BASE);
 
-// 9hio custom cages (from 9hio's walk-around videos), all DOM tubing.
+// 9hio custom cages (from 9hio's walk-around videos), all DOM tubing, their door
+// bars 2 continuous bars with 1 bend and a taco gusset between them.
 const DOM_TUBING = {
   primary_tubing: { value: { material: "cds_dom", diameter: { val: 1.75, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
   secondary_tubing: { value: { material: "cds_dom", diameter: { val: 1.5, unit: "in" }, thickness: { val: 0.095, unit: "in" } } },
 };
-const nineHio = (vehicle) => Object.assign({}, common, DOM_TUBING, { a_pillar_reinforcement: { value: "continuous" }, vehicle_drive_side: { value: "lhd" }, vehicle_builder: { value: "9hio" } }, vehicle);
+const nineHio = (vehicle) => Object.assign({}, common, DOM_TUBING, bendDoorBars("no"), { a_pillar_reinforcement: { value: "continuous" }, vehicle_drive_side: { value: "lhd" }, vehicle_builder: { value: "9hio" } }, vehicle);
 make("9hio Subaru BRZ rally.json", "Subaru BRZ -- 9hio rally cage", nineHio({
   // 253-14 roof with its 253-22 backstay V.
   roof_bars: { value: "253-14" },
@@ -240,8 +277,7 @@ make("9hio Subaru STI hillclimb.json", "Subaru WRX STI -- 9hio hillclimb cage", 
   // lower bar, 2-piece 253-15 with upper front / lower rear gussets.
   roof_bars: { value: "253-14" },
   backstay_diagonals: { value: "253-22" },
-  door_bars_left: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
-  door_bars_right: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
+  ...bendDoorBars("yes"),
   rear_lateral_reinforcement_present: { value: "lower" },
   // B-pillar gussets (main hoop to B-pillar), both sides.
   gusset_design__b_pillar_left__design: { value: "single_plate" },
@@ -274,8 +310,7 @@ make("9hio BMW road racing.json", "BMW E46 M3 -- 9hio road racing cage", nineHio
   gusset_design__backstay_diag_lower__design: { value: "" },
   a_pillar_reinforcement: { value: "two_bars" },
   ...Object.fromEntries(["left", "right"].flatMap((s) => ["upper_front", "upper_rear", "lower_front", "lower_rear"].map((p) => ["gusset_design__a_pillar_2pc_" + s + "_" + p + "__design", { value: "" }]))),
-  door_bars_left: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
-  door_bars_right: { value: "253-9-intersection-1", extra: { sill_bar: "yes" } },
+  ...bendDoorBars("yes"),
   rear_lateral_reinforcement_present: { value: "lower" },
   temple_bar_present: { value: "both" },
   windshield_reinforcement_present: { value: "both" },
@@ -308,7 +343,7 @@ make("9hio Ford Mustang road racing.json", "Ford Mustang -- 9hio road racing cag
 
 // From 9hio's photos: 253-7 X main hoop with harness bar, 253-14 roof with
 // its 253-22 backstay V to the rear strut towers, 253-18 between them,
-// 253-9 X door bars (no sill bars), 253-17 upper bar, 1-bar 253-15 with its
+// door bars without sill bars, 253-17 upper bar, 1-bar 253-15 with its
 // side gussets, 253-31 windshield reinforcements, dash bar.
 make("9hio Honda Fit rally.json", "Honda Fit -- 9hio rally cage", nineHio({
   roof_bars: { value: "253-14" },

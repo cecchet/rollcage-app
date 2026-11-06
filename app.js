@@ -529,7 +529,9 @@
     }
     if (f.type === "boolean") {
       if (raw !== "yes" && raw !== "no") return requirement === "recommended" ? "neutral" : "warn";
-      if (raw === "no") return requirement === "recommended" ? "warn" : "fail";
+      // A recommended part answered "no" is a full answer (the door bars'
+      // sill bar: its safety risk shows with the design, and in Part 8).
+      if (raw === "no") return requirement === "recommended" ? "pass" : "fail";
       return "pass";
     }
     if (raw === "" || raw == null) return requirement === "recommended" ? "neutral" : "warn";
@@ -6292,9 +6294,104 @@
     return card;
   }
 
+  // The color a design question's bars have in Part 2's 3D model (its
+  // ITEM_PART_RULES entry, with any of its designs), so its icons draw
+  // their bars in that color and match the model at a glance. null: no
+  // single color (e.g. the base structure's several bars).
+  const elementBarColorCache = new Map();
+  function elementBarColor(elm) {
+    if (!elm) return null;
+    if (elementBarColorCache.has(elm.id)) return elementBarColorCache.get(elm.id);
+    let color = elm.id === "a_pillar_reinforcement" ? CAGE_COLOR.aPillar : null;
+    const rule = ITEM_PART_RULES[elm.id];
+    if (!color && rule) {
+      const values = (elm.options || []).map((o) => o.id).concat(["yes", "both"]);
+      for (const v of values) {
+        let r = null;
+        try { r = rule(v, { value: v, extra: { sill_bar: "yes" } }); } catch (e) { r = null; }
+        if (r && typeof r.color === "string") { color = r.color; break; }
+      }
+    }
+    elementBarColorCache.set(elm.id, color);
+    return color;
+  }
+  // An icon's container, its bars (diagrams.js's highlight, drawn in
+  // --accent) in the question's 3D color.
+  const barColorStyle = (elm) => { const c = elementBarColor(elm); return c ? "--accent:" + c : undefined; };
+
+  // ---- A door bar design with its sill bar, picked as one answer ----
+  // The designs come twice -- "Designs with sill bar" (a sill bar added,
+  // plus 253-11 and NASCAR, which have their own) and "Designs without
+  // sill bar" (and the single bar) -- then "None present". Each group folds; the one holding
+  // the answer starts open. A pick sets the design and the sill bar
+  // (answer.extra.sill_bar) together, so the sill bar is never left
+  // unanswered.
+  function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key === "sill_bar" && f.type === "boolean") || null; }
+  const sillGroupsOpen = new Map(); // elm.id -> { with, without }
+  function sillDiagramHtml(opt, withSill) {
+    const html = opt.diagram && window.DIAGRAMS && window.DIAGRAMS[opt.diagram];
+    if (!html || !withSill) return html || null;
+    // The sill bar drawn like the other bars, along the bottom of the door;
+    // 253-10's triangle then reaches down to it.
+    const sill = '<path d="M25,80 L115,80" style="stroke:var(--accent)" stroke-width="4" stroke-linecap="round" fill="none" class="diagram-highlight"/>';
+    return html.replace('d="M30,35 L70,55 L110,35 Z"', 'd="M30,35 L70,80 L110,35 Z"').replace(/<\/svg>\s*$/, sill + "</svg>");
+  }
+  function renderSillGroupedChoices(elm, answer, card) {
+    const field = sillChoiceField(elm);
+    const extra = answer.extra || {};
+    const sillApplies = (opt) => extraFieldApplies(field, opt.id);
+    const ownSill = (opt) => opt.id === "253-11" || opt.id === "nascar";
+    // (A lone single bar is only offered without one, as drawn.)
+    const withOpts = elm.options.filter((o) => (sillApplies(o) && o.id !== "single-bar") || ownSill(o));
+    const withoutOpts = elm.options.filter((o) => sillApplies(o));
+    const restOpts = elm.options.filter((o) => !sillApplies(o) && !ownSill(o));
+    const selectedIn = (group, opt) => answer.value === opt.id && (group === "with" ? ownSill(opt) || extra.sill_bar === "yes" : group === "without" ? extra.sill_bar === "no" : true);
+    const pick = (opt, group) => {
+      const next = Object.assign({}, getAnswer(elm.id).extra || {});
+      if (group === "with" && sillApplies(opt)) next.sill_bar = "yes";
+      else if (group === "without") next.sill_bar = "no";
+      else delete next.sill_bar;
+      setAnswer(elm.id, { value: opt.id, extra: next });
+    };
+    const option = (opt, group) => {
+      const inputId = elm.id + "_" + group + "_" + opt.id;
+      const checked = selectedIn(group, opt);
+      const radio = el("input", { type: "radio", name: elm.id, id: inputId, onchange: () => pick(opt, group) });
+      radio.checked = checked;
+      const unavailableReason = optionUnavailableReason(opt);
+      if (unavailableReason) radio.disabled = true;
+      const diagramHtml = sillDiagramHtml(opt, group === "with" && sillApplies(opt));
+      return el("label", Object.assign(
+        { class: "choice-option" + (checked ? " selected" : "") + (unavailableReason ? " unavailable" : ""), for: inputId },
+        unavailableReason ? { title: unavailableReason } : {}), [
+        radio,
+        diagramHtml ? el("div", { class: "choice-diagram", style: barColorStyle(elm), html: diagramHtml }) : null,
+        el("div", { class: "choice-label" }, [opt.label]),
+        group === "with" && sillApplies(opt) ? el("div", { class: "choice-sill-tag" }, ["+sill bar"]) : null,
+        unavailableReason ? el("div", { class: "choice-unavailable-note" }, [unavailableReason]) : null,
+      ]);
+    };
+    const selectedGroup = ["with", "without"].find((g) => (g === "with" ? withOpts : withoutOpts).some((o) => selectedIn(g, o)));
+    const open = sillGroupsOpen.get(elm.id) || { with: selectedGroup === "with", without: selectedGroup === "without" };
+    [["with", "Designs with sill bar", withOpts], ["without", "Designs without sill bar", withoutOpts]].forEach(([g, title, opts]) => {
+      const isOpen = !!open[g];
+      const box = el("div", { class: "choice-fold choice-fold-" + g + (isOpen ? " open" : "") + (selectedGroup === g ? " has-answer" : "") });
+      box.appendChild(el("button", {
+        type: "button", class: "choice-fold-head", "aria-expanded": isOpen ? "true" : "false",
+        onclick: (e) => { e.stopPropagation(); sillGroupsOpen.set(elm.id, Object.assign({}, open, { [g]: !isOpen })); render(); },
+      }, [el("span", { class: "choice-fold-caret" }, [isOpen ? "▾" : "▸"]), title,
+        selectedGroup === g && !isOpen ? el("span", { class: "choice-fold-picked" }, [" — " + (elm.options.find((o) => o.id === answer.value) || {}).label]) : null]));
+      if (isOpen) box.appendChild(el("div", { class: "choice-radio-group" }, opts.map((o) => option(o, g))));
+      card.appendChild(box);
+    });
+    if (restOpts.length) card.appendChild(el("div", { class: "choice-radio-group" }, restOpts.map((o) => option(o, "rest"))));
+  }
+
   function elementSummary(elm, answer) {
     if (elm.evaluationType === "choice") {
       const opt = (elm.options || []).find((o) => o.id === answer.value);
+      const sill = sillChoiceField(elm);
+      if (opt && sill && extraFieldApplies(sill, opt.id)) return opt.label + ((answer.extra || {}).sill_bar === "yes" ? " + sill bar" : ", no sill bar");
       return opt ? opt.label : String(answer.value);
     }
     if (elm.evaluationType === "boolean" || (elm.evaluationType === "attestation" && (answer.value === "yes" || answer.value === "no"))) {
@@ -6380,9 +6477,13 @@
     card.appendChild(el("div", { class: "element-desc" }, [elm.description]));
 
     const elmDiagramHtml = elementDiagramHtml(elm);
-    if (elmDiagramHtml) card.appendChild(el("div", { class: "element-diagram", html: elmDiagramHtml }));
+    if (elmDiagramHtml) card.appendChild(el("div", { class: "element-diagram", style: barColorStyle(elm), html: elmDiagramHtml }));
 
-    if (elm.evaluationType === "choice") {
+    if (elm.evaluationType === "choice" && sillChoiceField(elm)) {
+      renderSillGroupedChoices(elm, answer, card);
+      const unsafe = unsafeExplanationFor(elm.id, null, answer.value, elm.id);
+      if (unsafe) card.appendChild(renderUnsafeExplanation(unsafe));
+    } else if (elm.evaluationType === "choice") {
       const group = el("div", { class: "choice-radio-group" });
       elm.options.forEach((opt) => {
         const inputId = elm.id + "_" + opt.id;
@@ -6448,7 +6549,7 @@
           ),
           [
             radio,
-            diagramHtml ? el("div", { class: "choice-diagram", html: diagramHtml }) : null,
+            diagramHtml ? el("div", { class: "choice-diagram", style: barColorStyle(elm), html: diagramHtml }) : null,
             legendEl,
             el("div", { class: "choice-label" }, [opt.label]),
             unavailableReason ? el("div", { class: "choice-unavailable-note" }, [unavailableReason]) : null,
@@ -6547,6 +6648,8 @@
       const extra = answer.extra || {};
       elm.extraFields.forEach((f) => {
         if (!extraFieldApplies(f, answer.value)) return;
+        // The door bars' sill bar is picked with the design itself.
+        if (f === sillChoiceField(elm)) return;
         if (f.type === "choice") {
           const setVal = (val) => setAnswer(elm.id, { extra: Object.assign({}, getAnswer(elm.id).extra || {}, { [f.key]: val }) });
           card.appendChild(
@@ -8898,7 +9001,8 @@
   }
   const DOOR_BAR_DYNAMIC_FILES = DOOR_BAR_FILES.concat(
     ["Door bar 253-10 upper left.stl", "Door bar 253-10 upper right.stl"],
-    NASCAR_VERTICAL_FILES
+    NASCAR_VERTICAL_FILES,
+    ALL_DOOR_9BENT_FILES
   );
   function fileTubeRow(file) {
     if (file === "253-26,27 harness bar.stl" || file === "253-28,66 rear harness bar.stl") return harnessBarTubeRow();

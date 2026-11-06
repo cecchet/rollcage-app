@@ -569,6 +569,18 @@ textarea { resize: vertical; min-height: 50px; }
 .choice-diagram { width: 100%; max-width: 110px; color: var(--muted); }
 .choice-diagram svg, .choice-diagram img { width: 100%; height: auto; display: block; border-radius: 6px; }
 .choice-label { font-size: 0.82rem; }
+/* Door bar designs, folded in 2 groups: with / without a sill bar. */
+.choice-fold { border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: 10px; margin: 8px 0; }
+.choice-fold-with { border-left-color: var(--pass); }
+.choice-fold-without { border-left-color: var(--fail); }
+.choice-fold.has-answer { border-color: var(--accent); }
+.choice-fold.has-answer.choice-fold-with { border-left-color: var(--pass); }
+.choice-fold.has-answer.choice-fold-without { border-left-color: var(--fail); }
+.choice-fold-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; background: none; border: 0; color: var(--ink); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.choice-fold-caret { width: 1em; color: var(--muted); }
+.choice-fold-picked { font-weight: 400; color: var(--muted); }
+.choice-fold > .choice-radio-group { margin: 0; padding: 0 10px 10px; }
+.choice-sill-tag { font-size: 0.78rem; font-weight: 600; color: var(--ink); }
 
 .diagram-legend {
   display: flex;
