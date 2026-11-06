@@ -1,6 +1,7 @@
 // The user manual's screenshots, taken in headless Chrome from the app
 // served at http://localhost:5003 (the RS4 Rally car sample):
 //   rm -r profile out; node driver.mjs screenshots.mjs 1280 900
+//   node driver.mjs screenshots-wide.mjs 1800 1000   (the wide-screen shot)
 // (A fresh profile: the library starts empty, as on a first visit.) Then
 // build the web page (published by GitHub Pages from docs/) from the manual
 // doc's markdown export:
