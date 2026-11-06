@@ -329,15 +329,22 @@
       hideNotes: true,
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.1",
-      description: "One of three base structures: 253-1 (main rollbar + front rollbar + 2 longitudinal members + 2 backstays + 6 mounting feet), 253-2 (two full lateral rollbars + 2 transverse members + 2 backstays + 6 feet), or 253-3 (main rollbar + 2 lateral half rollbars + 1 transverse member + 2 backstays + 6 feet -- most common). A half rollcage (main rollbar + backstays only, nothing in front) is its own first-class option -- everything that would normally attach to front structure that doesn't exist here (roof bars, door bars, 253-15, 253-25, 253-31, roof corner gussets) is hidden rather than offered.",
+      description: "",
       evaluationType: "choice",
       noCapture: true,
+      // Shown in rows: the 3 FIA base layouts, then the half rollcage, then
+      // any other design -- each option with its own description. All but
+      // "Other design" include 2 backstays (asked only for "Other design").
+      // A half rollcage has nothing in front, so everything that would
+      // attach to a front structure (roof bars, door bars, 253-15, 253-25,
+      // 253-31, roof corner gussets) is hidden rather than offered.
+      optionRows: [{ id: "fia", label: "FIA base layouts" }, { id: "half", label: "Rollbar" }, { id: "other", label: "Other design" }],
       options: [
-        { id: "253-1", label: "253-1: Main rollbar + front rollbar", diagram: "253-1", outcome: "pass" },
-        { id: "253-2", label: "253-2: Two lateral rollbars", diagram: "253-2", outcome: "pass" },
-        { id: "253-3", label: "253-3: Main rollbar + two lateral half rollbars", diagram: "253-3", outcome: "pass" },
-        { id: "half-rollcage", label: "Half rollcage / Rollbar only", diagram: "half-rollcage", outcome: "fail" },
-        { id: "none", label: "Other design", outcome: "fail" },
+        { id: "253-1", row: "fia", label: "253-1: Main rollbar + front rollbar", detail: "Main rollbar + front rollbar + 2 longitudinal members + 2 backstays + 6 mounting feet", diagram: "253-1", outcome: "pass" },
+        { id: "253-2", row: "fia", label: "253-2: Two lateral rollbars", detail: "2 full lateral rollbars + 2 transverse members + 2 backstays + 6 mounting feet", diagram: "253-2", outcome: "pass" },
+        { id: "253-3", row: "fia", label: "253-3: Main rollbar + two lateral half rollbars", detail: "Main rollbar + 2 lateral half rollbars + 1 transverse member + 2 backstays + 6 mounting feet (the most common)", diagram: "253-3", outcome: "pass" },
+        { id: "half-rollcage", row: "half", label: "Half rollcage / Rollbar only", detail: "Main rollbar + 2 backstays, nothing in front: no roof, door or windscreen pillar bars", diagram: "half-rollcage", outcome: "fail" },
+        { id: "none", row: "other", label: "Custom design", outcome: "fail" },
       ],
       tubing: null,
       visuallyVerifiable: true,
@@ -460,14 +467,14 @@
       // "-1" keeps "Main diagonal 1" (the top-right-originating leg)
       // continuous; "-2" mirrors it.
       options: [
-        { id: "253-7-1", label: "253-7: Two diagonals (X)", diagram: "253-7-1", outcome: "pass" },
-        { id: "253-7-2", label: "253-7: Two diagonals (X) (other diagonal continuous)", diagram: "253-7-2", outcome: "pass" },
-        { id: "diag-left", label: "1 diagonal, top on left side", diagram: "diag-left", note: "A single diagonal does not satisfy FIA 253-7 for new rally construction. May be permitted for road racing, or eligible for grandfathering -- confirm with the applicable sanctioning body.", outcome: "fail" },
-        { id: "diag-right", label: "1 diagonal, top on right side", diagram: "diag-right", note: "A single diagonal does not satisfy FIA 253-7 for new rally construction. May be permitted for road racing, or eligible for grandfathering -- confirm with the applicable sanctioning body.", outcome: "fail" },
-        { id: "diag-horizontal", label: "1 horizontal bar", diagram: "diag-horizontal", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
-        { id: "diag-lower-half", label: "V-brace", diagram: "diag-lower-half", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
-        { id: "diag-v-center", label: "V bar in the center", diagram: "diag-v-center", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
-        { id: "none", label: "None present", outcome: "fail" },
+        { id: "253-7-1", label: "253-7: X-configuration 1", diagram: "main-diag-3d-253-7-1", outcome: "pass" },
+        { id: "253-7-2", label: "253-7: X-configuration 2", diagram: "main-diag-3d-253-7-2", outcome: "pass" },
+        { id: "diag-left", label: "1 diagonal, top on left side", diagram: "main-diag-3d-diag-left", note: "A single diagonal does not satisfy FIA 253-7 for new rally construction. May be permitted for road racing, or eligible for grandfathering -- confirm with the applicable sanctioning body.", outcome: "fail" },
+        { id: "diag-right", label: "1 diagonal, top on right side", diagram: "main-diag-3d-diag-right", note: "A single diagonal does not satisfy FIA 253-7 for new rally construction. May be permitted for road racing, or eligible for grandfathering -- confirm with the applicable sanctioning body.", outcome: "fail" },
+        { id: "diag-horizontal", label: "1 horizontal bar", diagram: "main-diag-3d-diag-horizontal", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
+        { id: "diag-lower-half", label: "V-brace", diagram: "main-diag-3d-diag-lower-half", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
+        { id: "diag-v-center", label: "V bar in the center", diagram: "main-diag-3d-diag-v-center", note: "An older configuration -- does not satisfy FIA 253-7 for new rally construction. Flag for grandfathering review.", outcome: "fail" },
+        { id: "none", label: "None present", diagram: "main-diag-3d-none", outcome: "fail" },
       ],
       tubing: null,
       visuallyVerifiable: true,
@@ -560,9 +567,10 @@
       requirement: "required",
       reference: "2020 FIA 253 Ch.8.3.1",
       description: "Two backstays attached at roof level near the top outer bends of the main/lateral rollbar, running rearward, straight, and as close as possible to the inner side panels.",
-      // 253-1/253-2/253-3 all include 2 backstays by definition, so picking
-      // one of those pre-selects "yes" here automatically (see the
-      // main_structure_layout choice handler) -- still shown and editable.
+      // 253-1/253-2/253-3 and a half rollcage all include 2 backstays by
+      // definition -- "yes" for them (see syncImpliedAnswers in app.js), so
+      // it's only asked for "Other design".
+      showIf: { id: "main_structure_layout", equals: "none" },
       evaluationType: "boolean",
       tubing: null,
       visuallyVerifiable: true,
@@ -588,12 +596,12 @@
       // 253-21 is offered as 2 mirror-image options. "-1" keeps "Rear
       // diagonal 1" continuous; "-2" mirrors it.
       options: [
-        { id: "253-20", label: "253-20: Single diagonal, top left", diagram: "253-20", outcome: "pass" },
-        { id: "253-20-right", label: "253-20: Single diagonal, top right", diagram: "253-20-right", outcome: "pass" },
-        { id: "253-21-1", label: "253-21: X-configuration", diagram: "253-21-1", outcome: "pass" },
-        { id: "253-21-2", label: "253-21: X-configuration (other diagonal continuous)", diagram: "253-21-2", outcome: "pass" },
-        { id: "253-22", label: "253-22: V (mandatory with roof bar 253-14)", diagram: "253-22", outcome: "pass" },
-        { id: "none", label: "None present", outcome: "fail" },
+        { id: "253-20", label: "253-20: Single diagonal, top left", diagram: "backstay-diag-3d-253-20", outcome: "pass" },
+        { id: "253-20-right", label: "253-20: Single diagonal, top right", diagram: "backstay-diag-3d-253-20-right", outcome: "pass" },
+        { id: "253-21-1", label: "253-21: X-configuration 1", diagram: "backstay-diag-3d-253-21-1", outcome: "pass" },
+        { id: "253-21-2", label: "253-21: X-configuration 2", diagram: "backstay-diag-3d-253-21-2", outcome: "pass" },
+        { id: "253-22", label: "253-22: V (mandatory with roof bar 253-14)", diagram: "backstay-diag-3d-253-22", outcome: "pass" },
+        { id: "none", label: "None present", diagram: "backstay-diag-3d-none", outcome: "fail" },
       ],
       tubing: null,
       visuallyVerifiable: true,
@@ -1455,14 +1463,14 @@
       // image options rather than assumed. "-1" is the continuous-leg-on-
       // the-front-left-to-rear-right-diagonal build (front-left/rear-right
       // corners); "-2" is the mirror (front-right/rear-left continuous).
-      { id: "253-12-1", label: "253-12: 1 continuous bar + 2 half bars", diagram: "253-12-1", outcome: "pass" },
-      { id: "253-12-2", label: "253-12: 1 continuous bar + 2 half bars (other diagonal continuous)", diagram: "253-12-2", outcome: "pass" },
-      { id: "253-13", label: "253-13", diagram: "253-13", note: "No front roof corner support -- known to be deficient and does not satisfy FIA 253 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
-      { id: "253-14", label: "253-14", diagram: "253-14", outcome: "pass" },
-      { id: "single-center", label: "Single bar center", diagram: "roof-single-center", note: "A single center roof bar does not satisfy FIA 253-12/253-14 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
-      { id: "single-front-left", label: "Single bar front left", diagram: "roof-single-front-left", note: "A single roof bar to one front corner does not satisfy FIA 253-12/253-14 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
-      { id: "single-front-right", label: "Single bar front right", diagram: "roof-single-front-right", note: "A single roof bar to one front corner does not satisfy FIA 253-12/253-14 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
-      { id: "none", label: "None present", outcome: "fail" },
+      { id: "253-12-1", label: "253-12: X-configuration 1", diagram: "roof-3d-253-12-1", outcome: "pass" },
+      { id: "253-12-2", label: "253-12: X-configuration 2", diagram: "roof-3d-253-12-2", outcome: "pass" },
+      { id: "253-13", label: "253-13", diagram: "roof-3d-253-13", note: "No front roof corner support -- known to be deficient and does not satisfy FIA 253 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
+      { id: "253-14", label: "253-14", diagram: "roof-3d-253-14", outcome: "pass" },
+      { id: "single-center", label: "Single bar center", diagram: "roof-3d-single-center", note: "A single center roof bar does not satisfy FIA 253-12/253-14 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
+      { id: "single-front-left", label: "Single bar front left", diagram: "roof-3d-single-front-left", note: "A single roof bar to one front corner does not satisfy FIA 253-12/253-14 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
+      { id: "single-front-right", label: "Single bar front right", diagram: "roof-3d-single-front-right", note: "A single roof bar to one front corner does not satisfy FIA 253-12/253-14 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
+      { id: "none", label: "None present", diagram: "roof-3d-none", outcome: "fail" },
     ],
     tubing: null,
     visuallyVerifiable: true,
@@ -1573,6 +1581,7 @@
       // Doesn't apply to a half rollcage -- these gussets brace roof-corner
       // junctions that don't exist without front structure.
       showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
+      diagram: "roof-corner-gussets",
       evaluationType: "table",
       // Rarely fitted: folded until opened, with a one-click "All no".
       collapsedByDefault: true,
@@ -1717,8 +1726,8 @@
   // options (mirror images of each other) rather than a hidden assumption.
   function isDoor9Intersection(v) { return v === "253-9-intersection-1" || v === "253-9-intersection-2"; }
   const DOOR_BAR_DESIGN_OPTIONS = [
-    { id: "253-9-intersection-1", label: "253-9: 1 continuous bar + 2 half bars", diagram: "253-9-intersection", outcome: "pass" },
-    { id: "253-9-intersection-2", label: "253-9: 1 continuous bar + 2 half bars (other tube continuous)", diagram: "253-9-intersection-2", outcome: "pass" },
+    { id: "253-9-intersection-1", label: "253-9: 1 continuous bar + 2 half bars (config 1)", diagram: "253-9-intersection", outcome: "pass" },
+    { id: "253-9-intersection-2", label: "253-9: 1 continuous bar + 2 half bars (config 2)", diagram: "253-9-intersection-2", outcome: "pass" },
     { id: "253-9-bent", label: "253-9: 2 continuous bars (1 bend)", diagram: "253-9-bent-1", outcome: "pass" },
     { id: "253-9-bent-2", label: "253-9: 2 continuous bars (2 bends)", diagram: "253-9-bent-2", outcome: "pass" },
     { id: "253-10", label: "253-10: Triangle design", diagram: "253-10", outcome: "pass" },
@@ -1975,11 +1984,11 @@
       showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "choice",
       options: [
-        { id: "continuous", label: "1 continuous bar", outcome: "pass" },
+        { id: "continuous", label: "1 continuous bar", diagram: "253-15-continuous", outcome: "pass" },
         // The 2-bar build is split where it meets the door bar's own
         // crossing -- impossible on a side whose door bar has none there.
         {
-          id: "two_bars", label: "2 bars", outcome: "pass", fallbackId: "continuous",
+          id: "two_bars", label: "2 bars", diagram: "253-15-two_bars", outcome: "pass", fallbackId: "continuous",
           unavailableIf: (getAnswer) => {
             const sides = aPillarNoJunctionSides(getAnswer);
             if (!sides.length) return null;
@@ -1989,20 +1998,19 @@
         // Each side built its own way: 2 bars on one, 1 continuous bar on
         // the other (the 2-bar side needs its door bar's crossing too).
         {
-          id: "mixed_left_two", label: "Left 2 bars, right 1 continuous bar", outcome: "pass", fallbackId: "continuous",
+          id: "mixed_left_two", label: "Left 2 bars, right 1 continuous bar", diagram: "253-15-mixed_left_two", outcome: "pass", fallbackId: "continuous",
           unavailableIf: (getAnswer) => (aPillarNoJunctionSides(getAnswer).indexOf("left") !== -1
             ? "Not possible with the left door bar design selected (253-11, single bar or no door bar) -- only the 1 continuous bar build can be done there." : null),
         },
         {
-          id: "mixed_right_two", label: "Left 1 continuous bar, right 2 bars", outcome: "pass", fallbackId: "continuous",
+          id: "mixed_right_two", label: "Left 1 continuous bar, right 2 bars", diagram: "253-15-mixed_right_two", outcome: "pass", fallbackId: "continuous",
           unavailableIf: (getAnswer) => (aPillarNoJunctionSides(getAnswer).indexOf("right") !== -1
             ? "Not possible with the right door bar design selected (253-11, single bar or no door bar) -- only the 1 continuous bar build can be done there." : null),
         },
         // e.g. drag or older cages -- doesn't meet the FIA requirement
         // whenever dimension A exceeds 200mm.
-        { id: "none", label: "None present", outcome: "fail" },
+        { id: "none", label: "None present", diagram: "253-15-none", outcome: "fail" },
       ],
-      diagram: "253-15",
       tubing: null,
       visuallyVerifiable: true,
       hardFail: true,
@@ -2083,7 +2091,7 @@
     // it's already captured on its own.
     {
       id: "harness_bar_present",
-      name: "Harness bar present",
+      name: "Harness bar",
       category: "Optional bars",
       requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253",
       // Purely optional, like 253-30/253-19 -- "None present" is never flagged.
@@ -2091,9 +2099,9 @@
       description: "Optional bar to anchor shoulder harnesses. 253-26/27 and 253-28/66 are alternative designs -- pick whichever one the car has, if either. 253-18 (rear transversal reinforcement) can also serve as a harness bar in some cases.",
       evaluationType: "choice",
       options: [
-        { id: "253-26-27", label: "253-26/27: Harness bar", outcome: "pass" },
-        { id: "253-28-66", label: "253-28/66: Rear harness bar", outcome: "pass" },
-        { id: "none", label: "None present", outcome: "fail" },
+        { id: "253-26-27", label: "253-26/27: Harness bar", diagram: "harness_bar-253-26-27", outcome: "pass" },
+        { id: "253-28-66", label: "253-28/66: Rear harness bar", diagram: "harness_bar-253-28-66", outcome: "pass" },
+        { id: "none", label: "None present", diagram: "harness_bar-none", outcome: "fail" },
       ],
       visuallyVerifiable: true, hardFail: false,
     },
@@ -2122,13 +2130,14 @@
     },
     {
       id: "lower_main_hoop_bar_present",
-      name: "Lower main hoop bar (253-30) present",
+      name: "Lower main hoop bar (253-30)",
       category: "Optional bars",
       requirement: "recommended", reference: "2024 Annexe J / Appendix J Article 253", description: "Optional bar across the bottom of the main hoop.",
       // Purely optional with no rule of thumb favoring it either way --
       // unlike anti_intrusion_present below, there's no condition under
       // which "No" should actually flag as an advisory to reconsider.
       recommendedIf: () => false,
+      yesNoPictures: [{ label: "253-30: Lower main hoop bar", diagram: "253-30-3d" }, { label: "None present", diagram: "253-30-3d-none" }],
       evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -2149,10 +2158,10 @@
       recommendedIf: () => false,
       evaluationType: "choice",
       options: [
-        { id: "upper", label: "Upper bar (to upper door bar)", diagram: "253-17-upper", outcome: "pass" },
-        { id: "lower", label: "Lower bar (to lower door bar)", diagram: "253-17-lower", outcome: "pass" },
-        { id: "both", label: "Both bars", diagram: "253-17-both", outcome: "pass" },
-        { id: "none", label: "None present", diagram: "253-17-none", outcome: "fail" },
+        { id: "upper", label: "Upper bar (to upper door bar)", diagram: "253-17-3d-upper", outcome: "pass" },
+        { id: "lower", label: "Lower bar (to lower door bar)", diagram: "253-17-3d-lower", outcome: "pass" },
+        { id: "both", label: "Both bars", diagram: "253-17-3d-both", outcome: "pass" },
+        { id: "none", label: "None present", diagram: "253-17-3d-none", outcome: "fail" },
       ],
       visuallyVerifiable: true, hardFail: false,
     },
@@ -2185,9 +2194,10 @@
     },
     {
       id: "rear_transversal_present",
-      name: "Rear transversal reinforcement (253-18) present",
+      name: "Rear transversal reinforcement (253-18)",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "",
+      yesNoPictures: [{ label: "253-18: Rear transversal reinforcement", diagram: "253-18-3d" }, { label: "None present", diagram: "253-18-3d-none" }],
       evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -2203,7 +2213,7 @@
     },
     {
       id: "rear_lower_x_present",
-      name: "Rear lower X (253-19) present",
+      name: "Rear lower X (253-19)",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "",
       // Purely optional, like 253-30 -- "None present" is never flagged.
@@ -2214,9 +2224,9 @@
       // left" continuous; "-2" mirrors it.
       evaluationType: "choice",
       options: [
-        { id: "253-19-1", label: "253-19: Rear lower X", diagram: "253-19-1", outcome: "pass" },
-        { id: "253-19-2", label: "253-19: Rear lower X (other diagonal continuous)", diagram: "253-19-2", outcome: "pass" },
-        { id: "none", label: "None present", outcome: "fail" },
+        { id: "253-19-1", label: "253-19: X-configuration 1", diagram: "253-19-3d-253-19-1", outcome: "pass" },
+        { id: "253-19-2", label: "253-19: X-configuration 2", diagram: "253-19-3d-253-19-2", outcome: "pass" },
+        { id: "none", label: "None present", diagram: "253-19-3d-none", outcome: "fail" },
       ],
       visuallyVerifiable: true, hardFail: false,
     },
@@ -2250,7 +2260,7 @@
     },
     {
       id: "anti_intrusion_present",
-      name: "Anti-intrusion bars (253-25) present",
+      name: "Anti-intrusion bars (253-25)",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "The extensions must be connected to the front suspension top mounting points.",
       // Doesn't apply to a half rollcage -- there's no front suspension
@@ -2265,6 +2275,7 @@
         const year = vehicleManufactureYear(getAnswer);
         return year !== null && year < 2002;
       },
+      yesNoPictures: [{ label: "253-25: Anti-intrusion bars", diagram: "253-25-3d" }, { label: "None present", diagram: "253-25-3d-none" }],
       evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -2294,12 +2305,13 @@
     },
     {
       id: "dash_bar_present",
-      name: "Dash bar (253-29) present",
+      name: "Dash bar (253-29)",
       category: "Optional bars",
       requirement: "recommended", reference: "", description: "Optional in case the stock dash bar of the car is not retained.",
       // Doesn't apply to a half rollcage with no front structure to tie
       // the dash bar into.
       showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
+      yesNoPictures: [{ label: "253-29: Dash bar", diagram: "253-29-3d" }, { label: "None present", diagram: "253-29-3d-none" }],
       evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -2325,7 +2337,7 @@
     // this file for the shared detail-table row logic.
     {
       id: "temple_bar_present",
-      name: "Temple bar (253-31) present",
+      name: "Temple bar (253-31)",
       category: "Optional bars",
       requirement: "recommended",
       reference: "",
@@ -2335,10 +2347,10 @@
       showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "choice",
       options: [
-        { id: "left", label: "Left only", outcome: "pass" },
-        { id: "right", label: "Right only", outcome: "pass" },
-        { id: "both", label: "Both sides", outcome: "pass" },
-        { id: "none", label: "None present", outcome: "fail" },
+        { id: "left", label: "Left only", diagram: "253-31-temple-left", outcome: "pass" },
+        { id: "right", label: "Right only", diagram: "253-31-temple-right", outcome: "pass" },
+        { id: "both", label: "Both sides", diagram: "253-31-temple-both", outcome: "pass" },
+        { id: "none", label: "None present", diagram: "253-31-temple-none", outcome: "fail" },
       ],
       visuallyVerifiable: true, hardFail: false,
     },
@@ -2355,7 +2367,7 @@
     },
     {
       id: "windshield_reinforcement_present",
-      name: "Windshield reinforcement (253-31) present",
+      name: "Windshield reinforcement (253-31)",
       category: "Optional bars",
       requirement: "recommended",
       // Optional: unlike the temple bars, not actually recommended -- "None
@@ -2368,10 +2380,10 @@
       showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
       evaluationType: "choice",
       options: [
-        { id: "left", label: "Left only", outcome: "pass" },
-        { id: "right", label: "Right only", outcome: "pass" },
-        { id: "both", label: "Both sides", outcome: "pass" },
-        { id: "none", label: "None present", outcome: "fail" },
+        { id: "left", label: "Left only", diagram: "253-31-windshield-left", outcome: "pass" },
+        { id: "right", label: "Right only", diagram: "253-31-windshield-right", outcome: "pass" },
+        { id: "both", label: "Both sides", diagram: "253-31-windshield-both", outcome: "pass" },
+        { id: "none", label: "None present", diagram: "253-31-windshield-none", outcome: "fail" },
       ],
       visuallyVerifiable: true, hardFail: false,
     },
@@ -3011,6 +3023,32 @@
     []
   ).concat(FIA_253_COMMON_TAIL);
 
+  // ARA: on each side, at least one door bar must be primary tubing (1.75" x
+  // 0.095") -- and a continuous one: half bars alone at the primary size
+  // don't count. (FIA lets every door bar use the secondary spec.) The
+  // continuous tube(s) of each design, by its Tube specifications rows.
+  function doorContinuousTubeRows(doorVal, side) {
+    if (isDoor9Intersection(doorVal)) return ["d9x_" + side + "_continuous"];
+    if (isDoor9Bent(doorVal)) return ["d9bent_" + side + "_upper", "d9bent_" + side + "_lower"];
+    if (doorVal === "253-10") return ["d10_" + side + "_upper"];
+    if (doorVal === "253-11") return ["d11_" + side];
+    if (doorVal === "nascar") return ["nascar_" + side + "_upper"];
+    if (doorVal === "single-bar") return ["singlebar_" + side];
+    return [];
+  }
+  // Tube specifications row check (elm.rowFail): the reason a continuous
+  // door tube row fails, when none of its side's continuous tubes is
+  // marked primary (once they're all answered); null otherwise.
+  function araDoorPrimaryRowFail(getAnswer, rowId) {
+    const m = /^(?:d9x|d9bent|d10|d11|nascar|singlebar)_(left|right)/.exec(rowId);
+    if (!m) return null;
+    const rows = doorContinuousTubeRows(getAnswer("door_bars_" + m[1]).value, m[1]);
+    if (!rows.includes(rowId)) return null;
+    const specs = rows.map((r) => getAnswer("tubing_bar_classification__" + r + "__spec").value);
+    if (specs.some((v) => !v) || specs.includes("primary")) return null;
+    return "ARA: at least one continuous door bar on each side must use the primary tubing (1.75\" x 0.095\") -- half bars at that size don't count.";
+  }
+
   // ---- ARA (American Rally Association) variances on the FIA base ----
   const ARA_NEW_CONSTRUCTION_ELEMENTS = insertElements(
     patchElements(FIA_253_DOCUMENT_BASE, {
@@ -3022,6 +3060,7 @@
       },
       primary_tubing: { reference: ARA_REF, requirements: ARA_PRIMARY_REQ },
       secondary_tubing: { reference: ARA_REF, requirements: ARA_SECONDARY_STD_REQ },
+      tubing_bar_classification: { rowFail: araDoorPrimaryRowFail },
       a_pillar_reinforcement: {
         reference: "ARA RTR 2.2.2(c)(2)(a); 2020 FIA 253 Ch.8.3.2.1.4",
         description: "ARA is explicit: new cages without windscreen supports will NOT be accepted for logbooking whenever dimension A exceeds 200mm -- which is the case for essentially all cars.",

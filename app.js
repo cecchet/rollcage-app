@@ -471,7 +471,17 @@
   function optionUnavailableReason(opt) {
     return opt && typeof opt.unavailableIf === "function" ? opt.unavailableIf(getAnswer) : null;
   }
+  // Answers a design settles by itself: 253-1/253-2/253-3 and a half
+  // rollcage have their 2 backstays (only asked for "Other design").
+  function syncImpliedAnswers() {
+    if (!state || !state.answers) return;
+    const layout = state.answers.main_structure_layout && state.answers.main_structure_layout.value;
+    if (["253-1", "253-2", "253-3", "half-rollcage"].includes(layout) && getAnswer("backstays").value !== "yes") {
+      state.answers.backstays = Object.assign({}, getAnswer("backstays"), { value: "yes" });
+    }
+  }
   function normalizeUnavailableChoices() {
+    syncImpliedAnswers();
     const path = RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
     if (!path) return;
     path.elements.forEach((elm) => {
@@ -1215,6 +1225,9 @@
         return "warn";
       }
       if (elm && elm.id === "gusset_design" && failingGussetRowIds().has(row.id)) return "fail";
+      // A rulebook's own check across rows (e.g. ARA's continuous door bar
+      // at the primary spec, see araDoorPrimaryRowFail in rules-data.js).
+      if (elm && elm.rowFail && row && elm.rowFail(getAnswer, row.id)) return "fail";
       const opt = (col.options || []).find((o) => o.id === answer.value);
       if (opt && opt.outcome) return opt.outcome === "fail" ? "fail" : "pass";
       return "pass";
@@ -2911,7 +2924,9 @@
       state.answers = cage.answers || {};
       state.pictureSelectMode = null;
       state.activeTab = 1;
-      window.CageView.applyState(computeCageColors(), false);
+      const colors = computeCageColors();
+      window.CageView.applyState(colors, false);
+      if (window.CageView.setGaps) window.CageView.setGaps(xHalfBarGaps(colors), 5, X_HALF_COLORS);
       if (window.CageView.setHoles) window.CageView.setHoles(tacoGussetFiles());
       if (window.CageView.setGussets) window.CageView.setGussets(gussetShapes());
       if (window.CageView.setMainHoopLean) window.CageView.setMainHoopLean(parseFloat(getAnswer("main_hoop_lean_angle").value), mainHoopTwistDeg());
@@ -6326,15 +6341,33 @@
   // the answer starts open. A pick sets the design and the sill bar
   // (answer.extra.sill_bar) together, so the sill bar is never left
   // unanswered.
-  function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key === "sill_bar" && f.type === "boolean") || null; }
+  // A choice box's radio (or checkbox) beside its picture, at the picture's
+// mid height; the picture stays centered in the box (a spacer the radio's
+// width on the other side). With no picture, just the radio.
+function choiceMedia(input, diagramEl) {
+  if (!diagramEl) return input;
+  return el("div", { class: "choice-media" }, [input, diagramEl, el("span", { class: "choice-media-pad", "aria-hidden": "true" })]);
+}
+
+function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key === "sill_bar" && f.type === "boolean") || null; }
   const sillGroupsOpen = new Map(); // elm.id -> { with, without }
-  function sillDiagramHtml(opt, withSill) {
+  function sillDiagramHtml(opt, withSill, side) {
+    // The 3D model's picture of this side's design, with or without its
+    // sill bar (tools/choice-images.mjs); the drawing otherwise.
+    const pic = side && window.DIAGRAMS && window.DIAGRAMS["door-" + side + "-" + opt.id + (withSill ? "-sill" : "")];
+    if (pic) return pic;
     const html = opt.diagram && window.DIAGRAMS && window.DIAGRAMS[opt.diagram];
     if (!html || !withSill) return html || null;
     // The sill bar drawn like the other bars, along the bottom of the door;
     // 253-10's triangle then reaches down to it.
     const sill = '<path d="M25,80 L115,80" style="stroke:var(--accent)" stroke-width="4" stroke-linecap="round" fill="none" class="diagram-highlight"/>';
     return html.replace('d="M30,35 L70,55 L110,35 Z"', 'd="M30,35 L70,80 L110,35 Z"').replace(/<\/svg>\s*$/, sill + "</svg>");
+  }
+  // A design's label with its sill bar: "+ sill bar" ahead of a closing
+  // "(config N)", otherwise at the end.
+  function withSillLabel(label) {
+    const m = label.match(/^(.*) (\(config \d\))$/);
+    return m ? m[1] + " + sill bar " + m[2] : label + " + sill bar";
   }
   function renderSillGroupedChoices(elm, answer, card) {
     const field = sillChoiceField(elm);
@@ -6360,14 +6393,13 @@
       radio.checked = checked;
       const unavailableReason = optionUnavailableReason(opt);
       if (unavailableReason) radio.disabled = true;
-      const diagramHtml = sillDiagramHtml(opt, group === "with" && sillApplies(opt));
+      const diagramHtml = sillDiagramHtml(opt, group === "with" && sillApplies(opt), elm.id.replace("door_bars_", ""));
+      // Once a design is picked, every other one is grayed out.
       return el("label", Object.assign(
-        { class: "choice-option" + (checked ? " selected" : "") + (unavailableReason ? " unavailable" : ""), for: inputId },
+        { class: "choice-option" + (checked ? " selected" : selectedGroup || answer.value === "none" ? " dimmed" : "") + (unavailableReason ? " unavailable" : ""), for: inputId },
         unavailableReason ? { title: unavailableReason } : {}), [
-        radio,
-        diagramHtml ? el("div", { class: "choice-diagram", style: barColorStyle(elm), html: diagramHtml }) : null,
-        el("div", { class: "choice-label" }, [opt.label]),
-        group === "with" && sillApplies(opt) ? el("div", { class: "choice-sill-tag" }, ["+sill bar"]) : null,
+        choiceMedia(radio, diagramHtml ? el("div", { class: "choice-diagram", style: barColorStyle(elm), html: diagramHtml }) : null),
+        el("div", { class: "choice-label" }, [group === "with" && sillApplies(opt) ? withSillLabel(opt.label) : opt.label]),
         unavailableReason ? el("div", { class: "choice-unavailable-note" }, [unavailableReason]) : null,
       ]);
     };
@@ -6375,7 +6407,7 @@
     const open = sillGroupsOpen.get(elm.id) || { with: selectedGroup === "with", without: selectedGroup === "without" };
     [["with", "Designs with sill bar", withOpts], ["without", "Designs without sill bar", withoutOpts]].forEach(([g, title, opts]) => {
       const isOpen = !!open[g];
-      const box = el("div", { class: "choice-fold choice-fold-" + g + (isOpen ? " open" : "") + (selectedGroup === g ? " has-answer" : "") });
+      const box = el("div", { class: "choice-fold choice-fold-" + g + (isOpen ? " open" : "") + (selectedGroup === g ? " has-answer" : selectedGroup || answer.value === "none" ? " dimmed" : "") });
       box.appendChild(el("button", {
         type: "button", class: "choice-fold-head", "aria-expanded": isOpen ? "true" : "false",
         onclick: (e) => { e.stopPropagation(); sillGroupsOpen.set(elm.id, Object.assign({}, open, { [g]: !isOpen })); render(); },
@@ -6391,7 +6423,8 @@
     if (elm.evaluationType === "choice") {
       const opt = (elm.options || []).find((o) => o.id === answer.value);
       const sill = sillChoiceField(elm);
-      if (opt && sill && extraFieldApplies(sill, opt.id)) return opt.label + ((answer.extra || {}).sill_bar === "yes" ? " + sill bar" : ", no sill bar");
+      const sillVal = (answer.extra || {}).sill_bar;
+      if (opt && sill && extraFieldApplies(sill, opt.id) && (sillVal === "yes" || sillVal === "no")) return opt.label + (sillVal === "yes" ? " + sill bar" : ", no sill bar");
       return opt ? opt.label : String(answer.value);
     }
     if (elm.evaluationType === "boolean" || (elm.evaluationType === "attestation" && (answer.value === "yes" || answer.value === "no"))) {
@@ -6474,7 +6507,7 @@
     }
     card.appendChild(el("div", { class: "element-head" }, headChildren));
     card.appendChild(el("div", { class: "element-ref" }, [elm.reference]));
-    card.appendChild(el("div", { class: "element-desc" }, [elm.description]));
+    if (elm.description) card.appendChild(el("div", { class: "element-desc" }, [elm.description]));
 
     const elmDiagramHtml = elementDiagramHtml(elm);
     if (elmDiagramHtml) card.appendChild(el("div", { class: "element-diagram", style: barColorStyle(elm), html: elmDiagramHtml }));
@@ -6484,8 +6517,22 @@
       const unsafe = unsafeExplanationFor(elm.id, null, answer.value, elm.id);
       if (unsafe) card.appendChild(renderUnsafeExplanation(unsafe));
     } else if (elm.evaluationType === "choice") {
-      const group = el("div", { class: "choice-radio-group" });
+      // Options in rows (elm.optionRows, each option's .row), a row with a
+      // label under its own heading; otherwise one grid.
+      const rowGroups = new Map();
+      const groupFor = (opt) => {
+        const rowId = elm.optionRows ? opt.row || "" : "";
+        if (!rowGroups.has(rowId)) {
+          const row = (elm.optionRows || []).find((r) => r.id === rowId);
+          if (row && row.label) card.appendChild(el("div", { class: "choice-row-head" }, [row.label]));
+          const g = el("div", { class: "choice-radio-group" });
+          card.appendChild(g);
+          rowGroups.set(rowId, g);
+        }
+        return rowGroups.get(rowId);
+      };
       elm.options.forEach((opt) => {
+        const group = groupFor(opt);
         const inputId = elm.id + "_" + opt.id;
         const radio = el("input", {
           type: "radio",
@@ -6548,16 +6595,15 @@
             unavailableReason ? { title: unavailableReason } : {}
           ),
           [
-            radio,
-            diagramHtml ? el("div", { class: "choice-diagram", style: barColorStyle(elm), html: diagramHtml }) : null,
+            choiceMedia(radio, diagramHtml ? el("div", { class: "choice-diagram", style: barColorStyle(elm), html: diagramHtml }) : null),
             legendEl,
             el("div", { class: "choice-label" }, [opt.label]),
+            opt.detail ? el("div", { class: "choice-detail" }, [opt.detail]) : null,
             unavailableReason ? el("div", { class: "choice-unavailable-note" }, [unavailableReason]) : null,
           ]
         );
         group.appendChild(optionLabel);
       });
-      card.appendChild(group);
       const chosenOpt = elm.options.find((o) => o.id === answer.value);
       if (chosenOpt && chosenOpt.note) {
         card.appendChild(el("div", { class: "visual-flag" }, [chosenOpt.note]));
@@ -6621,6 +6667,21 @@
       });
       input.value = answer.value || "";
       card.appendChild(input);
+    } else if (elm.yesNoPictures) {
+      // A yes/no bar drawn like the choice cards: a picture button for
+      // "yes" (the bar) and one for "no" ("None present", ghost bars only).
+      const group = el("div", { class: "choice-radio-group" });
+      [["yes", elm.yesNoPictures[0]], ["no", elm.yesNoPictures[1]]].forEach(([val, pic]) => {
+        const inputId = elm.id + "_" + val;
+        const radio = el("input", { type: "radio", name: elm.id, id: inputId, onchange: () => setAnswer(elm.id, { value: val }) });
+        radio.checked = answer.value === val;
+        const diagramHtml = pic.diagram && window.DIAGRAMS && window.DIAGRAMS[pic.diagram];
+        group.appendChild(el("label", { class: "choice-option" + (answer.value === val ? " selected" : ""), for: inputId }, [
+          choiceMedia(radio, diagramHtml ? el("div", { class: "choice-diagram", html: diagramHtml }) : null),
+          el("div", { class: "choice-label" }, [pic.label]),
+        ]));
+      });
+      card.appendChild(group);
     } else {
       // A plain fact/compliance question (e.g. "is the cage within the
       // suspension points?") reads oddly as "Yes / Present" -- yesNoLabels
@@ -6682,8 +6743,7 @@
             card.appendChild(
               el("div", { class: "choice-radio-group" }, [
                 el("label", { class: "choice-option" + (checked ? " selected" : "") }, [
-                  checkbox,
-                  diagramHtml ? el("div", { class: "choice-diagram", html: diagramHtml }) : null,
+                  choiceMedia(checkbox, diagramHtml ? el("div", { class: "choice-diagram", html: diagramHtml }) : null),
                   el("div", { class: "choice-label" }, [f.label]),
                 ]),
               ])
@@ -7205,6 +7265,8 @@
         td.appendChild(renderTableCellInput(col, cellId, cellAnswer, row, elm));
         const unsafe = unsafeExplanationFor(elm.id, row.id, cellAnswer.value, cellId);
         if (unsafe) td.appendChild(renderUnsafeExplanation(unsafe));
+        const ruleFail = elm.rowFail && elm.rowFail(getAnswer, row.id);
+        if (ruleFail) td.appendChild(el("div", { class: "unsafe-explanation" }, [ruleFail]));
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -8888,14 +8950,18 @@
   function isDoor9Intersection(v) { return v === "253-9-intersection-1" || v === "253-9-intersection-2"; }
   // Which of the 2 physical tubes per side is actually fabricated as the
   // continuous leg (vs. cut into 2 half-tubes) isn't fixed by the FIA rule
-  // and can differ car to car -- and, per the source model, isn't even
-  // consistent left-to-right. This is now its own design pick in Part 1
-  // (see DOOR_BAR_DESIGN_OPTIONS in rules-data.js: "-1" keeps tube 1 as the
-  // continuous leg, "-2" swaps it to tube 2) rather than inferred.
+  // and can differ car to car -- so it's its own design pick in Part 1 (see
+  // DOOR_BAR_DESIGN_OPTIONS in rules-data.js), the same on both sides:
+  // "config 1" is the tube from the bottom front (to the top rear) welded
+  // continuous, "config 2" the other one. The mesh of that tube is "door
+  // bar 2" on the left, "door bar 1" on the right (mirror images, see
+  // doorTubeRunsFrontTopToBottomRear).
   function continuousDoorTubeFile(side) {
     const cap = side === "left" ? "Left" : "Right";
     const doorVal = getAnswer("door_bars_" + side).value;
-    return doorVal === "253-9-intersection-2" ? cap + " door bar 2-  253-9.stl" : cap + " door bar 1-  253-9.stl";
+    const bottomFront = side === "left" ? 2 : 1;
+    const n = doorVal === "253-9-intersection-2" ? 3 - bottomFront : bottomFront;
+    return cap + " door bar " + n + "-  253-9.stl";
   }
   function otherDoorTubeFile(side) {
     const cap = side === "left" ? "Left" : "Right";
@@ -11356,11 +11422,41 @@
     if (gussetRowDiameterMM(row) === null) return null;
     return elm.columns.filter((col) => col.type === "length").every((col) => status(col) === "pass") ? CAGE_COLOR.statusPass : null;
   }
+  // An X's half bars (1 continuous tube + 2 half bars: 253-7, 253-21,
+  // 253-12, 253-9, 253-19), each drawn in its own color, as in the option
+  // pictures, ending flush inside the continuous tube -- while both tubes show
+  // their design color (not Part 3's weld statuses, a picture's tags...).
+  // { halfBarFile: { cross: continuousFile, halfGap: "flush" } } for CageView.setGaps.
+  const X_HALF_COLORS = ["#ffffff", "#22c55e"];
+  function xHalfBarGaps(colors) {
+    const map = {};
+    const add = (cut, cross, color) => {
+      if (colors[cut] === color && colors[cross] === color) map[cut] = { cross, halfGap: "flush" };
+    };
+    const main = getAnswer("main_hoop_diagonals").value;
+    if (main === "253-7-1" || main === "253-7-2") {
+      const c = continuousMainDiagFile();
+      add(MAIN_DIAG_FILES.find((f) => f !== c), c, CAGE_COLOR.mainDiag);
+    }
+    const back = getAnswer("backstay_diagonals").value;
+    if (back === "253-21-1" || back === "253-21-2") add(otherBackstayDiagFile(), continuousBackstayDiagFile(), CAGE_COLOR.backstayDiag);
+    const roof = getAnswer("roof_bars").value;
+    if (roof === "253-12-1") add("Roof bar 2.stl", "Roof bar 1.stl", CAGE_COLOR.roofBar);
+    if (roof === "253-12-2") add("Roof bar 1.stl", "Roof bar 2.stl", CAGE_COLOR.roofBar);
+    ["left", "right"].forEach((side) => {
+      if (isDoor9Intersection(getAnswer("door_bars_" + side).value)) add(otherDoorTubeFile(side), continuousDoorTubeFile(side), CAGE_COLOR.doorBar);
+    });
+    const x19 = getAnswer("rear_lower_x_present").value;
+    if (x19 === "253-19-1") add("253-19 right.stl", "253-19 left.stl", CAGE_COLOR.rearLowerX);
+    if (x19 === "253-19-2") add("253-19 left.stl", "253-19 right.stl", CAGE_COLOR.rearLowerX);
+    return map;
+  }
   // Draws the open rollcage on the 3D model: colors, visible parts, and the
   // entered angles and junction distances.
   function applyCageModel() {
     const colors = computeCageColors();
     window.CageView.applyState(colors, (state.activeTab === WELDS_PHASE || state.activeTab === INSTALLATION_PHASE || state.pictureSelectMode || state.damageSelectMode || state.damageViewEventId) ? true : state.showGhostBars);
+    if (window.CageView.setGaps) window.CageView.setGaps(xHalfBarGaps(colors), 5, X_HALF_COLORS);
     if (window.CageView.setHoles) window.CageView.setHoles(tacoGussetFiles());
     // The drawn gussets' junctions and sizes, then the main hoop / backstays
     // tilted to the entered angles (the deformation works on each part's
@@ -11429,6 +11525,7 @@
     // which interaction triggered the render; an explicit jump (see
     // scrollBelowViewer's callers) still wins since it runs its own
     // window.scrollTo after this function returns.
+    syncImpliedAnswers();
     const scrollY = window.scrollY;
     // Same for the results panel's own scroll (it scrolls inside a capped
     // height -- the logbook's owner fields live there).

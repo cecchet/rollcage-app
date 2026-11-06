@@ -1668,6 +1668,114 @@
       renderer.setSize(container.clientWidth, container.clientHeight);
     }
   }
+  // A tube's radius: its vertices' average distance from its axis.
+  function tubeRadius(mesh, axis) {
+    const pos = mesh.geometry.attributes.position;
+    const v = new THREE.Vector3();
+    let sum = 0;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld).sub(axis.c);
+      sum += v.clone().sub(axis.d.clone().multiplyScalar(v.dot(axis.d))).length();
+    }
+    return pos.count ? sum / pos.count : 0;
+  }
+  // A bar's own axis in world space: its vertices' centroid and main
+  // direction (power iteration on their covariance).
+  function barAxis(mesh) {
+    mesh.updateMatrixWorld(true);
+    const pos = mesh.geometry.attributes.position;
+    const v = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) c.add(v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld));
+    c.divideScalar(pos.count || 1);
+    const m = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld).sub(c);
+      const a = [v.x, v.y, v.z];
+      for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) m[r * 3 + k] += a[r] * a[k];
+    }
+    let d = [1, 1, 1];
+    for (let it = 0; it < 50; it++) {
+      const nd = [0, 1, 2].map((r) => m[r * 3] * d[0] + m[r * 3 + 1] * d[1] + m[r * 3 + 2] * d[2]);
+      const len = Math.hypot(nd[0], nd[1], nd[2]) || 1;
+      d = nd.map((x) => x / len);
+    }
+    return { c, d: new THREE.Vector3(d[0], d[1], d[2]) };
+  }
+  // Cuts a gap into each bar of the map ({ halfBarFile: continuousBarFile,
+  // or { cross: continuousBarFile, halfGap } }) where its axis passes
+  // closest to the other bar's: an X's half bars drawn stopping short at
+  // its continuous bar (the live model after each applyState, and the option
+  // pictures, tools/choice-images.mjs). halfGap: half the gap's length, in
+  // model units (cm); 0 for none (the halves only colored), "flush" to end
+  // them inside the continuous tube. halfColors: [color, color] -- each half bar of a cut
+  // bar drawn in its own color. An empty map takes every gap away.
+  const gapFiles = new Set();
+  function setGaps(map, halfGap, halfColors) {
+    onReady(() => applyGaps(map, halfGap, halfColors));
+  }
+  function applyGaps(map, halfGap, halfColors) {
+    gapFiles.forEach((file) => {
+      const m = meshes[file];
+      if (!m) return;
+      (m.userData.gapHalves || []).forEach((h) => { m.remove(h); h.material.dispose(); });
+      m.userData.gapHalves = null;
+      m.material.clippingPlanes = null;
+      m.material.colorWrite = true;
+      m.material.depthWrite = true;
+      m.material.needsUpdate = true;
+    });
+    gapFiles.clear();
+    Object.keys(map || {}).forEach((file) => {
+      const spec = typeof map[file] === "string" ? { cross: map[file] } : map[file];
+      const cut = meshes[file], cross = meshes[spec.cross];
+      if (!cut || !cross || !cut.visible) return;
+      const a = barAxis(cut), b = barAxis(cross);
+      // halfGap "flush": the half bars end inside the continuous tube
+      // instead of running through it and out its far side -- cut back
+      // over part of the length its axis spends within that tube (its
+      // radius over the sine of the crossing angle).
+      const sin = Math.sqrt(Math.max(0, 1 - Math.pow(a.d.dot(b.d), 2)));
+      const g = spec.halfGap != null ? spec.halfGap : halfGap != null ? halfGap : 5;
+      const w = g === "flush" ? (0.6 * tubeRadius(cross, b)) / Math.max(sin, 0.15) : g;
+      // The point on the cut bar's axis closest to the crossing bar's axis.
+      const r = a.c.clone().sub(b.c);
+      const dd = a.d.dot(b.d), e = a.d.dot(r), f = b.d.dot(r);
+      const den = 1 - dd * dd;
+      const t = den > 1e-6 ? (dd * f - e) / den : 0;
+      const p = a.c.clone().addScaledVector(a.d, t);
+      const n = a.d.clone().normalize();
+      const k = n.dot(p);
+      // The 2 half bars: one below k - w, one above k + w along the bar's
+      // axis (a clipping plane drops what's on its negative side).
+      const keepBelow = new THREE.Plane(n.clone().negate(), k - w);
+      const keepAbove = new THREE.Plane(n.clone(), -(k + w));
+      if (halfColors) {
+        // Each half drawn by its own copy of the bar (same geometry, so any
+        // bend/lean of it follows), in its own color; the bar itself stays
+        // for clicks and hovers, but draws nothing. Its geometry is left
+        // untouched: the gussets on it are fitted to that geometry.
+        cut.material.colorWrite = false;
+        cut.material.depthWrite = false;
+        cut.material.needsUpdate = true;
+        cut.userData.gapHalves = [keepBelow, keepAbove].map((plane, i) => {
+          const half = new THREE.Mesh(cut.geometry, new THREE.MeshStandardMaterial({
+            color: halfColors[i], roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide, clippingPlanes: [plane],
+          }));
+          half.raycast = () => {};
+          cut.add(half);
+          return half;
+        });
+      } else if (w > 0) {
+        // No colors: the gap only, cut into the bar itself.
+        cut.material.clippingPlanes = [new THREE.Plane(n.clone(), -(k + w)), new THREE.Plane(n.clone().negate(), k - w)];
+        cut.material.clipIntersection = true;
+        cut.material.needsUpdate = true;
+      }
+      gapFiles.add(file);
+    });
+    if (renderer) renderer.localClippingEnabled = gapFiles.size > 0;
+  }
   function getMeshAxisBounds(file) {
     const mesh = meshes[file];
     return mesh ? meshAxisBounds(mesh) : null;
@@ -2142,7 +2250,7 @@
   // The camera's current angle (radians), for snapshot's opts.angle.
   function getAngle() { return { theta, phi, roll }; }
 
-  window.CageView = { getAngle, setGussets, setHoles, setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
+  window.CageView = { getAngle, setGussets, setHoles, setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setGaps, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");

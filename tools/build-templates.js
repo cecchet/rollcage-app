@@ -373,6 +373,19 @@ function fillGussetSizes(answers) {
   });
 }
 
+// A door bar design that can take a sill bar always says whether it has
+// one (the app asks both together): a sample that left it out has none,
+// as its 3D model shows.
+const SILL_DESIGNS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "single-bar"];
+function fillSillBars(answers) {
+  ["door_bars_left", "door_bars_right"].forEach((k) => {
+    const a = answers[k];
+    if (!a || !SILL_DESIGNS.includes(a.value)) return;
+    const extra = a.extra || {};
+    if (extra.sill_bar !== "yes" && extra.sill_bar !== "no") a.extra = { ...extra, sill_bar: "no" };
+  });
+}
+
 // Identifies one real car or person (VIN, owner / builder / inspector
 // contacts, inspection and logbook details) -- never part of a template.
 const DROPPED_ANSWERS = /^vehicle_(vin|owner_|builder_|inspector_|inspection_|logbook_|description_notes)/;
@@ -400,6 +413,7 @@ const out = TEMPLATES.map((t) => {
     });
   }
   fillGussetSizes(answers);
+  fillSillBars(answers);
   return {
     templateId: t.id,
     group: t.group || "design",

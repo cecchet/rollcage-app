@@ -55,7 +55,7 @@ window.TEMPLATE_MODEL_THUMBS = {
  },
  "porsche-gt3-cup": {
   "src": "images/templates/model-3d/porsche-gt3-cup.jpg",
-  "key": "ebd3ab1a"
+  "key": "78341945"
  },
  "audi-rs4-rally": {
   "src": "images/templates/model-3d/audi-rs4-rally.jpg",

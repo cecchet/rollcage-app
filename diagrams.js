@@ -176,7 +176,10 @@
   // A user-supplied reference photo, sized the same way as the hand-drawn
   // SVGs above (see the ".element-diagram img"/".choice-diagram img" rules
   // in style.css).
-  const wrapImg = (src) => `<img src="images/${src}" alt="" class="diagram-icon diagram-icon-photo">`;
+  // Bumped by tools/choice-images.mjs each time it redraws the pictures, so
+  // browsers fetch the new ones instead of their cached copies.
+  const IMG_V = 4;
+  const wrapImg = (src) => `<img src="images/${src}?v=${IMG_V}" alt="" class="diagram-icon diagram-icon-photo">`;
 
   // ---- Base structure layout (253-1/253-2/253-3/half rollcage) -- real
   // screenshots of this same live 3D viewer, one per option, cropped/
@@ -185,6 +188,33 @@
   D["253-2"] = wrapImg("base_structure_253-2.png");
   D["253-3"] = wrapImg("base_structure_253-3.png");
   D["half-rollcage"] = wrapImg("base_structure_half_rollcage.png");
+  // The 4 roof corner gussets on a 253-3 (as ghost bars), drawn from the 3D
+  // model by tools/roof-corner-gussets-image.mjs.
+  D["roof-corner-gussets"] = wrapImg("roof_corner_gussets.png");
+  // ---- 253-15 and the optional bars: snapshots of the 3D model, one per
+  // choice (a 253-3 base as ghost bars, the choice's bars in their 3D
+  // color), drawn by tools/choice-images.mjs ----
+  ["continuous", "two_bars", "mixed_left_two", "mixed_right_two", "none"].forEach((o) => { D["253-15-" + o] = wrapImg("253-15_" + o + ".png"); });
+  ["253-26-27", "253-28-66", "none"].forEach((o) => { D["harness_bar-" + o] = wrapImg("harness_bar_" + o + ".png"); });
+  ["upper", "lower", "both", "none"].forEach((o) => { D["253-17-3d-" + o] = wrapImg("253-17_" + o + ".png"); });
+  ["left", "right", "both", "none"].forEach((o) => {
+    D["253-31-temple-" + o] = wrapImg("253-31-temple_" + o + ".png");
+    D["253-31-windshield-" + o] = wrapImg("253-31-windshield_" + o + ".png");
+  });
+  // The structural designs (main rollbar and backstay diagonals, roof bars,
+  // 253-19, door bars per side, with/without a sill bar): an X's half bars
+  // drawn stopping short at its continuous tube.
+  const pics = (prefix, file, ids) => ids.forEach((id) => { D[prefix + id] = wrapImg(file + id + ".png"); });
+  pics("main-diag-3d-", "main-diag_", ["253-7-1", "253-7-2", "diag-left", "diag-right", "diag-horizontal", "diag-lower-half", "diag-v-center", "none"]);
+  pics("backstay-diag-3d-", "backstay-diag_", ["253-20", "253-20-right", "253-21-1", "253-21-2", "253-22", "none"]);
+  pics("roof-3d-", "roof_", ["253-12-1", "253-12-2", "253-13", "253-14", "single-center", "single-front-left", "single-front-right", "none"]);
+  pics("253-19-3d-", "253-19_", ["253-19-1", "253-19-2", "none"]);
+  ["left", "right"].forEach((side) => pics("door-" + side + "-", "door-" + side + "_", [
+    "253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10",
+    "253-9-intersection-1-sill", "253-9-intersection-2-sill", "253-9-bent-sill", "253-9-bent-2-sill", "253-10-sill",
+    "253-11", "nascar", "single-bar", "none",
+  ]));
+  ["253-18", "253-25", "253-29", "253-30"].forEach((n) => { D[n + "-3d"] = wrapImg(n + "_yes.png"); D[n + "-3d-none"] = wrapImg(n + "_no.png"); });
 
   // ---- A-pillar reinforcement (253-15) ----
   D["253-15"] = wrapImg("253-15.jpg");
