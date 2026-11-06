@@ -7252,7 +7252,8 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     const tbody = el("tbody");
     resolveRows(elm).forEach((row) => {
       const tr = el("tr", { id: "row-" + elm.id + "__" + row.id });
-      tr.appendChild(el("td", { class: "row-table-label" }, [row.label]));
+      const shots = GUSSET_SHOT_TABLES.has(elm.id) ? gussetLocationShots(row.id) : null;
+      tr.appendChild(el("td", { class: "row-table-label" + (shots ? " row-table-label-shots" : "") }, shots ? [el("div", { class: "row-label-with-shots" }, [el("span", {}, [row.label]), shots])] : [row.label]));
       elm.columns.forEach((col) => {
         if (row.notApplicableColumns && row.notApplicableColumns.includes(col.key)) {
           tr.appendChild(el("td", { class: "state-pass cell-not-applicable" }, ["N/A"]));
@@ -11466,6 +11467,73 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     if (window.CageView.setBackstayAngle) window.CageView.setBackstayAngle(parseFloat(getAnswer("backstay_angle").value));
     if (window.CageView.setFrontRollbarAngle) window.CageView.setFrontRollbarAngle(parseFloat((getAnswer("front_rollbar_angle").value || {}).angle));
     if (window.CageView.setJunctionOffsets) window.CageView.setJunctionOffsets(junctionOffsets());
+    // The gusset location pictures follow the model's shape: drawn again
+    // once it changes (the parts showing, the gussets, angles, junctions).
+    const shotsKey = JSON.stringify([Object.keys(colors).filter((f) => colors[f] !== "hidden").sort(), state.showGhostBars, gussetShapes(),
+      getAnswer("main_hoop_lean_angle").value, getAnswer("backstay_angle").value, getAnswer("front_rollbar_angle").value, junctionOffsets()]);
+    if (shotsKey !== gussetShotsKey) {
+      gussetShotsKey = shotsKey;
+      gussetShotCache.clear();
+      document.querySelectorAll(".gusset-loc-shots").forEach((e) => e.setAttribute("data-pending", "1"));
+      scheduleGussetShots();
+    }
+  }
+  // Gusset tables: each location's 2 small pictures of the 3D model
+  // (the area around the gusset, circled, and a close-up -- see
+  // CageView.focusShots), drawn one at a time after a render, cached by
+  // gusset part until the model's shape changes.
+  // The gusset tables showing them: design (Part 2), dimensions (Part 4),
+  // welds (Part 5).
+  const GUSSET_SHOT_TABLES = new Set(["gusset_design", "gusset_dimensions", "door_9_bend_gusset", "gusset_welds"]);
+  // The structure shown as ghost bars around a gusset: 253-3 and its feet.
+  const GUSSET_SHOT_BASE = ["Main rollbar.stl", "Front left lateral.stl", "Front right lateral.stl", "Transverse member.stl", "Left backstay.stl", "Right backstay.stl",
+    "Foot front left.stl", "Foot front right.stl", "Foot main rollbar left.stl", "Foot main rollbar right.stl", "Foot rear left.stl", "Foot rear right.stl"];
+  let gussetShotsKey = null;
+  const gussetShotCache = new Map();
+  let gussetShotTimer = null;
+  function gussetLocationShots(rowId) {
+    const loc = activeGussetLocations().find((l) => l.row === rowId);
+    if (!loc || !window.CageView || !window.CageView.focusShots) return null;
+    const box = el("div", { class: "gusset-loc-shots", "data-gusset-file": loc.file });
+    const shots = gussetShotCache.get(loc.file);
+    if (shots) fillGussetShots(box, shots);
+    else {
+      box.setAttribute("data-pending", "1");
+      box.appendChild(el("span", { class: "gusset-loc-shot" }));
+      box.appendChild(el("span", { class: "gusset-loc-shot" }));
+      scheduleGussetShots();
+    }
+    return box;
+  }
+  function fillGussetShots(box, shots) {
+    box.removeAttribute("data-pending");
+    box.replaceChildren(
+      el("img", { class: "gusset-loc-shot", src: shots.overview, alt: "Gusset location in the rollcage", title: "Where it is in the rollcage" }),
+      el("img", { class: "gusset-loc-shot", src: shots.zoom, alt: "Gusset close-up", title: "Close-up" })
+    );
+  }
+  function scheduleGussetShots() {
+    if (gussetShotTimer) return;
+    gussetShotTimer = setTimeout(() => {
+      gussetShotTimer = null;
+      const box = document.querySelector(".gusset-loc-shots[data-pending]");
+      if (!box) return;
+      const file = box.getAttribute("data-gusset-file");
+      let shots = gussetShotCache.get(file);
+      if (!shots) {
+        // The bars in their design colors (Part 2's), whichever part is open.
+        const tab = state.activeTab;
+        state.activeTab = 1;
+        let colors;
+        try { colors = computeCageColors(); } finally { state.activeTab = tab; }
+        shots = window.CageView.focusShots(file, { width: 120, height: 90, base: GUSSET_SHOT_BASE, colors, color: CAGE_COLOR.gussetSinglePlate });
+        // The model not loaded yet: try again shortly.
+        if (!shots) { gussetShotTimer = setTimeout(() => { gussetShotTimer = null; scheduleGussetShots(); }, 500); return; }
+        gussetShotCache.set(file, shots);
+      }
+      document.querySelectorAll('.gusset-loc-shots[data-pending][data-gusset-file="' + CSS.escape(file) + '"]').forEach((b) => fillGussetShots(b, shots));
+      scheduleGussetShots();
+    }, 30);
   }
   // A picture's "Selected parts" snapshot drawn before the model's look last
   // changed (MODEL_LOOK_REV) is redrawn at the angle it was taken at, with

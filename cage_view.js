@@ -1776,6 +1776,123 @@
     });
     if (renderer) renderer.localClippingEnabled = gapFiles.size > 0;
   }
+  // 2 small pictures locating one part (a gusset's row in the Gusset design
+  // table): { overview, zoom } PNG data URLs -- the area around the part
+  // (circled) and a close-up of it, showing only opts.base as ghost bars
+  // (e.g. the 253-3 structure), the bars the part touches in their own
+  // colors and the part itself in opts.color. Both seen from the side of
+  // the cage the part is on, a little from above. Rendered off screen and
+  // restored within the same call, so the live view never changes. opts:
+  // width, height (CSS px, drawn at 2x), color, base (files), colors (file
+  // -> color for the bars it touches). Null before
+  // the model has loaded or for an unknown part.
+  function focusShots(file, opts) {
+    const tgt = meshes[file];
+    if (!ready || !renderer || !tgt) return null;
+    const W = (opts && opts.width) || 120, H = (opts && opts.height) || 90, color = (opts && opts.color) || "#ff3b30";
+    const base = new Set((opts && opts.base) || []);
+    const size = renderer.getSize(new THREE.Vector2());
+    const ratio = renderer.getPixelRatio();
+    const savedAspect = camera.aspect;
+    const ghost = new THREE.MeshStandardMaterial({ color: 0x8a9099, roughness: 0.8, metalness: 0, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide });
+    const hi = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide });
+    tgt.updateMatrixWorld(true);
+    const gBox = new THREE.Box3().setFromObject(tgt);
+    const g = gBox.getCenter(new THREE.Vector3());
+    const gSize = gBox.getSize(new THREE.Vector3()).length();
+    // A bar touches the part when its surface passes within about half the
+    // part's size of the part's center (its triangles, not its points: an
+    // STL tube has points only at its 2 ends).
+    const reach = gSize * 0.5 + 2;
+    const near = new THREE.Box3().setFromCenterAndSize(g, new THREE.Vector3(1, 1, 1).multiplyScalar(2 * reach));
+    const touches = (m) => {
+      m.updateMatrixWorld(true);
+      if (!near.intersectsBox(new THREE.Box3().setFromObject(m))) return false;
+      const pos = m.geometry.attributes.position, idx = m.geometry.index;
+      const n = idx ? idx.count : pos.count;
+      const tri = new THREE.Triangle(), q = new THREE.Vector3();
+      const at = (k, v) => v.fromBufferAttribute(pos, idx ? idx.getX(k) : k).applyMatrix4(m.matrixWorld);
+      for (let k = 0; k + 2 < n; k += 3) {
+        at(k, tri.a); at(k + 1, tri.b); at(k + 2, tri.c);
+        if (tri.closestPointToPoint(g, q).distanceTo(g) < reach) return true;
+      }
+      return false;
+    };
+    const saved = [];
+    const own = {};
+    const box = new THREE.Box3();
+    Object.keys(meshes).forEach((f) => {
+      const m = meshes[f];
+      saved.push([m, m.visible, m.material]);
+      const halves = m.userData.gapHalves || [];
+      halves.forEach((h) => saved.push([h, h.visible, h.material]));
+      // A bar of the design: one opts.colors gives a color (the design's,
+      // whatever the live view shows), else one showing in its own color.
+      const c = opts && opts.colors ? opts.colors[f] : null;
+      const designed = opts && opts.colors ? typeof c === "string" && c !== "hidden" : m.visible && !ghostFiles.has(f);
+      const bar = designed && !/gusset|^Foot|^(Driver|Codriver)/i.test(f);
+      if (m === tgt) { m.visible = true; m.material = hi; }
+      else if (bar && touches(m)) {
+        m.visible = true;
+        if (c) {
+          if (!own[c]) own[c] = new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide });
+          m.material = own[c];
+          halves.forEach((h) => { h.visible = false; });
+        }
+      }
+      else if (base.has(f) && m.visible) { m.material = ghost; halves.forEach((h) => { h.visible = false; }); }
+      else if (base.has(f)) { m.visible = true; m.material = ghost; }
+      else m.visible = false;
+      if (m.visible) { m.updateMatrixWorld(true); box.expandByObject(m); }
+    });
+    const sphere = new THREE.Sphere();
+    box.getBoundingSphere(sphere);
+    // From the cage's middle out toward the part, raised a little.
+    const dir = g.clone().sub(sphere.center);
+    dir.z = 0;
+    if (dir.lengthSq() < 1) dir.set(1, 1, 0);
+    dir.normalize();
+    dir.z = 0.6;
+    dir.normalize();
+    renderer.setPixelRatio(2);
+    renderer.setSize(W, H, false);
+    camera.aspect = W / H;
+    camera.updateProjectionMatrix();
+    const vFov = THREE.MathUtils.degToRad(camera.fov);
+    const fit = Math.sin(Math.min(vFov, 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect)) / 2);
+    const shot = (r, ring) => {
+      camera.position.copy(g).addScaledVector(dir, r / fit);
+      camera.up.set(0, 0, 1);
+      camera.lookAt(g);
+      camera.updateMatrixWorld(true);
+      renderer.render(scene, camera);
+      if (!ring) return renderer.domElement.toDataURL("image/png");
+      const c = document.createElement("canvas");
+      c.width = renderer.domElement.width;
+      c.height = renderer.domElement.height;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(renderer.domElement, 0, 0);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(c.width / 2, c.height / 2, c.height * 0.16, 0, Math.PI * 2);
+      ctx.stroke();
+      return c.toDataURL("image/png");
+    };
+    const overview = shot(Math.max(gSize * 2.4, 45), true);
+    const zoom = shot(Math.max(gSize * 0.9, 14), false);
+    saved.forEach(([m, visible, material]) => { m.visible = visible; m.material = material; });
+    ghost.dispose();
+    hi.dispose();
+    Object.values(own).forEach((mat) => mat.dispose());
+    renderer.setPixelRatio(ratio);
+    renderer.setSize(size.x, size.y, false);
+    camera.aspect = savedAspect;
+    camera.updateProjectionMatrix();
+    updateCamera();
+    renderer.render(scene, camera);
+    return { overview, zoom };
+  }
   function getMeshAxisBounds(file) {
     const mesh = meshes[file];
     return mesh ? meshAxisBounds(mesh) : null;
@@ -2250,7 +2367,7 @@
   // The camera's current angle (radians), for snapshot's opts.angle.
   function getAngle() { return { theta, phi, roll }; }
 
-  window.CageView = { getAngle, setGussets, setHoles, setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setGaps, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
+  window.CageView = { getAngle, setGussets, setHoles, setVisible, resize, init, applyState, refreshHover, setMeshTransforms, resetView, setOrbit, onReady, onPartClick, onPartDoubleClick, onPartHover, setDriverMirrored, getMeshAxisBounds, getAllFiles, setGaps, focusShots, setMainHoopLean, setBackstayAngle, setFrontRollbarAngle, setJunctionOffsets, getModeledBackstayAngle, setBackground, resetBackground, snapshot, viewImage, printParts };
 
   function boot() {
     const container = document.getElementById("cageViewerContainer");
