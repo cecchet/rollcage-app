@@ -1219,6 +1219,7 @@ img.zoomable, #cageViewerPictureModeThumb { cursor: zoom-in; }
 .row-table-label-shots { min-width: 340px; }
 .gusset-loc-shots { display: flex; gap: 4px; flex: none; }
 .gusset-loc-shot { display: block; width: 80px; height: 60px; border-radius: 4px; background: #1b1e23; object-fit: cover; }
+img.gusset-loc-shot { cursor: zoom-in; }
 
 /* Under a Part 4 row's name: its D, or a warning that D isn't known yet. */
 .row-d-note { margin-top: 4px; font-size: 0.78rem; font-weight: 400; color: var(--muted); }

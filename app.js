@@ -7350,6 +7350,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     resolveRows(elm).forEach((row) => {
       const tr = el("tr", { id: "row-" + elm.id + "__" + row.id });
       const shots = rowLocationShots(elm.id, row.id, elm);
+      if (shots) shots.setAttribute("data-label", row.label);
       const dNote = rowDNote(elm, row);
       const labelText = dNote ? el("span", {}, [row.label, dNote]) : el("span", {}, [row.label]);
       tr.appendChild(el("td", { class: "row-table-label" + (shots ? " row-table-label-shots" : "") }, shots ? [el("div", { class: "row-label-with-shots" }, [labelText, shots])] : [labelText]));
@@ -11811,12 +11812,36 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     }
     return box;
   }
+  // A location's pictures (CageView.focusShots), the bars in their design
+  // colors (Part 2's) whichever part is open: { overview, zoom }, or null
+  // before the model has loaded.
+  function locationShotsAt(target, width, height) {
+    const tab = state.activeTab;
+    state.activeTab = 1;
+    let colors;
+    try { colors = computeCageColors(); } finally { state.activeTab = tab; }
+    return window.CageView.focusShots(target, { width, height, base: GUSSET_SHOT_BASE, colors, color: CAGE_COLOR.gussetSinglePlate });
+  }
+  // A click on a small location picture: the same pictures drawn big, in
+  // the picture viewer (the one clicked first).
+  function openLocationShots(key, which, label) {
+    const shots = locationShotsAt(gussetShotTargets.get(key) || key, 480, 360);
+    if (!shots) return;
+    const gallery = shots.overview
+      ? [{ image: shots.overview, caption: label + " -- where it is in the rollcage" }, { image: shots.zoom, caption: label + " -- close-up" }]
+      : [{ image: shots.zoom, caption: label + " -- green: the bar to measure or weld; red: the bar it's measured from or welded to" }];
+    state.mediaViewer = { zoomed: false, gallery, index: Math.min(which, gallery.length - 1) };
+    render();
+  }
   function fillGussetShots(box, shots) {
     box.removeAttribute("data-pending");
+    const key = box.getAttribute("data-gusset-file");
+    const label = box.getAttribute("data-label") || "";
+    const img = (src, which, alt, title) => el("img", { class: "gusset-loc-shot", src, alt, title: title + " (click to enlarge)",
+      onclick: (e) => { e.stopPropagation(); openLocationShots(key, which, label); } });
     box.replaceChildren(...(shots.overview
-      ? [el("img", { class: "gusset-loc-shot", src: shots.overview, alt: "Gusset location in the rollcage", title: "Where it is in the rollcage" }),
-        el("img", { class: "gusset-loc-shot", src: shots.zoom, alt: "Gusset close-up", title: "Close-up" })]
-      : [el("img", { class: "gusset-loc-shot", src: shots.zoom, alt: "Junction to measure", title: "Green: the bar end to measure; red: the bar it is measured from" })]));
+      ? [img(shots.overview, 0, "Gusset location in the rollcage", "Where it is in the rollcage"), img(shots.zoom, 1, "Gusset close-up", "Close-up")]
+      : [img(shots.zoom, 0, "Junction to measure", "Green: the bar to measure or weld; red: the bar it's measured from or welded to")]));
   }
   function scheduleGussetShots() {
     if (gussetShotTimer) return;
@@ -11828,12 +11853,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       const target = gussetShotTargets.get(file) || file;
       let shots = gussetShotCache.get(file);
       if (!shots) {
-        // The bars in their design colors (Part 2's), whichever part is open.
-        const tab = state.activeTab;
-        state.activeTab = 1;
-        let colors;
-        try { colors = computeCageColors(); } finally { state.activeTab = tab; }
-        shots = window.CageView.focusShots(target, { width: 120, height: 90, base: GUSSET_SHOT_BASE, colors, color: CAGE_COLOR.gussetSinglePlate });
+        shots = locationShotsAt(target, 120, 90);
         // The model not loaded yet: try again shortly.
         if (!shots) { gussetShotTimer = setTimeout(() => { gussetShotTimer = null; scheduleGussetShots(); }, 500); return; }
         gussetShotCache.set(file, shots);
