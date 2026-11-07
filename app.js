@@ -512,10 +512,16 @@
   }
   // Answers a design settles by itself: 253-1/253-2/253-3 and a half
   // rollcage have their 2 backstays (only asked for "Other design").
+  // 253-1/253-2/253-3 and a half rollcage have 2 backstays by definition:
+  // "backstays" is then hidden but answered "yes".
+  function backstaysImplied() {
+    const layout = state && state.answers && state.answers.main_structure_layout && state.answers.main_structure_layout.value;
+    return ["253-1", "253-2", "253-3", "half-rollcage"].includes(layout);
+  }
+  function impliedAnswer(elementId) { return elementId === "backstays" && backstaysImplied(); }
   function syncImpliedAnswers() {
     if (!state || !state.answers) return;
-    const layout = state.answers.main_structure_layout && state.answers.main_structure_layout.value;
-    if (["253-1", "253-2", "253-3", "half-rollcage"].includes(layout) && getAnswer("backstays").value !== "yes") {
+    if (backstaysImplied() && getAnswer("backstays").value !== "yes") {
       state.answers.backstays = Object.assign({}, getAnswer("backstays"), { value: "yes" });
     }
   }
@@ -879,6 +885,22 @@
     return req.combos.some((c) => diamIn >= c.minDiameterIn && thickIn >= c.minThicknessIn) ? "pass" : "fail";
   }
 
+  // Why an answered tubing card is still left to verify: its material isn't
+  // one the rulebook's size table covers (e.g. DOM against FIA's cold drawn
+  // seamless), so the inspector decides. Null when that isn't the reason.
+  function tubingVerifyReason(elm, answer) {
+    if (!elm || elm.evaluationType !== "tubing3solo" || !complianceJudged(elm)) return null;
+    const v = answer && answer.value;
+    if (!v || !v.material) return null;
+    if (v.material === "other") return "a material the rulebook's size table doesn't cover -- the inspector decides";
+    const req = (elm.requirements || []).find((r) => r.material === v.material);
+    if (!req) return "a material the rulebook's size table doesn't cover -- the inspector decides";
+    if (req.manualOnly) {
+      const seamless = (elm.requirements || []).find((r) => !r.manualOnly);
+      return (seamless ? "the rulebook asks for " + seamless.label.charAt(0).toLowerCase() + seamless.label.slice(1) + "; " : "") + req.label + " is left to the inspector";
+    }
+    return null;
+  }
   // Mounting foot plates: material (free text, no rule tied to it) +
   // thickness only (no diameter -- a flat plate, not a tube). FIA's rule is
   // a flat 3mm minimum regardless of material.
@@ -1460,7 +1482,7 @@
     } else if (failures.length > 0) {
       verdict = { level: "fail", label: "NOT COMPLIANT — required element(s) missing or failing", detail: failures.length + " required item(s) failed." };
     } else if (unresolved.length > 0) {
-      verdict = { level: "warn", label: "INCOMPLETE — needs verification before a call can be made", detail: unresolved.length + " required item(s) not yet answered or unsure." };
+      verdict = { level: "warn", label: "INCOMPLETE — needs verification before a call can be made", detail: unresolved.length + " required item(s) not yet answered, unsure or left to the inspector." };
     } else {
       verdict = { level: "pass", label: "MEETS REQUIREMENTS", detail: "All required items satisfied based on your answers." };
     }
@@ -6115,7 +6137,9 @@
     // design answer that brings it in, e.g. 253-7's gussets with 253-7.
     const notInDesignNow = (elementId, target) => {
       const elm = path.elements.find((e) => e.id === elementId);
-      return !!target.unexpected || (elm ? !elementVisible(elm) : false);
+      // (A hidden element answered by the base layout -- backstays with
+      // 253-1/2/3 -- is part of the design.)
+      return !!target.unexpected || (elm ? !elementVisible(elm) && !impliedAnswer(elementId) : false);
     };
     // A design's label with its sill bar (a door bar's extra field).
     const withSill = (label, extra) => label + ((extra || {}).sill_bar === "yes" ? " + sill bar" : (extra || {}).sill_bar === "no" ? ", no sill bar" : "");
@@ -6501,7 +6525,9 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       ]);
     };
     const selectedGroup = ["with", "without"].find((g) => (g === "with" ? withOpts : withoutOpts).some((o) => selectedIn(g, o)));
-    const open = sillGroupsOpen.get(elm.id) || { with: selectedGroup === "with", without: selectedGroup === "without" };
+    // Nothing picked yet: both groups open, every design in view.
+    const unanswered = !selectedGroup && (answer.value == null || answer.value === "");
+    const open = sillGroupsOpen.get(elm.id) || { with: unanswered || selectedGroup === "with", without: unanswered || selectedGroup === "without" };
     [["with", "Designs with sill bar", withOpts], ["without", "Designs without sill bar", withoutOpts]].forEach(([g, title, opts]) => {
       const isOpen = !!open[g];
       const box = el("div", { class: "choice-fold choice-fold-" + g + (isOpen ? " open" : "") + (selectedGroup === g ? " has-answer" : selectedGroup || answer.value === "none" ? " dimmed" : "") });
@@ -6709,6 +6735,8 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       if (unsafe) card.appendChild(renderUnsafeExplanation(unsafe));
     } else if (elm.evaluationType === "tubing3solo") {
       card.appendChild(renderTubing3Fields(elm, elm.id, answer));
+      const why = tubingVerifyReason(elm, answer);
+      if (why) card.appendChild(el("div", { class: "visual-flag" }, ["Left to verify: " + why + "."]));
     } else if (elm.evaluationType === "plateSolo" || elm.evaluationType === "gussetSolo") {
       card.appendChild(renderPlateSoloFields(elm.id, answer));
     } else if (elm.evaluationType === "numeric" && elm.fields) {
@@ -8423,7 +8451,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
         el(
           "ul",
           { class: "issue-list" },
-          results.unresolved.map((f) => issueListItem(f, f.name + refSuffix(f)))
+          results.unresolved.map((f) => { const why = f.id && tubingVerifyReason(f, getAnswer(f.id)); return issueListItem(f, f.name + refSuffix(f) + (why ? " — " + why : "")); })
         )
       );
     }
@@ -11548,7 +11576,11 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
   const X_HALF_COLORS = ["#ffffff", "#22c55e"];
   function xHalfBarGaps(colors) {
     const map = {};
+    // Part 3 (tube specifications): every X's half bars stop short of its
+    // continuous bar, a clear gap, so each tube reads as its own piece.
+    const tubing = state.activeTab === 2 && !state.pictureSelectMode && !state.damageSelectMode && !state.damageViewEventId;
     const add = (cut, cross, color) => {
+      if (tubing) { if (colors[cut] && colors[cut] !== "hidden" && colors[cross] && colors[cross] !== "hidden") map[cut] = { cross, halfGap: "clear", plain: true }; return; }
       if (colors[cut] === color && colors[cross] === color) map[cut] = { cross, halfGap: "flush" };
     };
     const main = getAnswer("main_hoop_diagonals").value;
@@ -11789,6 +11821,10 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       const pt = weldRowPoint(elementId, rowId);
       return pt ? locationShots("weld:" + JSON.stringify(pt), pt) : null;
     }
+    if (elementId === "tubing_bar_classification") {
+      const t = tubeRowTarget(rowId);
+      return t ? locationShots("tube:" + JSON.stringify(t), t) : null;
+    }
     if (JUNCTION_SHOT_TABLES.has(elementId)) {
       const pt = junctionRowPoint(elementId, rowId);
       // Keyed by the bars measured from too: the same bar end can be
@@ -11797,6 +11833,39 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       return pt ? locationShots([pt.file, pt.end].concat(pt.refs || []).join("|"), pt) : null;
     }
     return null;
+  }
+  // The design's colors (Part 2's), worked out once per render -- forgotten
+  // as soon as this task ends.
+  let designColorsMemo = null;
+  function designColorsNow() {
+    if (designColorsMemo) return designColorsMemo;
+    const tab = state.activeTab;
+    state.activeTab = 1;
+    try { designColorsMemo = computeCageColors(); } finally { state.activeTab = tab; }
+    setTimeout(() => { designColorsMemo = null; }, 0);
+    return designColorsMemo;
+  }
+  // A tube specification row's bar(s) on the model: { tube: files } -- or,
+  // for a half of a cut bar with a row of its own (tubeRowSplitBand), that
+  // half: { tube: [file], half: { cross, axis, sign } }. Null for none.
+  function tubeRowTarget(rowId) {
+    const colors = designColorsNow();
+    const files = [];
+    let half = null;
+    Object.keys(colors).forEach((file) => {
+      if (!colors[file] || colors[file] === "hidden") return;
+      const band = tubeRowSplitBand(file);
+      if (band) {
+        if (band.insideRow !== rowId && band.outsideRow !== rowId) return;
+        const cross = /^Roof bar/.test(file) ? "Roof bar 1.stl"
+          : continuousDoorTubeFile(band.insideRow.indexOf("_left_") !== -1 ? "left" : "right");
+        half = { tube: [file], half: { cross, axis: band.axis, sign: band.insideRow === rowId ? 1 : -1 } };
+        return;
+      }
+      if (fileTubeRow(file) === rowId) files.push(file);
+    });
+    if (half) return half;
+    return files.length ? { tube: files.sort() } : null;
   }
   function locationShots(key, target) {
     if (!window.CageView || !window.CageView.focusShots) return null;
@@ -11829,6 +11898,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     if (!shots) return;
     const gallery = shots.overview
       ? [{ image: shots.overview, caption: label + " -- where it is in the rollcage" }, { image: shots.zoom, caption: label + " -- close-up" }]
+      : shots.tube ? [{ image: shots.zoom, caption: label + " -- green: this tube" }]
       : [{ image: shots.zoom, caption: label + " -- green: the bar to measure or weld; red: the bar it's measured from or welded to" }];
     state.mediaViewer = { zoomed: false, gallery, index: Math.min(which, gallery.length - 1) };
     render();
@@ -11841,6 +11911,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       onclick: (e) => { e.stopPropagation(); openLocationShots(key, which, label); } });
     box.replaceChildren(...(shots.overview
       ? [img(shots.overview, 0, "Gusset location in the rollcage", "Where it is in the rollcage"), img(shots.zoom, 1, "Gusset close-up", "Close-up")]
+      : shots.tube ? [img(shots.zoom, 0, "Tube location", "Green: this tube")]
       : [img(shots.zoom, 0, "Junction to measure", "Green: the bar to measure or weld; red: the bar it's measured from or welded to")]));
   }
   function scheduleGussetShots() {

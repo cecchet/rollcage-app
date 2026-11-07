@@ -1814,8 +1814,10 @@
   // its continuous bar (the live model after each applyState, and the option
   // pictures, tools/choice-images.mjs). halfGap: half the gap's length, in
   // model units (cm); 0 for none (the halves only colored), "flush" to end
-  // them inside the continuous tube. halfColors: [color, color] -- each half bar of a cut
-  // bar drawn in its own color. An empty map takes every gap away.
+  // them inside the continuous tube, "clear" for a gap of 3cm either side of
+  // it. halfColors: [color, color] -- each half bar of a cut
+  // bar drawn in its own color (not for a spec with plain: true, which keeps
+  // the bar's own colors and only cuts the gap). An empty map takes every gap away.
   const gapFiles = new Set();
   function setGaps(map, halfGap, halfColors) {
     onReady(() => applyGaps(map, halfGap, halfColors));
@@ -1843,7 +1845,8 @@
       // radius over the sine of the crossing angle).
       const sin = Math.sqrt(Math.max(0, 1 - Math.pow(a.d.dot(b.d), 2)));
       const g = spec.halfGap != null ? spec.halfGap : halfGap != null ? halfGap : 5;
-      const w = g === "flush" ? (0.6 * tubeRadius(cross, b)) / Math.max(sin, 0.15) : g;
+      // "clear": a gap of 3cm either side of the continuous tube.
+      const w = g === "flush" ? (0.6 * tubeRadius(cross, b)) / Math.max(sin, 0.15) : g === "clear" ? tubeRadius(cross, b) / Math.max(sin, 0.15) + 3 : g;
       // The point on the cut bar's axis closest to the crossing bar's axis.
       const r = a.c.clone().sub(b.c);
       const dd = a.d.dot(b.d), e = a.d.dot(r), f = b.d.dot(r);
@@ -1856,7 +1859,7 @@
       // axis (a clipping plane drops what's on its negative side).
       const keepBelow = new THREE.Plane(n.clone().negate(), k - w);
       const keepAbove = new THREE.Plane(n.clone(), -(k + w));
-      if (halfColors) {
+      if (halfColors && !spec.plain) {
         // Each half drawn by its own copy of the bar (same geometry, so any
         // bend/lean of it follows), in its own color; the bar itself stays
         // for clicks and hovers, but draws nothing. Its geometry is left
@@ -2009,8 +2012,128 @@
     }
     return { mesh: m, point: farthestPoint([m], target.end).point };
   }
+  // A tube's picture (Part 3's tube specifications): target.tube, its
+  // files, green (opts.measuredColor), the rest of the design ghost bars,
+  // from whichever of a few directions shows the most of it, the whole tube
+  // in view. target.half: only part of a cut bar -- { cross: the bar it's
+  // cut at, axis: "x"|"y"|"z", sign: 1|-1 } keeps the half on that side of
+  // the crossing (the other half ghost). { overview: null, zoom }.
+  function tubeShots(target, opts) {
+    const W = (opts && opts.width) || 120, H = (opts && opts.height) || 90;
+    const files = target.tube.filter((f) => meshes[f]);
+    if (!files.length) return null;
+    const designed = (f) => {
+      const c = opts && opts.colors ? opts.colors[f] : null;
+      return opts && opts.colors ? typeof c === "string" && c !== "hidden" : meshes[f].visible && !ghostFiles.has(f);
+    };
+    const size = renderer.getSize(new THREE.Vector2());
+    const ratio = renderer.getPixelRatio();
+    const savedAspect = camera.aspect;
+    const prevLocal = renderer.localClippingEnabled;
+    const ghost = new THREE.MeshStandardMaterial({ color: 0x8a9099, roughness: 0.8, metalness: 0, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide });
+    const green = new THREE.MeshStandardMaterial({ color: (opts && opts.measuredColor) || "#22c55e", roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide });
+    const hiddenBar = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+    const saved = [];
+    const tubeBox = new THREE.Box3(), cageBox = new THREE.Box3();
+    Object.keys(meshes).forEach((f) => {
+      const m = meshes[f];
+      saved.push([m, m.visible, m.material]);
+      (m.userData.gapHalves || []).forEach((h) => { saved.push([h, h.visible, h.material]); h.visible = false; });
+      const bar = designed(f) && !/gusset|^(Driver|Codriver)/i.test(f);
+      if (files.includes(f)) { m.visible = true; m.material = green; }
+      else if (bar) { m.visible = true; m.material = ghost; }
+      else m.visible = false;
+      if (m.visible) {
+        m.updateMatrixWorld(true);
+        cageBox.expandByObject(m);
+        if (files.includes(f) && !target.half) tubeBox.expandByObject(m);
+      }
+    });
+    // A half: 2 clipped copies of the bar, its half green, the other ghost.
+    const copies = [];
+    if (target.half && meshes[target.half.cross]) {
+      const m = meshes[files[0]];
+      const a = barAxis(m), b = barAxis(meshes[target.half.cross]);
+      const r = a.c.clone().sub(b.c);
+      const dd = a.d.dot(b.d), e = a.d.dot(r), f = b.d.dot(r);
+      const den = 1 - dd * dd;
+      const p = a.c.clone().addScaledVector(a.d, den > 1e-6 ? (dd * f - e) / den : 0);
+      const n = new THREE.Vector3(target.half.axis === "x" ? 1 : 0, target.half.axis === "y" ? 1 : 0, target.half.axis === "z" ? 1 : 0).multiplyScalar(target.half.sign || 1);
+      const keep = new THREE.Plane(n.clone(), -n.dot(p));
+      [[green, keep], [ghost, keep.clone().negate()]].forEach(([mat, plane]) => {
+        const c = new THREE.Mesh(m.geometry, mat.clone());
+        c.material.clippingPlanes = [plane];
+        c.raycast = () => {};
+        m.add(c);
+        copies.push(c);
+      });
+      m.material = hiddenBar;
+      renderer.localClippingEnabled = true;
+      // The half's own extent: the bar's box cut at the crossing.
+      const bb = new THREE.Box3().setFromObject(m);
+      const ax = target.half.axis;
+      if ((target.half.sign || 1) > 0) bb.min[ax] = Math.max(bb.min[ax], p[ax]); else bb.max[ax] = Math.min(bb.max[ax], p[ax]);
+      tubeBox.union(bb);
+    }
+    const g = tubeBox.getCenter(new THREE.Vector3());
+    const tSize = Math.max(tubeBox.getSize(new THREE.Vector3()).length(), 20);
+    const center = cageBox.getCenter(new THREE.Vector3());
+    renderer.setPixelRatio(2);
+    renderer.setSize(W, H, false);
+    camera.aspect = W / H;
+    camera.updateProjectionMatrix();
+    const vFov = THREE.MathUtils.degToRad(camera.fov);
+    const fit = Math.sin(Math.min(vFov, 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect)) / 2);
+    const dist = (tSize * 0.62) / fit;
+    const look = (d) => {
+      camera.position.copy(g).addScaledVector(d, dist);
+      camera.up.set(0, 0, 1);
+      camera.lookAt(g);
+      camera.updateMatrixWorld(true);
+      renderer.render(scene, camera);
+    };
+    // Out from the cage's middle toward the tube (or its side, for a tube
+    // through the middle), turned either way, from above, and from the
+    // front / rear / sides -- whichever shows the most green.
+    const out = g.clone().sub(center);
+    out.z = 0;
+    if (out.lengthSq() < 4) out.set(0, 1, 0);
+    out.normalize();
+    const turn = (v, deg) => v.clone().applyAxisAngle(new THREE.Vector3(0, 0, 1), (deg * Math.PI) / 180);
+    const cands = [out.clone().setZ(0.5), turn(out, 50).setZ(0.5), turn(out, -50).setZ(0.5), new THREE.Vector3(0.25, 0.25, 1),
+      new THREE.Vector3(1, 0, 0.4), new THREE.Vector3(-1, 0, 0.4), new THREE.Vector3(0, 1, 0.4), new THREE.Vector3(0, -1, 0.4)];
+    const probe = document.createElement("canvas");
+    probe.width = 60; probe.height = 45;
+    const pctx = probe.getContext("2d", { willReadFrequently: true });
+    let best = null;
+    cands.forEach((cnd) => {
+      const d = cnd.clone().normalize();
+      look(d);
+      pctx.drawImage(renderer.domElement, 0, 0, 60, 45);
+      const px = pctx.getImageData(0, 0, 60, 45).data;
+      let n = 0;
+      for (let i = 0; i < px.length; i += 4) if (px[i + 1] > px[i] + 40 && px[i + 1] > px[i + 2] + 30) n++;
+      // A little preference for the first (out from the middle) direction.
+      const score = n * (best ? 1 : 1.1);
+      if (!best || score > best.score) best = { score, d };
+    });
+    look(best.d);
+    const zoom = renderer.domElement.toDataURL("image/png");
+    copies.forEach((c) => { c.parent.remove(c); c.material.dispose(); });
+    renderer.localClippingEnabled = prevLocal;
+    saved.forEach(([m, visible, material]) => { m.visible = visible; m.material = material; });
+    ghost.dispose(); green.dispose(); hiddenBar.dispose();
+    renderer.setPixelRatio(ratio);
+    renderer.setSize(size.x, size.y, false);
+    camera.aspect = savedAspect;
+    camera.updateProjectionMatrix();
+    updateCamera();
+    renderer.render(scene, camera);
+    return { overview: null, zoom, tube: true };
+  }
   function focusShots(target, opts) {
     if (!ready || !renderer) return null;
+    if (target && target.tube) return tubeShots(target, opts);
     const junction = typeof target !== "string";
     const W = (opts && opts.width) || 120, H = (opts && opts.height) || 90, color = (opts && opts.color) || "#ff3b30";
     const base = new Set((opts && opts.base) || []);
