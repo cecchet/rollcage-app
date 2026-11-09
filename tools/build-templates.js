@@ -376,7 +376,7 @@ function fillGussetSizes(answers) {
 // A door bar design that can take a sill bar always says whether it has
 // one (the app asks both together): a sample that left it out has none,
 // as its 3D model shows.
-const SILL_DESIGNS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "single-bar"];
+const SILL_DESIGNS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "253-8", "single-bar"];
 function fillSillBars(answers) {
   ["door_bars_left", "door_bars_right"].forEach((k) => {
     const a = answers[k];

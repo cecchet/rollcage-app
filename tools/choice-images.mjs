@@ -44,6 +44,7 @@ function doorSet(side) {
     "253-9-bent": bent("1 bend"),
     "253-9-bent-2": bent("2 bends"),
     "253-10": ["Door bar 253-10 upper " + side + ".stl", "Door bar 253-10 front " + side + ".stl", "Door bar 253-10 rear " + side + ".stl"],
+    "253-8": ["Door bar 253-10 upper " + side + ".stl"],
   };
   const options = {};
   Object.entries(designs).forEach(([id, d]) => {
@@ -177,7 +178,7 @@ const GRAB = `const url = CageView.viewImage();
 
 export default async function (a) {
   await a.go("http://localhost:5003/");
-  await a.eval(`${W(800)} ${BTN} const exit = btn(/Exit the tutorial/); if (exit) exit.click(); ${W(500)}
+  await a.eval(`${W(3000)} ${BTN} const exit = btn(/Exit the tutorial/); if (exit) exit.click(); ${W(500)}
     if (!document.getElementById('library-dialog')) { btn(/^Rollcage library$/).click(); ${W(2500)} }
     btn(/Start a new rollcage/).click(); ${W(2500)}
     const d = btn(/^Discard$/); if (d) { d.click(); ${W(2000)} }

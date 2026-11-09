@@ -157,6 +157,8 @@
   // NASCAR: parallel top/bottom rails (253-10's top rail + the sill bar)
   // with 2 vertical bars between them, matching the real part count.
   D["stock-car"] = wrap(doorOpening + `<path d="M30,30 L110,30 M30,70 L110,70" ${HI}/><path d="M57,30 L57,70 M83,30 L83,70" ${HI}/>`);
+  // 253-8: one horizontal bar across the door opening.
+  D["253-8"] = wrap(doorOpening + `<path d="M25,45 L115,45" ${HI}/>`);
   // A single bar, captured for identification -- top-left to bottom-right.
   D["single-bar"] = wrap(doorOpening + `<path d="M30,20 L110,80" ${HI}/>`);
   // Sill bar sub-toggle icon -- same door-opening context, just the
@@ -178,7 +180,7 @@
   // in style.css).
   // Bumped by tools/choice-images.mjs each time it redraws the pictures, so
   // browsers fetch the new ones instead of their cached copies.
-  const IMG_V = 4;
+  const IMG_V = 5;
   const wrapImg = (src) => `<img src="images/${src}?v=${IMG_V}" alt="" class="diagram-icon diagram-icon-photo">`;
 
   // ---- Base structure layout (253-1/253-2/253-3/half rollcage) -- real
@@ -212,7 +214,7 @@
   ["left", "right"].forEach((side) => pics("door-" + side + "-", "door-" + side + "_", [
     "253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10",
     "253-9-intersection-1-sill", "253-9-intersection-2-sill", "253-9-bent-sill", "253-9-bent-2-sill", "253-10-sill",
-    "253-11", "nascar", "single-bar", "none",
+    "253-8", "253-8-sill", "253-11", "nascar", "single-bar", "none",
   ]));
   ["253-18", "253-25", "253-29", "253-30"].forEach((n) => { D[n + "-3d"] = wrapImg(n + "_yes.png"); D[n + "-3d-none"] = wrapImg(n + "_no.png"); });
 

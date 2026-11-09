@@ -625,6 +625,42 @@
     return rules && !rules.agnostic && !CFG.logbook && state.vehicle.logbookPath === "grandfathered" && rules.paths.grandfathered ? rules.paths.grandfathered : null;
   }
   function compliancePath(path) { return grandfatheredPath() || path; }
+  // A body with dated editions (FIA 253): which text and year to judge by --
+  // { edition, year, carYear, picked } -- or null for one without. The car's
+  // year is Part 1's homologation year (or the year its technical passport
+  // was first issued); "By the car's homologation year" (the default) picks
+  // the edition from it, as the FIA text itself does. Without a year it
+  // falls back to the 2020 text, judged at that edition's last year.
+  function fiaRuleContext() {
+    const rules = RULES[state.vehicle.org];
+    if (!rules || (!rules.editions && !rules.datedRules)) return null;
+    const n = parseInt(getAnswer("vehicle_homologation_year").value, 10);
+    const carYear = n >= 1900 && n <= 2100 ? n : null;
+    // The body's own choice of text (FFSA: by the technical passport year).
+    if (rules.contextFor) return Object.assign({ carYear, picked: null, label: "", vehicle: state.vehicle }, rules.contextFor(carYear, state.vehicle));
+    // One text with dates of its own (OMAE): without a year, the newest rules.
+    if (!rules.editions) return { edition: "national", year: carYear != null ? carYear : 9999, carYear, picked: null, label: "", vehicle: state.vehicle, discipline: rules.discipline || "" };
+    const picked = rules.editions.some((e) => e.id === state.vehicle.fiaEdition) ? state.vehicle.fiaEdition : "auto";
+    // (A period text is only ever picked by hand.)
+    const autoEditions = rules.editions.filter((e) => e.auto !== false);
+    const edition = picked !== "auto" ? picked
+      : carYear == null ? "2020" : (autoEditions.find((e) => carYear >= e.from) || autoEditions[autoEditions.length - 1]).id;
+    const ed = rules.editions.find((e) => e.id === edition);
+    // The edition the car's year alone gives (shown with "By the car's
+    // homologation year").
+    const byYear = carYear == null ? null : (autoEditions.find((e) => carYear >= e.from) || autoEditions[autoEditions.length - 1]);
+    return { edition, year: carYear != null ? carYear : ed.lastYear, carYear, picked, label: ed.label, yearLabel: byYear ? byYear.label : null, vehicle: state.vehicle };
+  }
+  // An element's dated rule (rules-data.js byDate) for this answer:
+  // { status, note } overriding the answer's own outcome, or null.
+  // The Frog Safety score's safety limits are judged without them (a
+  // period text not asking for something doesn't make it safe).
+  let ignoreDateRules = false;
+  function dateRuleResult(el, value) {
+    if (ignoreDateRules || !el || !el.byDate || !value) return null;
+    const ctx = fiaRuleContext();
+    return ctx ? el.byDate(value, ctx, getAnswer) : null;
+  }
   // Falls back to no sanctioning body for a saved/imported org this build
   // doesn't know (or none at all).
   function knownOrg(org) { return org && RULES[org] && orgOffered(org) ? org : "none"; }
@@ -670,6 +706,11 @@
       if (!value) return el.requirement === "recommended" ? "neutral" : "warn";
       const opt = el.options.find((o) => o.id === value);
       if (!opt) return "warn";
+      // A dated rule (FIA 253's editions) can pass or fail it instead.
+      const dated = dateRuleResult(el, value);
+      if (dated && dated.status === "pass") return "pass";
+      if (dated && dated.status === "warn") return "warn";
+      if (dated && dated.status === "fail") return el.requirement === "recommended" ? "warn" : "fail";
       if (opt.outcome === "exempt") return "pass";
       if (opt.outcome === "fail") {
         // Same recommendedIf gate as a boolean (see below): a purely
@@ -718,6 +759,9 @@
     }
     // boolean / attestation share yes/no/unsure
     if (answer.value === "yes") return "pass";
+    // A dated rule (FIA's period texts) can pass a "no".
+    const datedNo = answer.value === "no" ? dateRuleResult(el, "no") : null;
+    if (datedNo && datedNo.status === "pass") return "pass";
     // A "recommended" boolean can declare recommendedIf(getAnswer) to gate
     // whether it's actually worth recommending right now (e.g.
     // anti_intrusion_present is only a real recommendation on a pre-2002
@@ -866,6 +910,12 @@
   // against whichever material's minimums were matched. Material "other"
   // (a spec we don't have a rule for) is left as "warn" for the inspector
   // to judge manually via the notes field, rather than auto-failing it.
+  // A tubing card's size table: its edition's (FIA 1990-1993: the smaller
+  // size throughout) or its own.
+  function tubingRequirements(sub) {
+    const ctx = fiaRuleContext();
+    return (ctx && sub.requirementsByEdition && sub.requirementsByEdition[ctx.edition]) || sub.requirements || [];
+  }
   function tubing3Status(sub, answer) {
     const v = answer.value;
     if (!v || !v.material) return "warn";
@@ -873,7 +923,7 @@
     // (Part 6 checks it against a PassTech body's own weight table).
     if (!complianceJudged()) return toInches(v.diameter) != null && toInches(v.thickness) != null ? "pass" : "warn";
     if (v.material === "other") return "warn";
-    const req = sub.requirements.find((r) => r.material === v.material);
+    const req = tubingRequirements(sub).find((r) => r.material === v.material);
     if (!req) return "warn";
     if (req.manualOnly) return "warn";
     const diamIn = toInches(v.diameter);
@@ -893,10 +943,10 @@
     const v = answer && answer.value;
     if (!v || !v.material) return null;
     if (v.material === "other") return "a material the rulebook's size table doesn't cover -- the inspector decides";
-    const req = (elm.requirements || []).find((r) => r.material === v.material);
+    const req = tubingRequirements(elm).find((r) => r.material === v.material);
     if (!req) return "a material the rulebook's size table doesn't cover -- the inspector decides";
     if (req.manualOnly) {
-      const seamless = (elm.requirements || []).find((r) => !r.manualOnly);
+      const seamless = tubingRequirements(elm).find((r) => !r.manualOnly);
       return (seamless ? "the rulebook asks for " + seamless.label.charAt(0).toLowerCase() + seamless.label.slice(1) + "; " : "") + req.label + " is left to the inspector";
     }
     return null;
@@ -1431,7 +1481,8 @@
 
     const rows = visibleElements.map((el) => {
       const answer = getAnswer(el.id);
-      const status = el.isRoutingQuestion ? (answer.value ? "pass" : "warn") : elementStatus(el, answer);
+      const dated = el.isRoutingQuestion ? dateRuleResult(el, answer.value) : null;
+      const status = el.isRoutingQuestion ? (!answer.value ? "warn" : dated && dated.status === "fail" ? "fail" : "pass") : elementStatus(el, answer);
       return { el, answer, status };
     });
 
@@ -1442,7 +1493,16 @@
     const advisories = [];
 
     rows.forEach(({ el, status }) => {
-      if (el.isRoutingQuestion) return;
+      if (el.isRoutingQuestion) {
+        // Only a dated rule fails it (a home-built cage under the current
+        // FIA text); otherwise it's just a route.
+        if (status === "fail") {
+          const dated = dateRuleResult(el, getAnswer(el.id).value);
+          requiredTotal++;
+          failures.push(Object.assign({}, el, { hardFailMessage: dated ? dated.note : el.hardFailMessage }));
+        }
+        return;
+      }
       const counts = el.requirement === "required" || el.requirement === "conditional" || el.requirement === "exception";
       if (counts) {
         requiredTotal++;
@@ -1474,6 +1534,19 @@
           if (subStatus === "warn") unresolved.push(pseudoEl);
         });
       }
+    });
+
+    // A path's own checks across answers (FIA 253 2016's minimum
+    // configuration): { name, reference, status, message, jumpTo } each.
+    const ctx = fiaRuleContext();
+    (path.checks || []).forEach((check) => {
+      const r = ctx ? check.run(getAnswer, ctx) : null;
+      if (!r) return;
+      const pseudoEl = { name: r.name, reference: r.reference, hardFailMessage: r.message, verifyNote: r.message, elementId: r.jumpTo || undefined };
+      requiredTotal++;
+      if (r.status === "pass") requiredSatisfied++;
+      if (r.status === "fail") failures.push(pseudoEl);
+      if (r.status === "warn") unresolved.push(pseudoEl);
     });
 
     let verdict;
@@ -2048,6 +2121,7 @@
     { label: "Model", id: "vehicle_model" },
     { label: "Year", id: "vehicle_year" },
     { label: "VIN", id: "vehicle_vin" },
+    { label: "Car homologation year", id: "vehicle_homologation_year" },
     { label: "Vehicle weight", id: "vehicle_weight", isWeight: true },
     { label: "Drive configuration", id: "vehicle_drive_side", map: { lhd: "Left-hand drive", rhd: "Right-hand drive" } },
     { label: "Occupants", id: "vehicle_codriver", map: { no: "Driver only", yes: "Driver + Codriver" } },
@@ -3510,6 +3584,13 @@
       vehiclePanel.appendChild(
         el("div", { class: "field-row" }, [
           textAnswerField("VIN", "vehicle_vin"),
+          // Which FIA 253 text applies (Part 7): the car's FIA homologation
+          // year -- or, not homologated with the FIA, the year its
+          // technical passport (logbook) was first issued.
+          el("div", { class: "field", id: "vehicle-homologation-year-field" }, [
+            textAnswerField("Car homologation year", "vehicle_homologation_year", "e.g. 2004", "number"),
+            el("div", { class: "field-hint" }, ["The year the car model was homologated (its FIA or national homologation form) -- not the cage. For a car never homologated, the year its technical passport (logbook) was first issued. Older cars are checked against older rules."]),
+          ]),
         ])
       );
       vehiclePanel.appendChild(
@@ -3752,17 +3833,23 @@
     // By discipline. The rally bodies with a full FIA 253 checklist of their
     // own lead the Rally group, ahead of its rollover-protection-rule ones
     // -- each option says which kind of check it gets.
-    const fullChecklist = keys.filter((k) => !RULES[k].agnostic && k !== "fia");
-    const byGroup = fullChecklist.length ? { Rally: fullChecklist } : {};
+    // A full checklist body goes in its own discipline's group (OMAE's
+    // entries), else Rally.
+    const fullChecklist = keys.filter((k) => !RULES[k].agnostic && k !== "fia" && !RULES[k].passTech);
+    const byGroup = {};
+    fullChecklist.forEach((k) => { const g = RULES[k].disciplineGroup || "Rally"; (byGroup[g] = byGroup[g] || []).push(k); });
     keys.filter((k) => RULES[k].passTech).forEach((k) => {
       const g = RULES[k].passTech.disciplineGroup;
       (byGroup[g] = byGroup[g] || []).push(k);
     });
     Object.keys(byGroup).sort().forEach((group) => {
-      const label = group === "Rally" && fullChecklist.length ? "Rally" : group + " -- rollover protection rules";
+      // A group with a full checklist body says, option by option, which
+      // kind of check each gets.
+      const mixed = byGroup[group].some((k) => !RULES[k].passTech);
+      const label = mixed ? group : group + " -- rollover protection rules";
       orgSelect.appendChild(el("optgroup", { label }, byGroup[group].map((k) => {
         const opt = option(k);
-        if (label === "Rally") opt.textContent += RULES[k].passTech ? " -- rollover protection rules" : " -- full checklist";
+        if (mixed) opt.textContent += RULES[k].passTech ? " -- rollover protection rules" : " -- full checklist";
         return opt;
       })));
     });
@@ -3795,6 +3882,55 @@
           radioOption("logbookPath", "grandfathered", gf.label + when(gf), current === "grandfathered", () => pick("grandfathered")),
         ]),
       ]));
+    }
+    // FIA 253's editions: by the car's homologation year (the FIA text's own
+    // rule), or one edition picked.
+    if (orgRules && orgRules.editions && !CFG.logbook) {
+      const ctx = fiaRuleContext();
+      const select = el("select", { onchange: (e) => { state.vehicle.fiaEdition = e.target.value; markDirty(); render(); } });
+      const auto = ctx.carYear != null ? "By the car's homologation year (" + ctx.carYear + ": " + ctx.yearLabel.replace(/ \(.*\)$/, "") + ")" : "By the car's homologation year";
+      [["auto", auto]].concat(orgRules.editions.map((e) => [e.id, e.label])).forEach(([v, label]) => {
+        const o = el("option", { value: v }, [label]);
+        if (ctx.picked === v) o.selected = true;
+        select.appendChild(o);
+      });
+      const yearLink = el("a", { href: "#", onclick: (e) => { e.preventDefault(); jumpToVehicleField("vehicle-homologation-year-field"); } }, ["car homologation year in Part 1"]);
+      const hint = ctx.carYear == null
+        ? el("div", { class: "field-hint field-hint-warn" }, ["No ", yearLink, " yet: the 2020 text is used. Enter it to check an older car against the rules of its time."])
+        : ctx.picked === "auto" ? null
+        : el("div", { class: "field-hint" }, ["Checked against the " + ctx.label.replace(/ \(.*\)$/, "") + ", whatever the car's year (" + ctx.carYear + ")."]);
+      children.push(el("div", { class: "field" }, [el("label", {}, ["Rules to check against"]), select, hint]));
+    }
+    // A body's own questions about the car (OMAE: discipline, car category).
+    if (orgRules && orgRules.vehicleQuestions) {
+      orgRules.vehicleQuestions.forEach((q) => {
+        if (q.type === "year") {
+          children.push(el("div", { class: "field" }, [el("label", {}, [q.label]), el("input", {
+            type: "number", value: state.vehicle[q.key] || "", placeholder: q.placeholder || "",
+            onchange: (e) => { state.vehicle[q.key] = e.target.value; markDirty(); render(); },
+          })]));
+          return;
+        }
+        const select = el("select", { onchange: (e) => { state.vehicle[q.key] = e.target.value; markDirty(); render(); } });
+        q.options.forEach((o) => {
+          const opt = el("option", { value: o.id }, [o.label]);
+          if ((state.vehicle[q.key] || "") === o.id) opt.selected = true;
+          select.appendChild(opt);
+        });
+        children.push(el("div", { class: "field" }, [el("label", {}, [q.label]), select]));
+      });
+    }
+    if (orgRules && orgRules.contextFor) {
+      const ctx = fiaRuleContext();
+      const yearLink = el("a", { href: "#", onclick: (e) => { e.preventDefault(); jumpToVehicleField("vehicle-homologation-year-field"); } }, ["car homologation year in Part 1"]);
+      children.push(el("div", { class: "field-hint" }, [ctx.note]));
+      if (ctx.edition === "2016" && ctx.carYear == null) children.push(el("div", { class: "field-hint field-hint-warn" }, ["No ", yearLink, " yet: the 2016 text's dates are read as a 2016 car."]));
+    } else if (orgRules && orgRules.datedRules && !orgRules.editions) {
+      const ctx = fiaRuleContext();
+      const yearLink = el("a", { href: "#", onclick: (e) => { e.preventDefault(); jumpToVehicleField("vehicle-homologation-year-field"); } }, ["car homologation year in Part 1"]);
+      children.push(ctx.carYear == null
+        ? el("div", { class: "field-hint field-hint-warn" }, ["No ", yearLink, " yet: checked as a recent car. Older cars get relaxations (253-8 door bars, no roof or windscreen pillar bars, a single diagonal...)."])
+        : el("div", { class: "field-hint" }, ["Checked for a car homologated in " + ctx.carYear + " (", yearLink, ")."]));
     }
     const pt = RULES[state.vehicle.org] && RULES[state.vehicle.org].passTech;
     if (pt && pt.classes.length) {
@@ -4012,6 +4148,8 @@
       if (chosenOpt && chosenOpt.note) {
         routeField.appendChild(el("div", { class: "visual-flag" }, [chosenOpt.note]));
       }
+      const routeDated = dateRuleResult(routeElm, routeAnswer.value);
+      if (routeDated) routeField.appendChild(dateRuleNote(routeDated));
       logbookPanel.appendChild(routeField);
     }
   }
@@ -6540,6 +6678,13 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       card.appendChild(box);
     });
     if (restOpts.length) card.appendChild(el("div", { class: "choice-radio-group" }, restOpts.map((o) => option(o, "rest"))));
+    const dated = dateRuleResult(elm, answer.value);
+    if (dated) card.appendChild(dateRuleNote(dated));
+  }
+  // A dated rule's note on its card: why the answer passes (or fails) for
+  // this car's homologation year / the FIA edition picked in Part 7.
+  function dateRuleNote(dated) {
+    return el("div", { class: "date-rule-note date-rule-" + dated.status }, [dated.note]);
   }
 
   function elementSummary(elm, answer) {
@@ -6728,9 +6873,11 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
         group.appendChild(optionLabel);
       });
       const chosenOpt = elm.options.find((o) => o.id === answer.value);
-      if (chosenOpt && chosenOpt.note) {
+      const dated = dateRuleResult(elm, answer.value || (elm.unansweredAs && getAnswer(elm.unansweredAs.when.id).value === elm.unansweredAs.when.equals ? elm.unansweredAs.value : ""));
+      if (chosenOpt && chosenOpt.note && !(dated && dated.status === "pass")) {
         card.appendChild(el("div", { class: "visual-flag" }, [chosenOpt.note]));
       }
+      if (dated) card.appendChild(dateRuleNote(dated));
       const unsafe = unsafeExplanationFor(elm.id, null, answer.value, elm.id);
       if (unsafe) card.appendChild(renderUnsafeExplanation(unsafe));
     } else if (elm.evaluationType === "tubing3solo") {
@@ -6828,6 +6975,8 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
         )
       );
       card.appendChild(row);
+      const dated = dateRuleResult(elm, answer.value);
+      if (dated) card.appendChild(dateRuleNote(dated));
     }
 
     if (elm.extraFields) {
@@ -7436,7 +7585,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       return getAnswer("vehicle_codriver").value === "yes" ? "orange" : "green";
     }
     if (v === "253-10" || v === "253-11") return "orange";
-    if (v === "single-bar" || v === "none") return "red";
+    if (v === "253-8" || v === "single-bar" || v === "none") return "red";
     return null;
   }
   // Optional bars: any real design present is a bonus (green) no matter how
@@ -7486,7 +7635,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
   // penalty (see computeSafetyScoreRows' roof / backstay pairing).
   const ROOF_253_13_BAD_BACKSTAYS = new Set(["none", "253-22"]);
   // ...and the doors: one lone bar, or none at all.
-  const UNSAFE_DOOR_BARS = new Set(["single-bar", "none"]);
+  const UNSAFE_DOOR_BARS = new Set(["253-8", "single-bar", "none"]);
   function isSingleDiagonalRoof(v) { return v === "single-front-left" || v === "single-front-right"; }
   // Per-element known-unsafe answers: each returns the note to append to
   // that row's value text, or null if the answer isn't one of them. Any
@@ -8110,8 +8259,13 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       if (v === "no") return col && col.type === "compliance" ? "Not compliant" : "No";
       return String(v);
     };
+    ignoreDateRules = true;
+    try {
     path.elements.forEach((elm) => {
       if (!isSafetyLimit(elm) || !elementVisible(elm)) return; // Parts 3-4, plus any element flagged safetyLimit (e.g. routing of lines)
+      // The construction route is a rules question (a homologated cage
+      // required), not a safety one.
+      if (elm.isRoutingQuestion) return;
       if (elm.columns && elm.columns.some((c) => c.safetyLimit)) return; // junction distances: scored per mm above
       const answer = getAnswer(elm.id);
       const flag = (id, label, valueText, target) => {
@@ -8142,6 +8296,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
         flag(elm.id + "__violation", elm.name, answer.value ? elementSummary(elm, answer) : "Not met", { elementId: elm.id });
       }
     });
+    } finally { ignoreDateRules = false; }
 
     // Rows are built rule by rule above, not in page order -- list them in
     // the same order as the checklist itself: by the position of the
@@ -8441,7 +8596,13 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
         el(
           "ul",
           { class: "issue-list" },
-          results.failures.map((f) => issueListItem(f, f.name + " — " + (f.hardFailMessage || "") + refSuffix(f)))
+          results.failures.map((f) => {
+            // A dated rule's own reason (e.g. 253-8 for a car from 2007 on).
+            const d = f.id && f.byDate ? dateRuleResult(f, getAnswer(f.id).value) : null;
+            const msg = d && d.status === "fail" ? d.note : f.hardFailMessage || "";
+            // (A note citing its own reference doesn't repeat it.)
+            return issueListItem(f, f.name + " — " + msg + (f.reference && msg.indexOf(f.reference) !== -1 ? "" : refSuffix(f)));
+          })
         )
       );
     }
@@ -8451,7 +8612,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
         el(
           "ul",
           { class: "issue-list" },
-          results.unresolved.map((f) => { const why = f.id && tubingVerifyReason(f, getAnswer(f.id)); return issueListItem(f, f.name + refSuffix(f) + (why ? " — " + why : "")); })
+          results.unresolved.map((f) => { const dw = f.id && f.byDate ? dateRuleResult(f, getAnswer(f.id).value) : null; const why = (f.id && tubingVerifyReason(f, getAnswer(f.id))) || f.verifyNote || (dw && dw.status === "warn" ? dw.note : null); return issueListItem(f, f.name + refSuffix(f) + (why ? " — " + why : "")); })
         )
       );
     }
@@ -8678,6 +8839,9 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       files = [sillFile, bottomFrontLegFile];
     } else if (v === "nascar") {
       files = ["Door bar 253-10 upper " + side + ".stl", "Nascar " + side + " 1.stl", "Nascar " + side + " 2.stl", sillFile];
+    } else if (v === "253-8") {
+      // One horizontal bar: 253-10's top rail on its own.
+      files = ["Door bar 253-10 upper " + side + ".stl"];
     } else if (v === "single-bar") {
       // Captured for identification -- reuses the same bottom-front leg as
       // 253-11 but without the sill bar that design already includes.
@@ -9141,6 +9305,9 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     if (doorVal === "253-11") {
       if (file === (side === "left" ? "Left door bar 2-  253-9.stl" : "Right door bar 1-  253-9.stl")) return "d11_" + side;
     }
+    if (doorVal === "253-8") {
+      if (file === "Door bar 253-10 upper " + side + ".stl") return "d8_" + side;
+    }
     if (doorVal === "nascar") {
       // Reuses 253-10's own top-rail parts (see doorBarSideRule() above) --
       // same meshes, different row identity while nascar is selected.
@@ -9413,6 +9580,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     if (isDoor9Bent(doorVal)) return "door_9_2bar_welds";
     if (doorVal === "253-10") return "door_10_welds";
     if (doorVal === "253-11") return "door_11_welds";
+    if (doorVal === "253-8") return "door_8_welds";
     return null;
   }
   function doorWeldRowIds(side, doorVal) {
@@ -9420,6 +9588,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     if (isDoor9Bent(doorVal)) return ["front_top_" + side, "front_bottom_" + side, "top_rear_" + side, "bottom_rear_" + side];
     if (doorVal === "253-10") return ["front_top_" + side, "front_lower_" + side, "center_" + side, "rear_top_" + side, "rear_lower_" + side];
     if (doorVal === "253-11") return ["front_top_" + side, "front_lower_" + side, "rear_top_" + side, "rear_lower_" + side];
+    if (doorVal === "253-8") return ["front_" + side, "rear_" + side];
     return [];
   }
   // Every physical mesh belonging to a door-bar side -- unlike the roof/
@@ -9432,6 +9601,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     if (isDoor9Bent(doorVal)) return door9BentFiles(side);
     if (doorVal === "253-10") return ["Door bar 253-10 upper " + side + ".stl", "Door bar 253-10 front " + side + ".stl", "Door bar 253-10 rear " + side + ".stl"];
     if (doorVal === "253-11") return [side === "left" ? "Left door bar 2-  253-9.stl" : "Right door bar 1-  253-9.stl"];
+    if (doorVal === "253-8") return ["Door bar 253-10 upper " + side + ".stl"];
     return [];
   }
   // Resolves one mesh file to the table (weld + distance element id) and
@@ -9680,7 +9850,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
   // just doorSideFiles()'s active-design subset) -- setIfActive() hides
   // whichever of these aren't part of the real, current `colors`, so a
   // phantom bar from an unselected design/side never lingers as a ghost.
-  const ALL_DOOR_BAR_VALS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "253-11", "nascar", "single-bar"];
+  const ALL_DOOR_BAR_VALS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "253-11", "253-8", "nascar", "single-bar"];
   function part3CandidateFiles() {
     const files = ROOF_BAR_FILES.concat(BACKSTAY_DIAG_FILES, ALL_DOOR_9BENT_FILES, [
       "Roof bar 253-13 left.stl", "Roof bar 253-13 right.stl",
@@ -11526,7 +11696,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
   // gussets sit there -- and each gusset's length as entered in Part 4.
   function doorGussetVariant(side) {
     const v = getAnswer("door_bars_" + side).value;
-    if (v === "253-10" || v === "nascar") return "upper";
+    if (v === "253-10" || v === "253-8" || v === "nascar") return "upper";
     if (isDoor9Bent(v)) return door9Bends(v) === "2" ? "bent2" : "bent1";
     return "x";
   }
@@ -11735,7 +11905,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
   // The main structure's welds by their bar and end; the door bars' by
   // their row's name (front / rear, top / bottom, the crossing); every
   // other bar's by its weld rows' order along it (part3RowTargetsForFile).
-  const DOOR_WELD_TABLES = new Set(["door_9_intersection_welds", "door_9_2bar_welds", "door_10_welds", "door_11_welds"]);
+  const DOOR_WELD_TABLES = new Set(["door_9_intersection_welds", "door_9_2bar_welds", "door_10_welds", "door_11_welds", "door_8_welds"]);
   function weldRowPoint(elementId, rowId) {
     const sideOf = (id) => (/left$/.test(id) ? "left" : /right$/.test(id) ? "right" : null);
     const capOf = (side) => (side === "left" ? "Left" : "Right");
@@ -11766,7 +11936,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       let files = doorSideFiles(side, doorVal);
       if (doorVal === "253-11") files = files.concat(["Sill bar " + capOf(side) + ".stl"]);
       if (doorVal === "253-10" && name === "center") return { files: ["Door bar 253-10 front " + side + ".stl", "Door bar 253-10 rear " + side + ".stl"], end: "bottom" };
-      const end = { front_top: [-1, 0, 1], front_bottom: [-1, 0, -1], front_lower: [-1, 0, -1], top_rear: [1, 0, 1], rear_top: [1, 0, 1], bottom_rear: [1, 0, -1], rear_lower: [1, 0, -1] }[name];
+      const end = { front_top: [-1, 0, 1], front_bottom: [-1, 0, -1], front_lower: [-1, 0, -1], top_rear: [1, 0, 1], rear_top: [1, 0, 1], bottom_rear: [1, 0, -1], rear_lower: [1, 0, -1], front: "front", rear: "rear" }[name];
       return end ? { files, end } : null;
     }
     // 253-15: by name (its rows run bottom to top, not along the bar's

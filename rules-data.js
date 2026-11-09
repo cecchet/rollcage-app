@@ -778,6 +778,9 @@
     if (doorVal === "253-11") {
       return [{ id: "d11_" + side, label: "253-11: Door bar -- " + cap }];
     }
+    if (doorVal === "253-8") {
+      return [{ id: "d8_" + side, label: "253-8: Door bar -- " + cap }];
+    }
     if (doorVal === "nascar") {
       // Reuses 253-10's top rail (1 tube per side) plus 2 new vertical bars
       // per side -- sill bar is tracked separately (its own row below), as
@@ -1732,6 +1735,10 @@
     { id: "253-9-bent-2", label: "253-9: 2 continuous bars (2 bends)", diagram: "253-9-bent-2", outcome: "pass" },
     { id: "253-10", label: "253-10: Triangle design", diagram: "253-10", outcome: "pass" },
     { id: "253-11", label: "253-11: Double bars", diagram: "253-11", outcome: "pass" },
+    // 253-8, one horizontal bar per side: FIA 2016 still allowed it for cars
+    // homologated before 1/1/2007; current rules don't. Offered for checking
+    // older cages, not recommended.
+    { id: "253-8", label: "253-8: Single horizontal bar", diagram: "253-8", note: "Allowed only for cars homologated before 1/1/2007 (FIA 253 2016). It doesn't meet the current rules, which ask for 253-9, 253-10 or 253-11.", outcome: "fail" },
     { id: "nascar", label: "NASCAR door bars", diagram: "stock-car", note: "Requires prior scrutineer approval. Additional geometry/detail sections to follow.", outcome: "pass" },
     { id: "single-bar", label: "Single bar", diagram: "single-bar", note: "A single door bar does not satisfy FIA 253-9/253-10/253-11 for new construction. Captured for identification; legality/safety to be assessed separately.", outcome: "fail" },
     { id: "none", label: "None present", outcome: "fail" },
@@ -1761,7 +1768,7 @@
           type: "boolean",
           diagram: "sill-bar-toggle",
           requirement: "recommended",
-          showIf: { in: ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "single-bar"] },
+          showIf: { in: ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "253-8", "single-bar"] },
         },
       ],
       tubing: null,
@@ -1952,6 +1959,27 @@
       rows: (getAnswer) => door10Sides(getAnswer).map((side) => ({ id: side, label: "253-10 rocker plate -- " + (side === "left" ? "Left" : "Right") })),
       columns: [{ key: "plate_design", label: "Plate design (253-53 to 253-57)", type: "text" }, { key: "size", label: "Size (cm², >=60)", type: "number", compare: { op: "gte", value: 60 } }, { key: "weld", label: "Complete weld", type: "boolean" }],
       visuallyVerifiable: true, hardFail: false,
+    },
+  ];
+  const DOOR_8_SHOWIF = { any: [{ id: "door_bars_left", equals: "253-8" }, { id: "door_bars_right", equals: "253-8" }] };
+  const SECTION_5_8 = [
+    {
+      id: "door_8_welds",
+      name: "253-8 door bar welds",
+      category: "Welds",
+      requirement: "required", reference: "", description: "",
+      showIf: DOOR_8_SHOWIF,
+      evaluationType: "table",
+      rows: (getAnswer) => {
+        const rows = [];
+        ["left", "right"].filter((s) => getAnswer("door_bars_" + s).value === "253-8").forEach((side) => {
+          const cap = side === "left" ? "Left" : "Right";
+          rows.push({ id: "front_" + side, label: "253-8 door bar -- " + cap + " front" }, { id: "rear_" + side, label: "253-8 door bar -- " + cap + " rear" });
+        });
+        return rows;
+      },
+      columns: WELD_COLUMNS,
+      visuallyVerifiable: true, hardFail: true,
     },
   ];
   const DOOR_11_SHOWIF = { any: [{ id: "door_bars_left", equals: "253-11" }, { id: "door_bars_right", equals: "253-11" }] };
@@ -2995,7 +3023,7 @@
     .concat(SECTION_2_BASE_STRUCTURE)
     .concat(SECTION_3_MAIN_DIAGONALS)
     .concat(SECTION_4_1)
-    .concat(SECTION_5_1, SECTION_5_2, SECTION_5_3)
+    .concat(SECTION_5_1, SECTION_5_2, SECTION_5_3, SECTION_5_8)
     .concat(SECTION_6_WINDSHIELD);
   // Everything about the front structure, hidden on a half rollcage (see
   // isHalfRollcage) -- on top of any condition an item already has.
@@ -3062,6 +3090,7 @@
     if (isDoor9Bent(doorVal)) return ["d9bent_" + side + "_upper", "d9bent_" + side + "_lower"];
     if (doorVal === "253-10") return ["d10_" + side + "_upper"];
     if (doorVal === "253-11") return ["d11_" + side];
+    if (doorVal === "253-8") return ["d8_" + side];
     if (doorVal === "nascar") return ["nascar_" + side + "_upper"];
     if (doorVal === "single-bar") return ["singlebar_" + side];
     return [];
@@ -3070,7 +3099,7 @@
   // door tube row fails, when none of its side's continuous tubes is
   // marked primary (once they're all answered); null otherwise.
   function araDoorPrimaryRowFail(getAnswer, rowId) {
-    const m = /^(?:d9x|d9bent|d10|d11|nascar|singlebar)_(left|right)/.exec(rowId);
+    const m = /^(?:d9x|d9bent|d10|d11|d8|nascar|singlebar)_(left|right)/.exec(rowId);
     if (!m) return null;
     const rows = doorContinuousTubeRows(getAnswer("door_bars_" + m[1]).value, m[1]);
     if (!rows.includes(rowId)) return null;
@@ -3427,8 +3456,158 @@
     { material: "t45", label: "T45", manualOnly: true },
     { material: "chromoly_4130", label: "4130 chromoly", manualOnly: true },
   ];
+  // ---- FIA 253 editions, by the car's homologation date ----
+  // FIA chains its editions itself (2025 text, Art. 253-8): Ch.8.1-8.3 apply
+  // to cars homologated from 1/1/2021 (homologated or ASN-certified cages
+  // only); cars homologated 2017-2020 refer to the 2020 text, cars before
+  // 2017 to the 2016 text -- which carries dates of its own. For a car not
+  // homologated with the FIA, its date is the year its technical passport
+  // (logbook) was first issued. ctx = { edition: "current" | "2020" |
+  // "2016", year } (app.js fiaRuleContext; year is the edition's last year
+  // while the car's isn't known). An element's byDate(value, ctx,
+  // getAnswer): { status: "pass" | "fail", note } overriding its answer's
+  // own outcome, or null.
+  const FIA_EDITIONS = [
+    { id: "current", label: "Current text (cars homologated from 2021)", from: 2021, lastYear: 9999 },
+    { id: "2020", label: "2020 text (cars homologated 2017 to 2020)", from: 2017, lastYear: 2020 },
+    { id: "2016", label: "2016 text (cars homologated before 2017)", from: 0, lastYear: 2016 },
+    // Period texts, picked by hand to judge an older car by the rules of its
+    // day (the FIA itself sends every car before 2017 to the 2016 text):
+    // FIA Appendix J yearbooks, historic database. 1994 rewrote the cage
+    // rules (a cage for everyone, backstays, one diagonal, a 45/50 mm main
+    // hoop); 1995-2001 changed details only (door bars up to half the door
+    // height, the suspension-mount envelope, steel chemistry).
+    { id: "1994", label: "1994-2001 text (period rules)", auto: false, lastYear: 2001 },
+    { id: "1990", label: "1990-1993 text (period rules)", auto: false, lastYear: 1993 },
+  ];
+  const isPeriodEdition = (ctx) => ctx.edition === "1994" || ctx.edition === "1990";
+  const periodRef = (ctx) => "FIA 253-8, " + (ctx.edition === "1990" ? "1990-1993" : "1994-2001") + " text";
+  const FIA_X_MAIN_DIAGONALS = ["253-7-1", "253-7-2"];
+  const FIA_BACKSTAY_DIAGONALS = ["253-20", "253-20-right", "253-21-1", "253-21-2", "253-22"];
+  const FIA_ROOF_DESIGNS = ["253-12-1", "253-12-2", "253-13", "253-14"];
+  const FIA_DOOR_DESIGNS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "253-11", "253-8", "nascar"];
+  // The driver's side ("left" / "right"), or null while the drive
+  // configuration isn't answered.
+  function driverSide(getAnswer) {
+    const v = getAnswer("vehicle_drive_side").value;
+    return v === "rhd" ? "right" : v === "lhd" ? "left" : null;
+  }
+  const soloCar = (getAnswer) => getAnswer("vehicle_codriver").value === "no";
+  function fiaDoorBarByDate(side) {
+    return (v, ctx, getAnswer) => {
+      if (isPeriodEdition(ctx)) return periodRule("door_bars_" + side, v, ctx, getAnswer);
+      if (v === "253-8" && ctx.edition === "2016" && ctx.year < 2007) return { status: "pass", note: "253-8 is allowed for cars homologated before 2007 (FIA 253-8.3.2.1.2, 2016)." };
+      if (v === "253-8") return { status: "fail", note: "253-8 is only allowed for cars homologated before 2007 (FIA 253-8.3.2.1.2, 2016): from 2007 the door bars must follow 253-9, 253-10 or 253-11." };
+      // Without a co-driver, door bars are only required on the driver's side.
+      if ((v === "none" || v === "single-bar") && soloCar(getAnswer) && driverSide(getAnswer) && driverSide(getAnswer) !== side) {
+        return { status: "pass", note: "Without a co-driver, door bars are only required on the driver's side (FIA 253-8.3.2.1.2)." };
+      }
+      return null;
+    };
+  }
+  // The period texts: one diagonal (main rollbar or backstays), door bars,
+  // roof bars, windscreen pillar bars and backstay diagonals optional; a
+  // home-built cage the norm. 1990-1993 also accepted a rollbar alone in
+  // rallies (Group N, Groups A/B up to 2000 cc), only recommended the
+  // diagonal in rallies, and asked for 38 x 2.5 / 40 x 2.0 tubes throughout.
+  function periodRule(id, v, ctx, getAnswer) {
+    const ref = periodRef(ctx);
+    if (id === "main_structure_layout") {
+      if (v === "half-rollcage" && ctx.edition === "1990") return { status: "warn", note: "A rollbar alone (main hoop and rear struts) was allowed in rallies for Group N cars, and Groups A/B up to 2000 cc; other cars needed a cage (" + ref + ")." };
+      return null;
+    }
+    if (id === "main_hoop_diagonals") {
+      const one = v === "diag-left" || v === "diag-right" || FIA_X_MAIN_DIAGONALS.includes(v)
+        || (v === "none" && FIA_BACKSTAY_DIAGONALS.includes(getAnswer("backstay_diagonals").value));
+      if (one) return { status: "pass", note: "One diagonal member was required, on the main rollbar or between the backstays (" + ref + ")." };
+      if (v === "none" && ctx.edition === "1990") return { status: "warn", note: "One diagonal was required, except in rallies where it was only recommended (" + ref + ")." };
+      return null;
+    }
+    if (id === "door_bars_left" || id === "door_bars_right") return { status: "pass", note: "Door bars were optional" + (ctx.edition === "1990" ? ", their top no higher than a third of the door height" : ", their top no higher than half the door height (a third in 1994)") + " (" + ref + ")." };
+    if (id === "roof_bars") return { status: "pass", note: "Roof reinforcement was optional (" + ref + ")." };
+    if (id === "a_pillar_reinforcement") return v === "none" ? { status: "pass", note: "The windscreen pillar reinforcement was optional (offered from 1995) (" + ref + ")." } : null;
+    if (id === "backstay_diagonals") return v === "none" ? { status: "pass", note: "Backstay diagonals were optional (" + ref + ")." } : null;
+    if (id === "homologation_route") return null;
+    return null;
+  }
+  const FIA_DATE_RULES = {
+    // Within the suspension mounting points: in the text from 1996.
+    cage_within_suspension_points: (v, ctx) => (v === "no" && isPeriodEdition(ctx) && (ctx.edition === "1990" || ctx.year < 1996)
+      ? { status: "pass", note: "Not in the " + periodRef(ctx).replace("FIA 253-8, ", "") + (ctx.edition === "1994" ? " before 1996" : "") + ": the cage having to stay between the front and rear suspension mounts came in 1996 (FIA 253-8). Still a safety concern." } : null),
+    main_structure_layout: (v, ctx, getAnswer) => (isPeriodEdition(ctx) ? periodRule("main_structure_layout", v, ctx, getAnswer) : null),
+    main_hoop_diagonals: (v, ctx, getAnswer) => {
+      if (isPeriodEdition(ctx)) return periodRule("main_hoop_diagonals", v, ctx, getAnswer);
+      if (ctx.edition !== "2016" || ctx.year >= 2002) return null;
+      const note = "Cars homologated before 2002 need one diagonal member: 253-4, 253-5 or 253-6 (FIA 253-8.3.2.1.1, 2016).";
+      if (v === "diag-left" || v === "diag-right") return { status: "pass", note };
+      // 253-4 / 253-6: the one diagonal in the backstays' plane.
+      if (v === "none" && FIA_BACKSTAY_DIAGONALS.includes(getAnswer("backstay_diagonals").value)) return { status: "pass", note: note + " The backstay diagonal is that member here." };
+      return null;
+    },
+    backstay_diagonals: (v, ctx, getAnswer) => {
+      if (isPeriodEdition(ctx)) return periodRule("backstay_diagonals", v, ctx, getAnswer);
+      if (v !== "none") return null;
+      if (ctx.edition === "2016") return { status: "pass", note: "Backstay diagonals are optional in the 2016 text (FIA 253-8.3.2.2)." };
+      if (ctx.year < 2020) return { status: "pass", note: "253-20 is compulsory only for cars homologated from 2020 (FIA 253-8.3.2.1.1, 2020)." };
+      return null;
+    },
+    door_bars_left: fiaDoorBarByDate("left"),
+    door_bars_right: fiaDoorBarByDate("right"),
+    roof_bars: (v, ctx, getAnswer) => (isPeriodEdition(ctx) ? periodRule("roof_bars", v, ctx, getAnswer) : ctx.edition === "2016" && ctx.year < 2005
+      ? { status: "pass", note: "Roof reinforcement is optional for cars homologated before 2005 (FIA 253-8.3.2.2, 2016)." } : null),
+    a_pillar_reinforcement: (v, ctx, getAnswer) => (isPeriodEdition(ctx) ? periodRule("a_pillar_reinforcement", v, ctx, getAnswer) : v === "none" && ctx.edition === "2016" && ctx.year < 2006
+      ? { status: "pass", note: "The windscreen pillar reinforcement is optional for cars homologated before 2006 (FIA 253-8.3.2.2, 2016)." } : null),
+    homologation_route: (v, ctx) => (v === "fabricated" && ctx.edition === "current"
+      ? { status: "fail", note: "For cars homologated from 2021 -- or whose technical passport was first issued from 2021 -- the FIA only accepts a cage homologated by the FIA, or homologated or certified by an ASN: a home-built cage depends on your ASN's own rules." } : null),
+  };
+  // The 2016 text's minimum configuration (Art. 253-8.3.2.3) for cars
+  // homologated from 2002: 253-35A/B/C with a co-driver, 253-36A/B/C (the
+  // driver's side) without -- all a 253-7 X and door bars (253-8 at
+  // least), then a roof reinforcement (B, from 2005) and the 253-15 (C,
+  // from 2006). { name, reference, status, message, jumpTo } for Part 7, or
+  // null when it doesn't apply.
+  // A minimum configuration check: applies(ctx), band(year) -> [letter,
+  // "years" wording].
+  function minConfigCheck(id, reference, applies, band) {
+   return {
+    id,
+    run: (getAnswer, ctx) => {
+      if (!applies(ctx)) return null;
+      if (!["253-1", "253-2", "253-3"].includes(getAnswer("main_structure_layout").value)) return null;
+      const [letter, when] = band(ctx.year);
+      const solo = soloCar(getAnswer);
+      const drawing = (solo ? "253-36" : "253-35") + letter;
+      const name = "Minimum configuration (Drawing " + drawing + ")";
+      const missing = [], unanswered = [];
+      let jumpTo = null;
+      const need = (ok, label, id) => {
+        if (ok === null) { unanswered.push(label); jumpTo = jumpTo || id; }
+        else if (!ok) { missing.push(label); jumpTo = jumpTo || id; }
+      };
+      const main = getAnswer("main_hoop_diagonals").value;
+      need(main ? FIA_X_MAIN_DIAGONALS.includes(main) : null, "two main rollbar diagonals (253-7)", "main_hoop_diagonals");
+      const door = (side) => { const d = getAnswer("door_bars_" + side).value; return d ? FIA_DOOR_DESIGNS.includes(d) : null; };
+      const sides = solo ? (driverSide(getAnswer) ? [driverSide(getAnswer)] : null) : ["left", "right"];
+      if (sides) sides.forEach((side) => need(door(side), "a " + side + " door bar (253-8 to 253-11)", "door_bars_" + side));
+      else need(door("left") || door("right") ? true : door("left") === null || door("right") === null ? null : false, "a door bar on the driver's side", "door_bars_left");
+      if (letter !== "A") { const r = getAnswer("roof_bars").value; need(r ? FIA_ROOF_DESIGNS.includes(r) : null, "a roof reinforcement (253-12 to 253-14)", "roof_bars"); }
+      if (letter === "C") { const a = getAnswer("a_pillar_reinforcement").value; need(a ? a !== "none" : null, "the windscreen pillar reinforcement (253-15)", "a_pillar_reinforcement"); }
+      if (missing.length) return { name, reference, status: "fail", message: "Cars homologated " + when + " need at least " + drawing + ": missing " + missing.join(", ") + ".", jumpTo };
+      if (unanswered.length) return { name, reference, status: "warn", message: "Still to answer: " + unanswered.join(", ") + ".", jumpTo };
+      return { name, reference, status: "pass", message: "Meets " + drawing + ", the minimum for cars homologated " + when + "." };
+    },
+   };
+  }
+  const FIA_MIN_CONFIG_CHECK = minConfigCheck("fia_min_config", "FIA 253-8.3.2.3 (2016)",
+    (ctx) => ctx.edition === "2016" && ctx.year >= 2002,
+    (year) => (year <= 2004 ? ["A", "2002 to 2004"] : year === 2005 ? ["B", "in 2005"] : ["C", "from 2006"]));
+  function withFiaDateRules(elements) {
+    return elements.map((el) => (FIA_DATE_RULES[el.id] ? Object.assign({}, el, { byDate: FIA_DATE_RULES[el.id] }) : el));
+  }
+
   const FIA_RULES = {
     org: "FIA",
+    editions: FIA_EDITIONS,
     orgFullName: "FIA Appendix J Article 253 (generic)",
     sourceDocuments: [{ title: "2020 FIA Appendix J Article 253, Chapter 8 (WMSC 09.10.2020)", relevantSections: "8.1-8.4" }],
     paths: {
@@ -3436,22 +3615,226 @@
         label: "New Construction",
         reference: "2020 FIA Appendix J Article 253, Chapter 8",
         note: "Judged against the FIA text itself, with no sanctioning body's own variations -- a cage homologated by the FIA/an ASN must instead match its homologation papers.",
-        elements: patchElements(FIA_253_DOCUMENT_BASE, {
+        elements: withFiaDateRules(patchElements(FIA_253_DOCUMENT_BASE, {
           homologation_route: { reference: "2020 FIA 253 Ch.8.2" },
           primary_tubing: {
             reference: FIA_REF,
             description: "Main rollbar, lateral rollbars and their rear connections (backstays) -- FIA minimum 45 x 2.5 mm or 50 x 2.0 mm (1.75\" x 0.095\" or 2.0\" x 0.083\" accepted as equivalent).",
             requirements: FIA_PRIMARY_REQ,
+            // The 1990-1993 text: 38 x 2.5 / 40 x 2.0 for every member.
+            requirementsByEdition: { "1990": FIA_SECONDARY_REQ },
           },
           secondary_tubing: {
             reference: FIA_REF,
             description: "Half-lateral rollbars and every other part of the cage -- FIA minimum 38 x 2.5 mm or 40 x 2.0 mm (1.5\" x 0.095\" or 1.6\" x 0.083\" accepted as equivalent).",
             requirements: FIA_SECONDARY_REQ,
           },
-        }).concat(FIA_253_COMMON_TAIL),
+        }).concat(FIA_253_COMMON_TAIL)),
+        checks: [FIA_MIN_CONFIG_CHECK],
       },
     },
   };
+
+
+  // ---- OMAE (Greece): Technical regulations of safety systems (J 253) 2026 ----
+  // A Greek translation of FIA Art. 253 with "for national events only"
+  // variations. A home-built cage is allowed for any car (FIA's current
+  // text only takes homologated or certified ones), built to the old
+  // Ch.8.2-8.3 text -- the 2020 one, with the 2016 text's dates merged back
+  // in. ctx.year: the car's homologation year (9999 -- the newest rules --
+  // while it isn't known); ctx.vehicle.omaeClass: Part 7's car category; ctx.discipline: the entry's
+  // discipline (one OMAE entry per discipline).
+  const OMAE_REF = "OMAE J253 2026";
+  // The car category question (rally, hillclimb, circuit): some rally cars
+  // must have a homologated cage.
+  const OMAE_VEHICLE_QUESTIONS = [
+    { key: "omaeClass", label: "Car category", options: [
+      { id: "", label: "Any other car (home-built cage allowed)" },
+      { id: "fia-cage", label: "Rally1, Rally2, R5, S1600, S2000-Rally or WRC (FIA-homologated cage)" },
+      { id: "asn-cage", label: "Rally3, Rally4, Rally5, R2, R3 or R4 (FIA- or ASN-homologated cage)" },
+    ] },
+  ];
+  // The discipline: one OMAE entry per discipline (omaeRules below).
+  const omaeDiscipline = (ctx) => ctx.discipline || "";
+  function omaeDoorBarByDate(side) {
+    return (v, ctx, getAnswer) => {
+      if (v === "253-8" && omaeDiscipline(ctx) === "drift") {
+        return { status: "warn", note: "Drift: one door bar (253-8) is enough only with the original doors and their factory side-impact bars; with other doors (e.g. polycarbonate) or the factory bars removed, 2 bars are needed (253-9, 253-10 or 253-11) -- " + OMAE_REF + " 8.3.2.1.2." };
+      }
+      if (v === "253-8" && ctx.year < 2007) return { status: "pass", note: "253-8 is allowed for cars homologated before 2007 (" + OMAE_REF + " 8.3.2.1.2)." };
+      if (v === "253-8") return { status: "fail", note: "253-8 is only allowed for cars homologated before 2007 (" + OMAE_REF + " 8.3.2.1.2): from 2007 the door bars must follow 253-9, 253-10 or 253-11." };
+      // Without a co-driver, the driver's side only -- except in drift,
+      // which needs door bars on both sides.
+      if ((v === "none" || v === "single-bar") && omaeDiscipline(ctx) !== "drift" && soloCar(getAnswer) && driverSide(getAnswer) && driverSide(getAnswer) !== side) {
+        return { status: "pass", note: "Without a co-driver, door bars are only required on the driver's side (" + OMAE_REF + " 8.3.2.1.2)." };
+      }
+      return null;
+    };
+  }
+  const OMAE_DATE_RULES = {
+    main_hoop_diagonals: (v, ctx, getAnswer) => {
+      if (ctx.year >= 2002) return null;
+      const note = "Cars homologated before 2002 need one diagonal member: 253-4, 253-5 or 253-6 (" + OMAE_REF + " 8.3.2.1.1).";
+      if (v === "diag-left" || v === "diag-right") return { status: "pass", note };
+      if (v === "none" && FIA_BACKSTAY_DIAGONALS.includes(getAnswer("backstay_diagonals").value)) return { status: "pass", note: note + " The backstay diagonal is that member here." };
+      return null;
+    },
+    backstay_diagonals: (v, ctx) => (v === "none" && ctx.year < 2020
+      ? { status: "pass", note: "253-20 is compulsory only for cars homologated from 2020 (" + OMAE_REF + " 8.3.2.1.1)." } : null),
+    door_bars_left: omaeDoorBarByDate("left"),
+    door_bars_right: omaeDoorBarByDate("right"),
+    roof_bars: (v, ctx) => (ctx.year < 2005
+      ? { status: "pass", note: "Roof reinforcement is compulsory only for cars homologated from 2005 (" + OMAE_REF + " 8.3.2.1.3)." } : null),
+    a_pillar_reinforcement: (v, ctx) => (v === "none" && ctx.year < 2006
+      ? { status: "pass", note: "The windscreen pillar reinforcement is compulsory only for cars homologated from 2006 (" + OMAE_REF + " 8.3.2.1.4)." } : null),
+    homologation_route: (v, ctx) => {
+      const cls = ctx.vehicle && ctx.vehicle.omaeClass;
+      if (v === "fabricated" && cls === "fia-cage") return { status: "fail", note: "Rally1, Rally2, R5, S1600, S2000-Rally and WRC cars must have an FIA-homologated cage (" + OMAE_REF + " Art. 8)." };
+      if (v === "fabricated" && cls === "asn-cage") return { status: "fail", note: "Rally3, Rally4, Rally5 and R2 to R4 cars must have a cage homologated by the FIA or an ASN (" + OMAE_REF + " Art. 8)." };
+      if (v === "homologated" && cls === "fia-cage") return { status: "pass", note: "It must be homologated by the FIA itself (in an extension of the car's homologation form), not only by an ASN." };
+      return null;
+    },
+  };
+  // The minimum configuration for cars homologated 2002 to 2007 (253-35A/B/C,
+  // 253-36A/B/C); from 2008 the current one, which the design items check.
+  const OMAE_MIN_CONFIG_CHECK = minConfigCheck("omae_min_config", OMAE_REF + " 8.3.2.3",
+    (ctx) => ctx.year >= 2002 && ctx.year <= 2007,
+    (year) => (year <= 2004 ? ["A", "2002 to 2004"] : year === 2005 ? ["B", "in 2005"] : ["C", "2006 to 2007"]));
+  // Dragster: the cage welded to the body -- no bolted feet (OMAE's
+  // approval aside, for a body that can't be welded to).
+  const OMAE_DRAGSTER_WELDED_CHECK = {
+    id: "omae_dragster_welded",
+    run: (getAnswer, ctx) => {
+      if (omaeDiscipline(ctx) !== "dragster") return null;
+      const rows = ["front_left", "front_right", "main_hoop_left", "main_hoop_right", "backstay_left", "backstay_right"];
+      const types = rows.map((r) => getAnswer("mounting_feet_design__" + r + "__mount_type").value);
+      const name = "Dragster: cage welded to the body", reference = OMAE_REF + " 8.3.2.6";
+      if (types.includes("bolted")) return { name, reference, status: "fail", message: "A dragster's cage must be welded to the body, not bolted -- bolting only for a body that can't be welded to (e.g. some Audis), with OMAE's approval. Removable joints aren't allowed either.", jumpTo: "mounting_feet_design" };
+      if (types.some((t) => t !== "welded")) return { name, reference, status: "warn", message: "Still to answer: whether each mounting foot is welded.", jumpTo: "mounting_feet_design" };
+      return { name, reference, status: "pass", message: "Every mounting foot is welded." };
+    },
+  };
+  // One entry per discipline, each listed under that discipline's group:
+  // the same rules, with the discipline's own (drift's door bars, a
+  // dragster's welded cage).
+  function omaeRules(discipline, disciplineGroup, disciplineName) {
+    return {
+      org: "OMAE",
+      orgFullName: "OMAE (Greece) -- " + disciplineName,
+      disciplineGroup,
+      discipline,
+      datedRules: true,
+      vehicleQuestions: discipline === "drift" || discipline === "dragster" ? [] : OMAE_VEHICLE_QUESTIONS,
+      sourceDocuments: [{ title: "OMAE Technical regulations of safety systems (J 253) 2026", relevantSections: "8" }],
+      paths: {
+        new_construction: {
+          label: "New Construction",
+          reference: "OMAE J253 2026, Art. 8",
+          note: "OMAE's translation of FIA Art. 253 with its national variations: a home-built cage is allowed for any car, with relaxations for older cars by their homologation year.",
+          elements: patchElements(FIA_253_DOCUMENT_BASE, {
+            homologation_route: { reference: OMAE_REF + " Art. 8" },
+            primary_tubing: { reference: OMAE_REF + " 8.3.3", description: "Main rollbar, lateral rollbars and backstays -- 45 x 2.5 mm or 50 x 2.0 mm (1.75\" x 0.095\" or 2.0\" x 0.083\"), cold drawn seamless carbon steel.", requirements: FIA_PRIMARY_REQ },
+            secondary_tubing: { reference: OMAE_REF + " 8.3.3", description: "Half-lateral rollbars and every other part of the cage -- 38 x 2.5 mm or 40 x 2.0 mm (1.5\" x 0.095\" or 1.6\" x 0.083\"), cold drawn seamless carbon steel.", requirements: FIA_SECONDARY_REQ },
+          }).concat(FIA_253_COMMON_TAIL).map((el) => (OMAE_DATE_RULES[el.id] ? Object.assign({}, el, { byDate: OMAE_DATE_RULES[el.id] }) : el)),
+          checks: [OMAE_MIN_CONFIG_CHECK, OMAE_DRAGSTER_WELDED_CHECK],
+        },
+      },
+    };
+  }
+
+
+  // ---- FFSA (France): Article 253 2026 with its "Note France" ----
+  // For French national and regional events, the 2026 text's Ch.8.1-8.3
+  // (a home-built cage allowed, close to FIA's 2020 text) apply to cars
+  // whose technical passport was created from 1/1/2015; cars with an
+  // earlier passport -- and slalom cars, always -- use the FIA 2016 text,
+  // whose own dates go by the car's homologation year. ctx (contextFor):
+  // { edition: "ffsa2026" | "2016", year: the car's homologation year (the
+  // edition's last year while unknown), discipline }.
+  const FFSA_REF = "FFSA Art. 253 2026";
+  const FFSA_PASSPORT_QUESTION = { key: "passportYear", type: "year", label: "Technical passport first issued (year)", placeholder: "e.g. 2012" };
+  function ffsaContext(discipline) {
+    return (carYear, vehicle) => {
+      const n = parseInt(vehicle.passportYear, 10);
+      const passport = n >= 1950 && n <= 2100 ? n : null;
+      const edition = discipline === "slalom" || (passport != null && passport < 2015) ? "2016" : "ffsa2026";
+      const note = discipline === "slalom" ? "Slalom: checked against the FIA 2016 text, whatever the passport date (" + FFSA_REF + ", Art. 8)."
+        : passport == null ? "No technical passport year yet: checked against the FFSA 2026 text (passports from 2015). An older passport goes by the FIA 2016 text."
+        : edition === "2016" ? "Technical passport from " + passport + " (before 2015): checked against the FIA 2016 text."
+        : "Technical passport from " + passport + ": checked against the FFSA 2026 text.";
+      return { edition, year: carYear != null ? carYear : edition === "2016" ? 2016 : 9999, discipline, note };
+    };
+  }
+  const ffsaDrift = (ctx) => ctx.discipline === "drift";
+  const FFSA_DRIFT_NOTE = "Drift Pro/Elite: a 6-point FIA cage with an X or at least one door bar on the driver's side, and a diagonal from the top of the main rollbar (" + "FFSA drift technical rules 2026, Art. 2).";
+  function ffsaDoorBar(side) {
+    return (v, ctx, getAnswer) => {
+      if (ffsaDrift(ctx)) {
+        // At least one door bar (or an X) on the driver's side; the other
+        // side is free.
+        const drv = driverSide(getAnswer);
+        if (drv && side !== drv && (v === "none" || v === "single-bar")) return { status: "pass", note: FFSA_DRIFT_NOTE };
+        if (v === "253-8" || v === "single-bar") return { status: "pass", note: FFSA_DRIFT_NOTE };
+        return null;
+      }
+      if (v === "253-8" && ctx.edition === "2016" && ctx.year < 2007) return { status: "pass", note: "253-8 is allowed for cars homologated before 2007 (FIA 253-8.3.2.1.2, 2016)." };
+      if (v === "253-8") return { status: "fail", note: ctx.edition === "2016" ? "253-8 is only allowed for cars homologated before 2007 (FIA 253-8.3.2.1.2, 2016)." : "The FFSA 2026 text asks for 253-9, 253-10 or 253-11 door bars (" + FFSA_REF + " 8.3.2.1.2)." };
+      if ((v === "none" || v === "single-bar") && soloCar(getAnswer) && driverSide(getAnswer) && driverSide(getAnswer) !== side) {
+        return { status: "pass", note: "Without a co-driver, door bars are only required on the driver's side (Art. 253-8.3.2.1.2)." };
+      }
+      return null;
+    };
+  }
+  const FFSA_DATE_RULES = {
+    main_hoop_diagonals: (v, ctx, getAnswer) => {
+      if (ffsaDrift(ctx) && (v === "diag-left" || v === "diag-right")) return { status: "pass", note: FFSA_DRIFT_NOTE };
+      return FIA_DATE_RULES.main_hoop_diagonals(v, ctx, getAnswer);
+    },
+    // Optional in both texts (253-22 only goes with a 253-14 roof).
+    backstay_diagonals: (v) => (v === "none" ? { status: "pass", note: "Backstay diagonals are optional (Art. 253-8.3.2.2.1); 253-22 goes with a 253-14 roof." } : null),
+    door_bars_left: ffsaDoorBar("left"),
+    door_bars_right: ffsaDoorBar("right"),
+    roof_bars: (v, ctx) => {
+      if (ffsaDrift(ctx)) return { status: "pass", note: FFSA_DRIFT_NOTE };
+      if (ctx.edition === "2016" && ctx.year < 2005) return { status: "pass", note: "Roof reinforcement is optional for cars homologated before 2005 (FIA 253-8.3.2.2, 2016)." };
+      if (v === "253-13") return { status: "pass", note: "253-13 is one of the roof designs the text allows (253-12, 253-13 or 253-14) -- though it leaves a front roof corner unsupported." };
+      return null;
+    },
+    a_pillar_reinforcement: (v, ctx) => {
+      if (v !== "none") return null;
+      if (ffsaDrift(ctx)) return { status: "pass", note: FFSA_DRIFT_NOTE };
+      if (ctx.edition === "2016" && ctx.year < 2006) return { status: "pass", note: "The windscreen pillar reinforcement is optional for cars homologated before 2006 (FIA 253-8.3.2.2, 2016)." };
+      return null;
+    },
+  };
+  const FFSA_MIN_CONFIG_CHECK = minConfigCheck("ffsa_min_config", "FIA 253-8.3.2.3 (2016)",
+    (ctx) => ctx.edition === "2016" && ctx.year >= 2002 && ctx.discipline !== "drift",
+    (year) => (year <= 2004 ? ["A", "2002 to 2004"] : year === 2005 ? ["B", "in 2005"] : ["C", "from 2006"]));
+  function ffsaRules(discipline, disciplineGroup, disciplineName) {
+    return {
+      org: "FFSA",
+      orgFullName: "FFSA (France) -- " + disciplineName,
+      disciplineGroup,
+      discipline,
+      datedRules: true,
+      contextFor: ffsaContext(discipline),
+      vehicleQuestions: discipline === "slalom" ? [] : [FFSA_PASSPORT_QUESTION],
+      sourceDocuments: [{ title: "FFSA Article 253 -- Equipement de sécurité Gr. N-A-R-GT-F2000 2026 (with its Notes France), and Article 253 2016", relevantSections: "8" }],
+      paths: {
+        new_construction: {
+          label: "New Construction",
+          reference: FFSA_REF + ", Art. 8",
+          note: "The FFSA's Article 253 for French national and regional events: a home-built cage is allowed; cars with a technical passport from before 2015 (and slalom cars) are checked against the FIA 2016 text.",
+          elements: patchElements(FIA_253_DOCUMENT_BASE, {
+            homologation_route: { reference: FFSA_REF + " 8.1" },
+            primary_tubing: { reference: FFSA_REF + " 8.3.3", description: "Main rollbar, lateral rollbars and backstays -- 45 x 2.5 mm or 50 x 2.0 mm (1.75\" x 0.095\" or 2.0\" x 0.083\"), cold drawn seamless carbon steel. (Cars on the FFSA's list of cars allowed a 38 or 40 mm main rollbar may use the smaller size.)", requirements: FIA_PRIMARY_REQ },
+            secondary_tubing: { reference: FFSA_REF + " 8.3.3", description: "Every other part of the cage -- 38 x 2.5 mm or 40 x 2.0 mm (1.5\" x 0.095\" or 1.6\" x 0.083\"), cold drawn seamless carbon steel.", requirements: FIA_SECONDARY_REQ },
+          }).concat(FIA_253_COMMON_TAIL).map((el) => (FFSA_DATE_RULES[el.id] ? Object.assign({}, el, { byDate: FFSA_DATE_RULES[el.id] }) : el)),
+          checks: [FFSA_MIN_CONFIG_CHECK],
+        },
+      },
+    };
+  }
 
   const NONE_RULES = {
     org: "None",
@@ -3663,7 +4046,7 @@
   // the app (true / false / null).
   const val = (getAnswer, id) => getAnswer(id).value;
   const FULL_CAGES = ["253-1", "253-2", "253-3"];
-  const DOOR_BAR_DESIGNS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "253-11", "nascar"];
+  const DOOR_BAR_DESIGNS = ["253-9-intersection-1", "253-9-intersection-2", "253-9-bent", "253-9-bent-2", "253-10", "253-11", "253-8", "nascar"];
   const SIDES = ["left", "right"];
   // A full cage yes, a rollbar-only cage no; "Other design" is left to the user.
   const fullCage = (getAnswer) => {
@@ -3848,6 +4231,19 @@
       windscreen_support_each_side: aPillarBars,
     },
   };
+  // OMAE's and FFSA's entries after the US/Canadian rally bodies.
+  Object.assign(window.RULES_DATA, {
+    "ffsa-rally": ffsaRules("", "Rally", "Rally"),
+    "ffsa-hillclimb": ffsaRules("", "Hillclimb", "Course de côte (hillclimb)"),
+    "ffsa-circuit": ffsaRules("", "Road Racing", "Circuit"),
+    "ffsa-slalom": ffsaRules("slalom", "Autocross", "Slalom"),
+    "ffsa-drift": ffsaRules("drift", "Drifting", "Drift (Pro / Elite)"),
+    "omae-rally": omaeRules("", "Rally", "Rally"),
+    "omae-hillclimb": omaeRules("", "Hillclimb", "Hillclimb"),
+    "omae-circuit": omaeRules("", "Road Racing", "Circuit racing"),
+    "omae-drift": omaeRules("drift", "Drifting", "Drift (Pro, double runs)"),
+    "omae-dragster": omaeRules("dragster", "Drag Racing", "Dragster (cars needing a cage)"),
+  });
   Object.entries(GF_DERIVED).forEach(([org, items]) => {
     const gf = window.RULES_DATA[org] && window.RULES_DATA[org].paths.grandfathered;
     if (!gf) return;
