@@ -199,7 +199,12 @@
   const PIECE_FILES = Object.keys(GUSSET_DATA.pieces).flatMap((side) => ["253-15 " + side + " lower.stl", "253-15 " + side + " upper.stl"]);
   const bendGussetFile = (side, bends, curved) => "Door bar gusset 253-9 " + (bends === "2" ? "2 bends" : "1 bend") + " " + (curved ? "curved" : "straight") + " " + side + ".stl";
   const BEND_GUSSET_FILES = Object.keys(GUSSET_DATA.bend).flatMap((side) => ["1", "2"].flatMap((b) => [bendGussetFile(side, b, false), bendGussetFile(side, b, true)]));
-  const GENERATED_FILES = Object.keys(GUSSET_DATA.plates).concat(Object.keys(GUSSET_DATA.side), PIECE_FILES, BEND_GUSSET_FILES);
+  // 253-31 built as a taco gusset (bent sheet metal) instead of a tube
+  // ("tri", see tools/build-gussets.mjs): the corner triangle it closes.
+  const TRI_FILES = Object.keys(GUSSET_DATA.tri || {});
+  // Drawn bars ("bars"): the dash's transverse X and the OEM (square) dash bar.
+  const BAR_FILES = Object.keys(GUSSET_DATA.bars || {});
+  const GENERATED_FILES = Object.keys(GUSSET_DATA.plates).concat(Object.keys(GUSSET_DATA.side), PIECE_FILES, BEND_GUSSET_FILES, TRI_FILES, BAR_FILES);
   // 253-53 (double plane plate) similarly has no modeled geometry of its
   // own -- it reuses the real base plate PLUS a duplicate of that same
   // plate, rotated 90 degrees about Y so it stands as a second plane
@@ -2622,6 +2627,26 @@
     }
     return new Float32Array(out);
   }
+  // A straight square tube from a to b, w wide (its sides square to the
+  // world's up where it can), closed at both ends.
+  function squareTubePositions(a, b, w) {
+    const t = b.clone().sub(a).normalize();
+    const up = Math.abs(t.z) < 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+    const n1 = new THREE.Vector3().crossVectors(t, up).normalize().multiplyScalar(w / 2);
+    const n2 = new THREE.Vector3().crossVectors(t, n1).normalize().multiplyScalar(w / 2);
+    const corner = (p, i) => p.clone().addScaledVector(n1, i === 0 || i === 3 ? 1 : -1).addScaledVector(n2, i < 2 ? 1 : -1);
+    const A = [0, 1, 2, 3].map((i) => corner(a, i)), B = [0, 1, 2, 3].map((i) => corner(b, i));
+    const out = [];
+    const push = (...ps) => ps.forEach((p) => out.push(p.x, p.y, p.z));
+    for (let i = 0; i < 4; i++) {
+      const j = (i + 1) % 4;
+      push(A[i], B[i], A[j]);
+      push(A[j], B[i], B[j]);
+    }
+    push(A[0], A[2], A[1]); push(A[0], A[3], A[2]);
+    push(B[0], B[1], B[2]); push(B[0], B[2], B[3]);
+    return new Float32Array(out);
+  }
   // 253-9's bend bars' one-piece gusset: as wide as the tubes, filling the
   // space between the 2 bars from Lb ahead of the (front) bend to Lb'
   // behind the (rear) one; curved: each end cut in by Lc at its middle.
@@ -2671,6 +2696,25 @@
     const variant = p.variant || "x";
     if (GUSSET_DATA.plates[file]) return platePositions(GUSSET_DATA.plates[file][variant] || GUSSET_DATA.plates[file].x, p.size, p.design);
     if (GUSSET_DATA.side[file]) return sidePositions(GUSSET_DATA.side[file][variant] || GUSSET_DATA.side[file].x, p.size, p.design);
+    // A 253-31 taco: the corner triangle, as thick as the tubes (its faces
+    // flush with theirs, like the other tacos).
+    if (GUSSET_DATA.bars && GUSSET_DATA.bars[file]) {
+      const t = GUSSET_DATA.bars[file];
+      return t.square ? squareTubePositions(gv(t.a), gv(t.b), t.square) : tubePositions(gv(t.a), gv(t.b), t.r);
+    }
+    // Its legs as entered (p.size { a, b }, else where the tube's ends would
+    // be); a single plate is thin, its edges a little inside each tube.
+    if (GUSSET_DATA.tri && GUSSET_DATA.tri[file]) {
+      const t = GUSSET_DATA.tri[file], C = gv(t.C);
+      const leg = (P, size) => { const d = gv(P).sub(C), L = d.length(); return C.clone().addScaledVector(d.normalize(), sizeUnits(size, 2 * t.r, L)); };
+      const A = leg(t.A, p.size && p.size.a), B = leg(t.B, p.size && p.size.b);
+      const n = new THREE.Vector3().crossVectors(A.clone().sub(C), B.clone().sub(C)).normalize();
+      if (!isSinglePlate(p.design)) return prismPositions([C, A, B], n, 2 * t.r);
+      const bis = A.clone().sub(C).normalize().add(B.clone().sub(C).normalize()).normalize();
+      const o = 0.6 * t.r, theta = Math.max(0.2, A.clone().sub(C).angleTo(B.clone().sub(C)));
+      const shift = bis.multiplyScalar(o / Math.sin(theta / 2));
+      return prismPositions([C.clone().add(shift), A.clone().add(shift), B.clone().add(shift)], n, 0.4 * t.r);
+    }
     const piece = file.match(/^253-15 (left|right) (lower|upper)\.stl$/);
     if (piece) {
       const d = GUSSET_DATA.pieces[piece[1]][variant] || GUSSET_DATA.pieces[piece[1]].x;

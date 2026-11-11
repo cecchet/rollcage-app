@@ -180,7 +180,7 @@
   // in style.css).
   // Bumped by tools/choice-images.mjs each time it redraws the pictures, so
   // browsers fetch the new ones instead of their cached copies.
-  const IMG_V = 5;
+  const IMG_V = 11;
   const wrapImg = (src) => `<img src="images/${src}?v=${IMG_V}" alt="" class="diagram-icon diagram-icon-photo">`;
 
   // ---- Base structure layout (253-1/253-2/253-3/half rollcage) -- real
@@ -202,6 +202,14 @@
   ["left", "right", "both", "none"].forEach((o) => {
     D["253-31-temple-" + o] = wrapImg("253-31-temple_" + o + ".png");
     D["253-31-windshield-" + o] = wrapImg("253-31-windshield_" + o + ".png");
+  });
+  // The dash bar card: OEM / 253-29 dash bar and/or the transverse X (rules-data.js DASH_BAR_OPTIONS).
+  ["no", "yes", "transverse-1", "transverse-2", "oem-transverse-1", "oem-transverse-2", "253-29-transverse-1", "253-29-transverse-2"]
+    .forEach((o) => { D["dash-" + o] = wrapImg("dash_" + o + ".png"); });
+  // 253-31 built as a tube, a taco gusset (bent sheet metal) or a single plate.
+  ["tube", "taco", "single_plate"].forEach((o) => {
+    D["253-31-temple-form-" + o] = wrapImg("253-31-temple-form_" + o + ".png");
+    D["253-31-windshield-form-" + o] = wrapImg("253-31-windshield-form_" + o + ".png");
   });
   // The structural designs (main rollbar and backstay diagonals, roof bars,
   // 253-19, door bars per side, with/without a sill bar): an X's half bars
@@ -245,6 +253,45 @@
   D["253-9-bend-positions"] = wide("253-9_bend_positions.png");
   D["253-9-bend-gusset-1"] = wide("253-9_bend_gusset_1_bend.png");
   D["253-9-bend-gusset-2"] = wide("253-9_bend_gusset_2_bends.png");
+
+  // ---- 253-15 in one piece passing beside the upper door bar (they don't
+  // intersect): the 2 tubes cross (about square to each other) S apart, in
+  // 2 planes, and the sheet-metal gusset is a box joining them -- its face
+  // on the door bar La long, the one on 253-15 Lb long. Original schematic:
+  // 253-15 behind, the door bar in front, the box between them.
+  {
+    const P = (x, y) => ({ x, y });
+    const add = (a, b, k = 1) => P(a.x + b.x * k, a.y + b.y * k);
+    const unit = (x, y) => { const l = Math.hypot(x, y); return P(x / l, y / l); };
+    const f = (a) => a.x.toFixed(1) + "," + a.y.toFixed(1);
+    const d1 = unit(1, -0.42), d2 = unit(0.45, 1); // door bar, 253-15 (on screen)
+    const C1 = P(165, 132), depth = P(-38, -44), C2 = add(C1, depth); // their crossing, 253-15's S behind
+    const tube = (c, d, len) => `<line x1="${add(c, d, -len).x}" y1="${add(c, d, -len).y}" x2="${add(c, d, len).x}" y2="${add(c, d, len).y}" stroke="currentColor" stroke-opacity="0.45" stroke-width="18" stroke-linecap="round"/>`;
+    const dim = (a, b) => `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#e53935" stroke-width="1.6" marker-start="url(#a15)" marker-end="url(#a15)"/>`;
+    const guide = (a, b) => `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#e53935" stroke-width="1" stroke-dasharray="3 2"/>`;
+    const txt = (a, t) => `<text x="${a.x}" y="${a.y}" fill="#e53935" font-size="14" font-weight="700" font-family="sans-serif" text-anchor="middle">${t}</text>`;
+    const la = 34, lb = 28, w = 8;
+    // The box: its face on the door bar (La along it), its face on 253-15
+    // (Lb along it), and the 4 sides between them.
+    const near = [[la, w], [la, -w], [-la, -w], [-la, w]].map(([a, b]) => add(add(C1, d1, a), d2, b));
+    const far = [[w, lb], [w, -lb], [-w, -lb], [-w, lb]].map(([a, b]) => add(add(C2, d1, a), d2, b));
+    const face = (pts, op) => `<polygon points="${pts.map(f).join(" ")}" fill="var(--accent)" fill-opacity="${op}" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>`;
+    const sides = [0, 1, 2, 3].map((k) => face([near[k], near[(k + 1) % 4], far[(k + 1) % 4], far[k]], 0.35)).join("");
+    // Dimension lines, off to the side of each face.
+    const n1 = unit(0.42, 1), n2 = unit(-1, 0.45);
+    const laA = add(add(C1, d1, -la), n1, 26), laB = add(add(C1, d1, la), n1, 26);
+    const lbA = add(add(C2, d2, -lb), n2, 30), lbB = add(add(C2, d2, lb), n2, 30);
+    const sA = add(C1, d1, 90), sB = add(sA, depth);
+    D["253-15-side-gusset"] = '<div class="diagram-wide"><svg viewBox="0 -12 320 230" xmlns="http://www.w3.org/2000/svg" class="diagram-icon">' +
+      '<defs><marker id="a15" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e53935"/></marker></defs>' +
+      tube(C2, d2, 100) + sides + face(far, 0.5) + tube(C1, d1, 135) + face(near, 0.55) +
+      guide(add(C1, d1, -la), laA) + guide(add(C1, d1, la), laB) + dim(laA, laB) + txt(add(add(C1, n1, 46), d1, 0), "La") +
+      guide(add(C2, d2, -lb), lbA) + guide(add(C2, d2, lb), lbB) + dim(lbA, lbB) + txt(add(C2, n2, 46), "Lb") +
+      guide(C2, add(C2, d1, 90)) + dim(sA, sB) + txt(add(add(sA, depth, 0.5), P(14, 6)), "S") +
+      `<text x="${add(C1, d1, 135).x - 66}" y="${add(C1, d1, 135).y + 42}" fill="currentColor" font-size="11" font-family="sans-serif">door bar (D1)</text>` +
+      `<text x="${add(C2, d2, -100).x + 14}" y="${add(C2, d2, -100).y + 10}" fill="currentColor" font-size="11" font-family="sans-serif">253-15 (D2)</text>` +
+      "</svg></div>";
+  }
 
   // ---- Main hoop leaning angle (+/-10 degrees from vertical) ----
   D["lean-angle"] = wrapImg("main_hoop_angle.jpg");

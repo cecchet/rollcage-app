@@ -998,6 +998,24 @@
   // {op: "sumGteFractionOfColumn", columns, fraction, column} -- the
   // columns' sum at least that fraction of another column (La + Lb + Lb'
   // >= 0.3 W). null while one of them isn't entered.
+  // The one-piece 253-15's side gusset (rules-data.js a_pillar_side_gusset):
+  // La >= D1 (door bar), Lb >= D2 (253-15); with S > 20mm also La + Lb >=
+  // 2 D1 + 2 D2 -- each judged once the sizes it needs are entered (the
+  // D's from Part 3's tube sizes), else "pass" like the other gusset lengths.
+  function sideGusset253_15Status(elm, row, c) {
+    const mmOf = (key) => {
+      const a = getAnswer(elm.id + "__" + row.id + "__" + key).value;
+      return a && a.value !== "" && a.value != null ? toMM({ val: a.value, unit: a.unit || "mm" }) : null;
+    };
+    const la = mmOf("la"), lb = mmOf("lb"), sGap = mmOf("s");
+    const own = c.which === "a" ? la : lb;
+    if (own === null) return "warn";
+    const d1 = tubeRowsD(c.d1Rows).mm, d2 = tubeRowsD(c.d2Rows).mm;
+    const dOwn = c.which === "a" ? d1 : d2;
+    if (dOwn !== null && own < dOwn) return "fail";
+    if (sGap !== null && sGap > 20 && la !== null && lb !== null && d1 !== null && d2 !== null && la + lb < 2 * d1 + 2 * d2) return "fail";
+    return "pass";
+  }
   function rowColumnsCompare(v, compare, elm, row) {
     const mmOf = (key) => {
       const a = getAnswer(elm.id + "__" + row.id + "__" + key).value;
@@ -1349,6 +1367,7 @@
         return mm >= dRange[0] * dMM && mm <= dRange[1] * dMM ? "pass" : "fail";
       }
       const compareSpec = row && row.compareFor && row.compareFor[col.key] ? row.compareFor[col.key] : row && row.compare !== undefined ? row.compare : col.compare;
+      if (col.type === "length" && compareSpec && compareSpec.op === "sideGusset253_15") return sideGusset253_15Status(elm, row, compareSpec);
       if (col.type === "length" && compareSpec && /OfColumns?$/.test(compareSpec.op)) {
         const mm = toMM({ val: v.value, unit: v.unit || "mm" });
         const ok = mm === null ? null : rowColumnsCompare(mm, compareSpec, elm, row);
@@ -6412,7 +6431,7 @@
     // moves that one category, leaving every other element's relative
     // order exactly as elementPhase/the source document already gave it.
     // Gusset dimensions come last, after them: the other measurements.
-    const installRank = (e) => (e.id === "gusset_dimensions" || e.id === "door_9_bend_gusset" ? 2 : e.category === "Bar junction distances" ? 1 : 0);
+    const installRank = (e) => (e.id === "gusset_dimensions" || e.id === "door_9_bend_gusset" || e.id === "reinforcement_31_gussets" || e.id === "a_pillar_side_gusset" ? 2 : e.category === "Bar junction distances" ? 1 : 0);
     phases[INSTALLATION_PHASE].sort((a, b) => installRank(a) - installRank(b));
     const usedPhases = [1, 2, INSTALLATION_PHASE, WELDS_PHASE, SEATS_PHASE].filter((p) => phases[p].length);
     // Logbook isn't element-driven (renderResults reads path/answers
@@ -6987,6 +7006,20 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
         if (f === sillChoiceField(elm)) return;
         if (f.type === "choice") {
           const setVal = (val) => setAnswer(elm.id, { extra: Object.assign({}, getAnswer(elm.id).extra || {}, { [f.key]: val }) });
+          // Options with pictures (253-31's "Built as"): tiles like the card's own options.
+          if ((f.options || []).some((o) => o.diagram)) {
+            card.appendChild(el("div", { class: "extra-field-row" }, [el("span", { class: "numeric-field-label" }, [f.label])]));
+            card.appendChild(el("div", { class: "choice-radio-group" }, f.options.map((o) => {
+              const radio = el("input", { type: "radio", name: elm.id + "__" + f.key, onchange: () => setVal(o.id) });
+              radio.checked = extra[f.key] === o.id;
+              const html = window.DIAGRAMS && window.DIAGRAMS[o.diagram];
+              return el("label", { class: "choice-option" + (radio.checked ? " selected" : "") }, [
+                choiceMedia(radio, html ? el("div", { class: "choice-diagram", html }) : null),
+                el("div", { class: "choice-label" }, [o.label]),
+              ]);
+            })));
+            return;
+          }
           card.appendChild(
             el("div", { class: "extra-field-row" }, [
               el("span", { class: "numeric-field-label" }, [f.label]),
@@ -8638,7 +8671,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     main: "#e0483e", side: "#d4a017", member: "#3b6fd6", backstay: "#2f9e57", foot: "#9b3fd1",
     roofBar: "#ff7f0e", backstayDiag: "#17becf", mainDiag: "#e377c2", doorBar: "#bcbd22",
     aPillar: "#ffdd00", sill: "#8c564b", harnessBar: "#c9a227",
-    rearLateral: "#4dd0e1", rearTransversal: "#ff5252", dashBar: "#7986cb",
+    rearLateral: "#4dd0e1", rearTransversal: "#ff5252", dashBar: "#7986cb", oemDashBar: "#9aa4b8", transverseBars: "#ffd54f",
     rearLowerX: "#b565d8", antiIntrusion: "#ff9e4a", templeBar: "#5ec9a3", windshieldReinforcement: "#ef6ba0",
     lowerMainHoopBar: "#8ecae6",
     // Bright, unmistakably-different-from-anything-else highlight -- used
@@ -8745,6 +8778,8 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     { row: "a_pillar_2pc_right_upper_rear", file: "253-15 gusset right upper rear.stl" },
     { row: "a_pillar_2pc_right_lower_front", file: "253-15 gusset right lower front.stl" },
     { row: "a_pillar_2pc_right_lower_rear", file: "253-15 gusset right lower rear.stl" },
+    // 253-14's optional gussets at each V bar's front end.
+    ...["left", "right"].flatMap((side) => ["transverse", "lateral"].map((to) => ({ row: "roof_14_" + to + "_" + side, file: "253-14 gusset " + to + " " + side + ".stl" }))),
   ];
   // Roof corner gussets -- see roof_corner_gussets in rules-data.js. Kept
   // separate from GUSSET_LOCATIONS/gusset_design since these are independent
@@ -8956,6 +8991,38 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     return result ? result.files : [];
   }
 
+  // A 253-31's left and right parts: its tubes, or its taco gussets
+  // (cage_view.js draws those -- "tri" in gusset_data.js).
+  const TACO_31 = { temple: ["253-31 temple gusset left.stl", "253-31 temple gusset right.stl"], windshield: ["253-31 windshield gusset left.stl", "253-31 windshield gusset right.stl"] };
+  // Its build: the card's "Built as" (rules-data.js build31Field), a tube unless picked.
+  const build31 = (id) => (getAnswer(id).extra || {}).build || "tube";
+  const temple31Files = () => (build31("temple_bar_present") !== "tube" ? TACO_31.temple : ["253-31 temple bar left.stl", "253-31 temple bar right.stl"]);
+  const windshield31Files = () => (build31("windshield_reinforcement_present") !== "tube" ? TACO_31.windshield : ["253-31 windshield left.stl", "253-31 windshield right.stl"]);
+  // The 253-31 gussets drawn: { file, row (reinforcement_31_gussets), build }.
+  function gussets31() {
+    const out = [];
+    [["temple_bar_present", "temple"], ["windshield_reinforcement_present", "windshield"]].forEach(([id, kind]) => {
+      const build = build31(id), v = getAnswer(id).value;
+      if (build === "tube") return;
+      ["left", "right"].forEach((side) => {
+        if (v === side || v === "both") out.push({ file: TACO_31[kind][side === "left" ? 0 : 1], row: kind + "_31_" + side, build });
+      });
+    });
+    return out;
+  }
+  // The dash bar card (rules-data.js DASH_BAR_OPTIONS): { dash: "oem" | "253-29" | null, x: "1" | "2" | null }.
+  function dashBarParts(v) {
+    v = v || "";
+    const dash = v === "yes" || v.indexOf("253-29-") === 0 ? "253-29" : v === "no" || v.indexOf("oem-") === 0 ? "oem" : null;
+    const m = /transverse-(\d)$/.exec(v);
+    return { dash, x: m ? m[1] : null };
+  }
+  // Drawn by cage_view.js ("bars" in gusset_data.js). The transverse X's
+  // configuration 1: the bar from the left door bars is the continuous one.
+  const OEM_DASH_BAR_FILE = "OEM dash bar.stl";
+  const TRANSVERSE_BAR_FILES = ["Transverse bar left.stl", "Transverse bar right.stl"];
+  const continuousTransverseFile = () => TRANSVERSE_BAR_FILES[dashBarParts(getAnswer("dash_bar_present").value).x === "2" ? 1 : 0];
+  const otherTransverseFile = () => TRANSVERSE_BAR_FILES.find((f) => f !== continuousTransverseFile());
   // Shared by any left/right/both/none-style element (253-31 temple bar and
   // windshield reinforcement below) whose 2 files are simply "the left
   // part" and "the right part".
@@ -9082,16 +9149,24 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       return { files, color: CAGE_COLOR.rearLateral };
     },
     rear_transversal_present: (v) => (v === "yes" ? { files: ["253-18.stl"], color: CAGE_COLOR.rearTransversal } : null),
-    dash_bar_present: (v) => (v === "yes" ? { files: ["Dash bar 253-29.stl"], color: CAGE_COLOR.dashBar } : null),
+    // The dash bar (OEM: a square tube, the car's own; or 253-29) and/or the transverse X.
+    dash_bar_present: (v) => {
+      const d = dashBarParts(v), files = [], colors = {};
+      if (d.dash === "253-29") { files.push("Dash bar 253-29.stl"); colors["Dash bar 253-29.stl"] = CAGE_COLOR.dashBar; }
+      if (d.dash === "oem") { files.push(OEM_DASH_BAR_FILE); colors[OEM_DASH_BAR_FILE] = CAGE_COLOR.oemDashBar; }
+      if (d.x) TRANSVERSE_BAR_FILES.forEach((f) => { files.push(f); colors[f] = CAGE_COLOR.transverseBars; });
+      return files.length ? { files, colors, color: CAGE_COLOR.dashBar } : null;
+    },
     rear_lower_x_present: (v) => (v === "253-19-1" || v === "253-19-2" ? { files: ["253-19 left.stl", "253-19 right.stl"], color: CAGE_COLOR.rearLowerX } : null),
     anti_intrusion_present: (v) =>
       v === "yes"
         ? { files: ["253-25 upper left.stl", "253-25 upper right.stl", "253-25 lower left.stl", "253-25 lower right.stl"], color: CAGE_COLOR.antiIntrusion }
         : null,
-    // Left/right/both/none (not a plain yes/no) -- see rules-data.js.
-    temple_bar_present: (v) => sideFilesRule(v, "253-31 temple bar left.stl", "253-31 temple bar right.stl", CAGE_COLOR.templeBar),
-    windshield_reinforcement_present: (v) =>
-      sideFilesRule(v, "253-31 windshield left.stl", "253-31 windshield right.stl", CAGE_COLOR.windshieldReinforcement),
+    // Left/right/both/none (not a plain yes/no) -- see rules-data.js. Built
+    // as a tube or as a gusset (taco or single plate, the card's "Built as"):
+    // the gusset is drawn in the tube's place, in the same color.
+    temple_bar_present: (v) => sideFilesRule(v, ...temple31Files(), CAGE_COLOR.templeBar),
+    windshield_reinforcement_present: (v) => sideFilesRule(v, ...windshield31Files(), CAGE_COLOR.windshieldReinforcement),
 
     // a_pillar_reinforcement itself is handled separately, below the main
     // per-element loop -- continuous vs 2-bar are mutually exclusive
@@ -9381,6 +9456,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     if (file === MAIN_DIAG_TOP_RIGHT_FILE || file === MAIN_DIAG_TOP_LEFT_FILE) return mainDiagFileTubeRow(file);
     if (file === "Rear diagonal 1.stl" || file === "Rear diagonal 2.stl") return backstayDiagFileTubeRow(file);
     if (file === "253-19 left.stl" || file === "253-19 right.stl") return rearLowerXFileTubeRow(file);
+    if (TRANSVERSE_BAR_FILES.includes(file)) return file === continuousTransverseFile() ? "transverse_x_continuous" : "transverse_x_other";
     if (DOOR_BAR_DYNAMIC_FILES.indexOf(file) !== -1) return doorBarFileTubeRow(file);
     if (ROOF_BAR_DYNAMIC_FILES.indexOf(file) !== -1) return roofBarFileTubeRow(file);
     return FILE_TO_TUBE_ROW[file] || null;
@@ -9742,6 +9818,8 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     if (file === "Transverse member.stl") return { rowIds: ["left", "right"], weldElementId: "transverse_member_welds", distElementId: null };
     // Dash bar spans left-to-right (Y dominant, verified) -- its own 2 ends.
     if (file === "Dash bar 253-29.stl") return { rowIds: ["left", "right"], weldElementId: "dash_bar_detail", distElementId: null };
+    if (file === "Transverse bar left.stl") return { rowIds: file === continuousTransverseFile() ? ["left_door", "right_strut"] : ["left_door", "right_strut", "crossing"], weldElementId: "transverse_bars_detail", distElementId: null };
+    if (file === "Transverse bar right.stl") return { rowIds: file === continuousTransverseFile() ? ["right_door", "left_strut"] : ["right_door", "left_strut", "crossing"], weldElementId: "transverse_bars_detail", distElementId: null };
     // 253-17: 2 weld points per tube (front, at the door bar; rear, at the
     // backstay -- X dominant, verified, consistent low-to-high order on
     // all 4 files, no left/right mirroring flip here).
@@ -9758,6 +9836,10 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     // consistent both sides). Windshield reinforcement: Y dominant, but
     // the two sides are NOT mirror-consistent (verified) -- left's low-Y
     // end is its bottom, right's low-Y end is its top.
+    if (file === "253-31 temple gusset left.stl") return { rowIds: ["left_top", "left_bottom"], weldElementId: "temple_bar_detail", distElementId: null };
+    if (file === "253-31 temple gusset right.stl") return { rowIds: ["right_top", "right_bottom"], weldElementId: "temple_bar_detail", distElementId: null };
+    if (file === "253-31 windshield gusset left.stl") return { rowIds: ["left_bottom", "left_top"], weldElementId: "windshield_reinforcement_detail", distElementId: null };
+    if (file === "253-31 windshield gusset right.stl") return { rowIds: ["right_top", "right_bottom"], weldElementId: "windshield_reinforcement_detail", distElementId: null };
     if (file === "253-31 temple bar left.stl") return { rowIds: ["left_top", "left_bottom"], weldElementId: "temple_bar_detail", distElementId: null };
     if (file === "253-31 temple bar right.stl") return { rowIds: ["right_top", "right_bottom"], weldElementId: "temple_bar_detail", distElementId: null };
     if (file === "253-31 windshield left.stl") return { rowIds: ["left_bottom", "left_top"], weldElementId: "windshield_reinforcement_detail", distElementId: null };
@@ -9860,12 +9942,12 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       MAIN_DIAG_TOP_RIGHT_FILE, MAIN_DIAG_TOP_LEFT_FILE,
       "253-19 left.stl", "253-19 right.stl",
       "Sill bar Left.stl", "Sill bar Right.stl",
-      "Transverse member.stl", "Dash bar 253-29.stl",
+      "Transverse member.stl", "Dash bar 253-29.stl", "Transverse bar left.stl", "Transverse bar right.stl",
       "253-17 left upper.stl", "253-17 right upper.stl", "253-17 left lower.stl", "253-17 right lower.stl",
       "253-26,27 harness bar.stl", "253-18.stl",
       "253-31 temple bar left.stl", "253-31 temple bar right.stl",
       "253-31 windshield left.stl", "253-31 windshield right.stl",
-    ], APILLAR_FILES, APILLAR_2PIECE_FILES);
+    ], TACO_31.temple, TACO_31.windshield, APILLAR_FILES, APILLAR_2PIECE_FILES);
     ["left", "right"].forEach((side) => {
       ALL_DOOR_BAR_VALS.forEach((v) => {
         const result = doorBarSideRule(v, {}, side);
@@ -10040,6 +10122,8 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       Object.keys(GROUPED_JUNCTION_FILES).forEach((file) => setIfActive(file, groupedJunctionSpec(file, GROUPED_JUNCTION_FILES[file]())));
       // Gussets: by their dimensions (red too short/long, green within).
       activeGussetLocations().forEach(({ row, file }) => setIfActive(file, gussetSizeColor(row)));
+      // 253-31 gussets: by their dimensions too (red when one fails, green once all entered).
+      gussets31().forEach(({ row, file }) => setIfActive(file, gussetSizeColor(row, "reinforcement_31_gussets")));
       // 253-9's bend bars: by their bend positions.
       ["left", "right"].forEach((side) => {
         if (!isDoor9Bent(getAnswer("door_bars_" + side).value)) return;
@@ -10099,7 +10183,9 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     const path = state.vehicle && RULES[state.vehicle.org] && RULES[state.vehicle.org].paths[state.pathId];
     if (!path) return [];
     const rows = gussetDesignRows(path);
-    return GUSSET_LOCATIONS.filter(({ row }) => gussetDesign(rows, row) === "taco").map(({ file }) => file);
+    return GUSSET_LOCATIONS.filter(({ row }) => gussetDesign(rows, row) === "taco").map(({ file }) => file)
+      // 253-31 tacos too, unless their row says there's no hole.
+      .concat(gussets31().filter(({ row, build }) => build === "taco" && getAnswer("reinforcement_31_gussets__" + row + "__hole_diameter").value !== "none").map(({ file }) => file));
   }
   function computeCageColors() {
     const colors = {};
@@ -10192,7 +10278,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
       if (!rule) return;
       const result = rule(value, answer);
       if (!result) return;
-      result.files.forEach((f) => { colors[f] = result.color; owner[f] = elm.id; });
+      result.files.forEach((f) => { colors[f] = (result.colors && result.colors[f]) || result.color; owner[f] = elm.id; });
     });
     // Mounting feet aren't gated by a single per-element value the main
     // loop above can see (their answers live per-cell under
@@ -10925,7 +11011,6 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
   }
 
   const DOUBLE_CLICK_TOGGLE_MAP = {
-    "Dash bar 253-29.stl": { elementId: "dash_bar_present", kind: "boolean" },
     "253-18.stl": { elementId: "rear_transversal_present", kind: "boolean" },
     "253-25 upper left.stl": { elementId: "anti_intrusion_present", kind: "boolean" },
     "253-25 lower left.stl": { elementId: "anti_intrusion_present", kind: "boolean" },
@@ -10933,6 +11018,10 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     "253-25 lower right.stl": { elementId: "anti_intrusion_present", kind: "boolean" },
     "253-30 lower main hoop bar.stl": { elementId: "lower_main_hoop_bar_present", kind: "boolean" },
     "253-31 temple bar left.stl": { elementId: "temple_bar_present", kind: "side", side: "left", other: "right" },
+    "253-31 temple gusset left.stl": { elementId: "temple_bar_present", kind: "side", side: "left", other: "right" },
+    "253-31 temple gusset right.stl": { elementId: "temple_bar_present", kind: "side", side: "right", other: "left" },
+    "253-31 windshield gusset left.stl": { elementId: "windshield_reinforcement_present", kind: "side", side: "left", other: "right" },
+    "253-31 windshield gusset right.stl": { elementId: "windshield_reinforcement_present", kind: "side", side: "right", other: "left" },
     "253-31 temple bar right.stl": { elementId: "temple_bar_present", kind: "side", side: "right", other: "left" },
     "253-31 windshield left.stl": { elementId: "windshield_reinforcement_present", kind: "side", side: "left", other: "right" },
     "253-31 windshield right.stl": { elementId: "windshield_reinforcement_present", kind: "side", side: "right", other: "left" },
@@ -11721,21 +11810,33 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
         sizes[file] = { lb: gussetModelSize("door_9_bend_gusset", row, "lb"), lb2: gussetModelSize("door_9_bend_gusset", row, "lb2"), lc: gussetModelSize("door_9_bend_gusset", row, "lc") };
         return;
       }
+      if (row.indexOf("a_pillar_side_") === 0) {
+        const lb = gussetModelSize("a_pillar_side_gusset", row, "lb");
+        if (lb) sizes[file] = lb.ratio ? { ratio: lb.ratio / 2 } : { mm: lb.mm / 2 };
+        return;
+      }
       const size = gussetModelSize("gusset_dimensions", row, "length");
       if (size) sizes[file] = size;
+    });
+    // 253-31 gussets: their build, and each leg as entered.
+    gussets31().forEach(({ file, row, build }) => {
+      designs[file] = build;
+      const a = gussetModelSize("reinforcement_31_gussets", row, "leg_a"), b = gussetModelSize("reinforcement_31_gussets", row, "leg_b");
+      if (a || b) sizes[file] = { a, b };
     });
     return { doorVariant: { left: doorGussetVariant("left"), right: doorGussetVariant("right") }, sizes, designs };
   }
   // A gusset's color in Part 4: red when any of its dimensions fails, green
   // once its lengths are all entered and within limits -- judged against D,
   // so not before Part 3's tube sizes give it (else ghost).
-  function gussetSizeColor(row) {
-    const elm = currentPathElement(row.indexOf("door_bend_") === 0 ? "door_9_bend_gusset" : "gusset_dimensions");
+  function gussetSizeColor(row, elementId) {
+    const elm = currentPathElement(elementId || (row.indexOf("door_bend_") === 0 ? "door_9_bend_gusset" : row.indexOf("a_pillar_side_") === 0 ? "a_pillar_side_gusset" : "gusset_dimensions"));
     const r = elm && resolveRows(elm).find((x) => x.id === row);
     if (!r) return null;
     const status = (col) => tableCellStatusByRules(col, getAnswer(tableCellId(elm, r, col)), r, elm);
     if (elm.columns.some((col) => status(col) === "fail")) return CAGE_COLOR.statusFail;
-    if (gussetRowDiameterMM(row) === null) return null;
+    // (A 253-31 gusset's legs aren't judged against D.)
+    if (!elementId && gussetRowDiameterMM(row) === null) return null;
     return elm.columns.filter((col) => col.type === "length").every((col) => status(col) === "pass") ? CAGE_COLOR.statusPass : null;
   }
   // An X's half bars (1 continuous tube + 2 half bars: 253-7, 253-21,
@@ -11766,6 +11867,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     ["left", "right"].forEach((side) => {
       if (isDoor9Intersection(getAnswer("door_bars_" + side).value)) add(otherDoorTubeFile(side), continuousDoorTubeFile(side), CAGE_COLOR.doorBar);
     });
+    if (dashBarParts(getAnswer("dash_bar_present").value).x) add(otherTransverseFile(), continuousTransverseFile(), CAGE_COLOR.transverseBars);
     const x19 = getAnswer("rear_lower_x_present").value;
     if (x19 === "253-19-1") add("253-19 right.stl", "253-19 left.stl", CAGE_COLOR.rearLowerX);
     if (x19 === "253-19-2") add("253-19 left.stl", "253-19 right.stl", CAGE_COLOR.rearLowerX);
@@ -11855,7 +11957,7 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
   // gusset part until the model's shape changes.
   // The gusset tables showing them: design (Part 2), dimensions (Part 4),
   // welds (Part 5).
-  const GUSSET_SHOT_TABLES = new Set(["gusset_design", "gusset_dimensions", "door_9_bend_gusset", "gusset_welds"]);
+  const GUSSET_SHOT_TABLES = new Set(["gusset_design", "gusset_dimensions", "door_9_bend_gusset", "a_pillar_side_gusset", "gusset_welds"]);
   // Part 4's bar junction distances: the bar end each row measures and the
   // bars it's measured from, for its picture ({ file, end, refs } -- see
   // CageView.focusShots), or null.

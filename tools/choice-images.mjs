@@ -21,6 +21,25 @@ const TWO = { left: ["253-15 left lower.stl", "253-15 left upper.stl"], right: [
 
 const FRONT = [-2.0, 1.2], REAR = [-1.0, 1.15], SIDE = [-1.2, 1.2];
 const side = (l, r) => ({ left: [l], right: [r], both: [l, r], none: [] });
+function dashOptions() {
+  const OEM = "OEM dash bar.stl", D29 = "Dash bar 253-29.stl", XL = "Transverse bar left.stl", XR = "Transverse bar right.stl";
+  const x = (n, dash) => ({
+    files: (dash ? [dash] : []).concat([XL, XR]),
+    gaps: n === 1 ? { [XR]: XL } : { [XL]: XR },
+    colors: Object.assign({ [XL]: "#ffd54f", [XR]: "#ffd54f" }, dash === OEM ? { [OEM]: "#9aa4b8" } : {}),
+  });
+  return {
+    no: { files: [OEM], colors: { [OEM]: "#9aa4b8" } }, yes: [D29],
+    "transverse-1": x(1), "transverse-2": x(2),
+    "oem-transverse-1": x(1, OEM), "oem-transverse-2": x(2, OEM),
+    "253-29-transverse-1": x(1, D29), "253-29-transverse-2": x(2, D29),
+  };
+}
+// 253-31's builds, both sides: the tubes, or the gussets drawn as a taco or a single plate.
+const built31 = (tubes, gussets) => ({
+  tube: tubes, taco: { files: gussets, holes: gussets },
+  single_plate: { files: gussets, designs: Object.fromEntries(gussets.map((f) => [f, "single_plate"])) },
+});
 
 // An X's 2 half bars, each in its own color (the continuous tube in the
 // bar's own), so the continuous one stands out.
@@ -92,10 +111,23 @@ const SETS = [
     options: { yes: ["253-25 upper left.stl", "253-25 upper right.stl", "253-25 lower left.stl", "253-25 lower right.stl"], no: [] },
   },
   { prefix: "253-29_", ghost: BASE, color: "#7986cb", orbit: FRONT, options: { yes: ["Dash bar 253-29.stl"], no: [] } },
+  // The dash bar card: the OEM dash bar (square, the car's own), 253-29, and/or the
+  // transverse X (configuration 1: the bar from the left door bars continuous).
+  { prefix: "dash_", ghost: BASE.concat(["Door bar 253-10 upper left.stl", "Door bar 253-10 upper right.stl", "253-25 upper left.stl", "253-25 lower left.stl", "253-25 upper right.stl", "253-25 lower right.stl"]),
+    color: "#7986cb", orbit: [-2.85, 0.55], options: dashOptions() },
   { prefix: "253-31-temple_", ghost: BASE, color: "#5ec9a3", orbit: [-2.47, 1.625] /* the view picked in the 3D model */, options: side("253-31 temple bar left.stl", "253-31 temple bar right.stl") },
   {
     prefix: "253-31-windshield_", ghost: BASE.concat(ONE.left, ONE.right), color: "#ef6ba0", orbit: [Math.PI, 0.6], // from the front and above
     options: side("253-31 windshield left.stl", "253-31 windshield right.stl"),
+  },
+  // 253-31 built as a tube or as a taco gusset, both sides, same views.
+  {
+    prefix: "253-31-temple-form_", ghost: BASE, color: "#5ec9a3", orbit: [-2.47, 1.625],
+    options: built31(["253-31 temple bar left.stl", "253-31 temple bar right.stl"], ["253-31 temple gusset left.stl", "253-31 temple gusset right.stl"]),
+  },
+  {
+    prefix: "253-31-windshield-form_", ghost: BASE.concat(ONE.left, ONE.right), color: "#ef6ba0", orbit: [Math.PI, 0.6],
+    options: built31(["253-31 windshield left.stl", "253-31 windshield right.stl"], ["253-31 windshield gusset left.stl", "253-31 windshield gusset right.stl"]),
   },
 
   // ---- Main rollbar diagonals, seen from the rear ----
@@ -197,9 +229,13 @@ export default async function (a) {
         const colors = {};
         CageView.getAllFiles().forEach((f) => { if (!ghost.includes(f)) colors[f] = "hidden"; });
         ${JSON.stringify(files)}.forEach((f) => { colors[f] = ${JSON.stringify(set.color)}; });
+        Object.assign(colors, ${JSON.stringify((!Array.isArray(opt) && opt.colors) || {})}); // (some bars in their own color)
         CageView.applyState(colors, true); ${W(1500)}
         // After applyState: a part only loads once it's shown.
-        CageView.setGaps(${JSON.stringify(Array.isArray(opt) ? {} : opt.gaps)}, ${(!Array.isArray(opt) && opt.halfGap) || 5}, ${JSON.stringify(HALF_COLORS)}); ${W(300)}`);
+        CageView.setGaps(${JSON.stringify(Array.isArray(opt) ? {} : opt.gaps || {})}, ${(!Array.isArray(opt) && opt.halfGap) || 5}, ${JSON.stringify(HALF_COLORS)}); ${W(300)}
+        // A drawn gusset's design (opt.designs: { file: "single_plate" }), else as drawn by default (a taco).
+        CageView.setGussets({ designs: ${JSON.stringify((!Array.isArray(opt) && opt.designs) || {})} });
+        CageView.setHoles(${JSON.stringify((!Array.isArray(opt) && opt.holes) || [])}); ${W(300)}`);
       const name = set.prefix + id;
       writeFileSync(join(here, "..", "images", name + ".png"), Buffer.from(await a.eval(GRAB), "base64"));
       a.log("wrote images/" + name + ".png");

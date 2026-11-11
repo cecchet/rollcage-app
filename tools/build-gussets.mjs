@@ -153,6 +153,97 @@ const bends = doorBendBars();
   });
 });
 
+// 253-31 as a taco gusset ("tri"), instead of its tube: bent sheet metal
+// filling the corner the tube would close -- the triangle from the corner
+// C, where the 2 tubes it joins meet, to A and B, where the tube's ends sit
+// on their axes. The tubes are bent, so each is taken as the straight line
+// through its stretch near the bar's end.
+function localLine(f, near, R = 12) {
+  const pts = load(f).filter((p) => len(sub(p, near)) < R);
+  const c = mul(pts.reduce((s, p) => add(s, p), [0, 0, 0]), 1 / pts.length);
+  const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  pts.forEach((p) => { const d = sub(p, c); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) C[i][j] += d[i] * d[j]; });
+  let d = [1, 0.3, 0.2];
+  for (let it = 0; it < 80; it++) d = norm([dot(C[0], d), dot(C[1], d), dot(C[2], d)]);
+  return { a: c, d, file: f };
+}
+function barEnds(f) {
+  const L = tubeLine(f), ts = load(f).map((p) => dot(sub(p, L.a), L.d));
+  return { r: L.r, ends: [add(L.a, mul(L.d, Math.min(...ts))), add(L.a, mul(L.d, Math.max(...ts)))] };
+}
+const STRUCTURE = ["Main rollbar.stl", "Front left lateral.stl", "Front right lateral.stl", "Transverse member.stl"];
+const distTo = (f, p) => Math.min(...load(f).map((q) => len(sub(q, p))));
+out.tri = {};
+[["temple", "253-31 temple bar "], ["windshield", "253-31 windshield "]].forEach(([kind, prefix]) => ["left", "right"].forEach((side) => {
+  const { r, ends } = barEnds(prefix + side + ".stl");
+  // Each end's tube: the nearest of the main structure; at a lateral's
+  // bend both ends sit on the same tube, each on its own stretch of it.
+  const lines = ends.map((E) => {
+    const f = STRUCTURE.map((t) => [t, distTo(t, E)]).sort((x, y) => x[1] - y[1])[0][0];
+    const L = localLine(f, E);
+    return { L, at: add(L.a, mul(L.d, dot(sub(E, L.a), L.d))) };
+  });
+  const { P, gap } = nearest(lines[0].L, lines[1].L);
+  // (As thick as the main tubes it joins -- the 253-31 tube itself is thinner.)
+  out.tri["253-31 " + kind + " gusset " + side + ".stl"] = { C: round(P), A: round(lines[0].at), B: round(lines[1].at), r: 2.5, gap: round([gap])[0] };
+}));
+// Where a side's 2 tube lines miss each other by much (the left temple
+// corner: its lateral's stretch there is bent), that side is the other
+// side's, mirrored across the car's centerline (the main rollbar's middle).
+{
+  const ys = load("Main rollbar.stl").map((p) => p[1]);
+  const mid = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const mirror = (p) => round([p[0], 2 * mid - p[1], p[2]]);
+  ["temple", "windshield"].forEach((kind) => {
+    const L = "253-31 " + kind + " gusset left.stl", R = "253-31 " + kind + " gusset right.stl";
+    const [bad, good] = out.tri[L].gap > out.tri[R].gap ? [L, R] : [R, L];
+    if (out.tri[bad].gap <= 2) return;
+    const g = out.tri[good];
+    out.tri[bad] = { C: mirror(g.C), A: mirror(g.A), B: mirror(g.B), r: g.r, gap: g.gap, mirrored: true };
+  });
+}
+
+// 253-14's optional gussets at each V bar's front end: one in the angle
+// between the bar and the transverse member (windscreen top), one between
+// the bar and the lateral's roof rail. P where the bar's axis meets the
+// other tube's; u along the bar, v along the other tube, both away from P.
+["left", "right"].forEach((side) => {
+  const cap = side === "left" ? "Left" : "Right";
+  const bar = tubeLine("Roof bar 253-14 " + side + ".stl");
+  const { ends } = barEnds("Roof bar 253-14 " + side + ".stl");
+  const [front, back] = ends.slice().sort((a, b) => a[0] - b[0]);
+  const along = norm(sub(back, front));
+  const others = {
+    transverse: tubeLine("Transverse member.stl"),
+    lateral: localLine("Front " + side + " lateral.stl", add(front, [10, 0, 0])),
+  };
+  Object.entries(others).forEach(([name, L]) => {
+    const { P2 } = nearest(bar, L);
+    // The other tube's branch on the bar's side of the corner.
+    const v = dot(L.d, along) >= 0 ? L.d : mul(L.d, -1);
+    out.plates["253-14 gusset " + name + " " + side + ".stl"] = { x: { P: round(P2), u: round(along), v: round(v), r: 2.5 } };
+  });
+});
+
+// Drawn bars ("bars"): straight tubes from a to b, radius r -- or, with
+// `square`, a square tube that wide.
+//  - The transverse bars (dash_bar_present): an X ahead of the dash, each
+//    bar from the top of one side's front door bars (where they meet the
+//    front lateral) to the front of the other side's 253-25 (the upper
+//    strut tower attachment point).
+//  - The OEM dash bar: a square tube on 253-29's line, thinner than it.
+out.bars = {};
+{
+  const ends = (f) => barEnds(f).ends.slice().sort((a, b) => a[0] - b[0]);
+  const doorTop = { left: ends("Door bar 253-10 upper left.stl")[0], right: ends("Door bar 253-10 upper right.stl")[0] };
+  const strut = { left: ends("253-25 lower left.stl")[0], right: ends("253-25 lower right.stl")[0] };
+  out.bars["Transverse bar left.stl"] = { a: round(doorTop.left), b: round(strut.right), r: 2.5 };
+  out.bars["Transverse bar right.stl"] = { a: round(doorTop.right), b: round(strut.left), r: 2.5 };
+  const dash = barEnds("Dash bar 253-29.stl").ends;
+  // (35mm square: its corners stay inside 253-29's tube, which still shows around it as a ghost bar.)
+  out.bars["OEM dash bar.stl"] = { a: round(dash[0]), b: round(dash[1]), square: 3.5 };
+}
+
 // A/B-pillar gussets: resized about the middle of their weld along the
 // tube (the vertices touching its surface).
 [["A-pillar gusset left.stl", "Front left lateral.stl"], ["A-pillar gusset right.stl", "Front right lateral.stl"],

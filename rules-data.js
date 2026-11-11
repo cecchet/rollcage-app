@@ -1083,6 +1083,15 @@
         rows.push({ id: "a_pillar_2pc_" + side + "_" + pos, label: "253-15: Windshield pillar reinforcement 2-piece gusset - " + side + " " + pos.replace("_", " "), restrictOptionIds: ["taco"] });
       });
     });
+    // 253-14's V bars: optional gussets at each bar's front end, one to the
+    // windscreen transverse member and one to the lateral -- "None" is a
+    // final answer, with no penalty.
+    if (getAnswer("roof_bars").value === "253-14") {
+      ["left", "right"].forEach((side) => rows.push(
+        { id: "roof_14_transverse_" + side, label: "253-14: Roof bar to windscreen transverse member gusset - " + side, optional: true },
+        { id: "roof_14_lateral_" + side, label: "253-14: Roof bar to lateral gusset - " + side, optional: true }
+      ));
+    }
     const rearLowerXVal = getAnswer("rear_lower_x_present").value;
     if (rearLowerXVal === "253-19-1" || rearLowerXVal === "253-19-2") {
       // 4 positions at the crossing -- a left/right or a front/rear pair --
@@ -1189,6 +1198,57 @@
     return [];
   }
 
+  // 253-31's build (temple bar / windshield reinforcement): an extraFields
+  // choice on its card -- unanswered reads as a tube (as before).
+  function build31Field(kind) {
+    const opt = (id, label) => ({ id, label, diagram: "253-31-" + kind + "-form-" + id, outcome: "pass" });
+    return { key: "build", label: "Built as", type: "choice", requirement: "recommended", showIf: { in: ["left", "right", "both"] },
+      options: [opt("tube", "Tube"), opt("taco", "Taco gusset (bent sheet metal)"), opt("single_plate", "Single plate")] };
+  }
+  const build31 = (getAnswer, id) => (getAnswer(id).extra || {}).build || "tube";
+  // The 253-31 gussets present (built as a taco or a single plate), one row each.
+  function reinforcement31GussetRows(getAnswer) {
+    const rows = [];
+    [["temple_bar_present", "temple", "Temple"], ["windshield_reinforcement_present", "windshield", "Windshield"]].forEach(([id, kind, name]) => {
+      const build = build31(getAnswer, id);
+      if (build === "tube") return;
+      sideRows(getAnswer(id).value).forEach((s) => rows.push(Object.assign(
+        { id: kind + "_31_" + s.id, label: "253-31: " + name + " " + (build === "taco" ? "taco gusset" : "single plate") + " -- " + s.label },
+        build === "single_plate" ? { notApplicableColumns: ["hole_diameter"] } : {})));
+    });
+    return rows;
+  }
+
+  // The dash bar card (dash_bar_present): the dash bar -- the car's OEM one
+  // ("no", as answered before this card had more options) or a 253-29
+  // ("yes") -- and/or the transverse X ahead of it, from the top of each
+  // side's front door bars to the front of the other side's 253-25 (the
+  // upper strut tower attachment point), configuration 1 or 2: which of its
+  // 2 bars is continuous (1: the one from the left door bars).
+  const DASH_BAR_OPTIONS = (() => {
+    const x = (n) => "transverse-" + n;
+    const opt = (id, row, label, outcome) => ({ id, row, label, diagram: "dash-" + id, outcome: outcome || "pass" });
+    return [
+      opt("no", "dash", "OEM dash bar"),
+      opt("yes", "dash", "253-29: Dash bar"),
+      opt(x(1), "x", "Transverse X, configuration 1"),
+      opt(x(2), "x", "Transverse X, configuration 2"),
+      opt("oem-" + x(1), "oem-x", "OEM dash bar + transverse X, configuration 1"),
+      opt("oem-" + x(2), "oem-x", "OEM dash bar + transverse X, configuration 2"),
+      opt("253-29-" + x(1), "29-x", "253-29 + transverse X, configuration 1"),
+      opt("253-29-" + x(2), "29-x", "253-29 + transverse X, configuration 2"),
+    ];
+  })();
+  // A dash bar answer's parts: { dash: "oem" | "253-29" | null, x: "1" | "2" | null }.
+  function dashBarParts(v) {
+    v = v || "";
+    const dash = v === "yes" || v.indexOf("253-29-") === 0 ? "253-29" : v === "no" || v.indexOf("oem-") === 0 ? "oem" : null;
+    const m = /transverse-(\d)$/.exec(v);
+    return { dash, x: m ? m[1] : null };
+  }
+  const DASH_253_29 = DASH_BAR_OPTIONS.map((o) => o.id).filter((id) => dashBarParts(id).dash === "253-29");
+  const DASH_X = DASH_BAR_OPTIONS.map((o) => o.id).filter((id) => dashBarParts(id).x);
+
   const SECTION_2_3_TUBING = [
     {
       id: "primary_tubing",
@@ -1279,17 +1339,21 @@
             { id: "anti_intrusion_right_lower", label: "253-25: Anti-intrusion -- Right lower" }
           );
         }
-        if (getAnswer("dash_bar_present").value === "yes") {
-          rows.push({ id: "dash_bar", label: "253-29: Dash bar" });
+        const dash = dashBarParts(getAnswer("dash_bar_present").value);
+        if (dash.dash === "253-29") rows.push({ id: "dash_bar", label: "253-29: Dash bar" });
+        // (The OEM dash bar is the car's own: no cage tube to classify.)
+        if (dash.x) {
+          rows.push({ id: "transverse_x_continuous", label: "Transverse bars: continuous bar" }, { id: "transverse_x_other", label: "Transverse bars: 2 half bars" });
         }
         if (getAnswer("lower_main_hoop_bar_present").value === "yes") {
           rows.push({ id: "lower_main_hoop_bar", label: "253-30: Lower main hoop bar" });
         }
         const sidePicked = (id) => ["left", "right", "both"].includes(getAnswer(id).value);
-        if (sidePicked("temple_bar_present")) {
+        // (A 253-31 built as a taco gusset has no tube to classify.)
+        if (sidePicked("temple_bar_present") && build31(getAnswer, "temple_bar_present") === "tube") {
           sideRows(getAnswer("temple_bar_present").value).forEach((s) => rows.push({ id: "temple_bar_" + s.id, label: "253-31: Temple bar -- " + s.label }));
         }
-        if (sidePicked("windshield_reinforcement_present")) {
+        if (sidePicked("windshield_reinforcement_present") && build31(getAnswer, "windshield_reinforcement_present") === "tube") {
           sideRows(getAnswer("windshield_reinforcement_present").value).forEach((s) => rows.push({ id: "windshield_reinforcement_" + s.id, label: "253-31: Windshield reinforcement -- " + s.label }));
         }
         return rows;
@@ -2361,23 +2425,40 @@
     },
     {
       id: "dash_bar_present",
-      name: "Dash bar (253-29)",
-      category: "Optional bars",
-      requirement: "recommended", reference: "", description: "Optional in case the stock dash bar of the car is not retained.",
+      name: "Dash bar and transverse bars",
+      category: "Dash bar",
+      requirement: "recommended", reference: "",
+      description: "The car's OEM dash bar, or a 253-29 dash bar in case the stock dash bar of the car is not retained -- and/or transverse bars: an X from the top of the front door bars to the front of 253-25 (the upper strut tower attachment point). Configuration 1 or 2: which of the X's 2 bars is continuous.",
       // Doesn't apply to a half rollcage with no front structure to tie
       // the dash bar into.
       showIf: { id: "main_structure_layout", notEquals: "half-rollcage" },
-      yesNoPictures: [{ label: "253-29: Dash bar", diagram: "253-29-3d" }, { label: "None present", diagram: "253-29-3d-none" }],
-      evaluationType: "boolean", strictYesNo: true, visuallyVerifiable: true, hardFail: false,
+      optionRows: [{ id: "dash", label: "Dash bar" }, { id: "x", label: "Transverse bars" }, { id: "oem-x", label: "OEM dash bar + transverse bars" }, { id: "29-x", label: "253-29 + transverse bars" }],
+      options: DASH_BAR_OPTIONS,
+      evaluationType: "choice", visuallyVerifiable: true, hardFail: false,
     },
     {
       id: "dash_bar_detail",
       name: "253-29 dash bar welds",
       category: "Welds",
       requirement: "recommended", reference: "", description: "The bar's own 2 ends.",
-      showIf: { id: "dash_bar_present", equals: "yes" },
+      showIf: { id: "dash_bar_present", in: DASH_253_29 },
       evaluationType: "table",
       rows: [{ id: "left", label: "253-29 dash bar -- left" }, { id: "right", label: "253-29 dash bar -- right" }],
+      columns: WELD_COLUMNS,
+      visuallyVerifiable: true, hardFail: false,
+    },
+    {
+      id: "transverse_bars_detail",
+      name: "Transverse bars welds",
+      category: "Welds",
+      requirement: "recommended", reference: "", description: "Each bar's 2 ends, and the half bars on the continuous bar.",
+      showIf: { id: "dash_bar_present", in: DASH_X },
+      evaluationType: "table",
+      rows: [
+        { id: "left_door", label: "Transverse bars -- left door bars end" }, { id: "right_door", label: "Transverse bars -- right door bars end" },
+        { id: "left_strut", label: "Transverse bars -- left 253-25 end" }, { id: "right_strut", label: "Transverse bars -- right 253-25 end" },
+        { id: "crossing", label: "Transverse bars -- half bars at the crossing" },
+      ],
       columns: WELD_COLUMNS,
       visuallyVerifiable: true, hardFail: false,
     },
@@ -2408,6 +2489,11 @@
         { id: "both", label: "Both sides", diagram: "253-31-temple-both", outcome: "pass" },
         { id: "none", label: "None present", diagram: "253-31-temple-none", outcome: "fail" },
       ],
+      // How it's built, picked with it: a tube, or bent sheet metal -- a
+      // taco gusset or a single plate filling the corner the tube would
+      // close (Article 253-8.2.14 allows either; e.g. Skoda's Rally2 cars).
+      // Its sizes: reinforcement_31_gussets.
+      extraFields: [build31Field("temple")],
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -2441,6 +2527,11 @@
         { id: "both", label: "Both sides", diagram: "253-31-windshield-both", outcome: "pass" },
         { id: "none", label: "None present", diagram: "253-31-windshield-none", outcome: "fail" },
       ],
+      // How it's built, picked with it: a tube, or bent sheet metal -- a
+      // taco gusset or a single plate filling the corner the tube would
+      // close (Article 253-8.2.14 allows either; e.g. Skoda's Rally2 cars).
+      // Its sizes: reinforcement_31_gussets.
+      extraFields: [build31Field("windshield")],
       visuallyVerifiable: true, hardFail: false,
     },
     {
@@ -2531,8 +2622,9 @@
       // not applicable, and so do 253-15's own taco gussets (side +
       // 2-piece), which don't carry either feature on this build even
       // though they ARE taco.
+      // (253-9's bend gusset and the one-piece 253-15's side gusset have tables of their own.)
       rows: (getAnswer) => gussetJunctionRows(getAnswer)
-        .filter((r) => getAnswer("gusset_design__" + r.id + "__design").value !== "" && r.id.indexOf("door_bend_") !== 0)
+        .filter((r) => getAnswer("gusset_design__" + r.id + "__design").value !== "" && r.id.indexOf("door_bend_") !== 0 && r.id.indexOf("a_pillar_side_") !== 0)
         .map((r) => {
           const design = getAnswer("gusset_design__" + r.id + "__design").value;
           if (design === "single_plate" || GUSSETS_WITHOUT_CORNER_HOLE.has(r.id)) {
@@ -2568,6 +2660,65 @@
         ] },
       ],
       visuallyVerifiable: true,
+      hardFail: true,
+    },
+    // 253-31 built as a gusset (taco or single plate): its 2 legs, from the
+    // corner along each tube, its thickness and (a taco) its hole.
+    {
+      id: "reinforcement_31_gussets",
+      name: "253-31 gusset dimensions",
+      category: "Gussets",
+      requirement: "recommended",
+      reference: "Article 253-8.2.14",
+      description: "One row per 253-31 reinforcement built as a gusset.\nLeg 1 / Leg 2 = its length from the corner along each tube: the lateral and the main rollbar for a temple gusset, the windscreen pillar and the transverse member for a windshield gusset. Its ends must not extend past halfway along the members it's attached to.\nThickness at least 1.0mm.\nH = diameter of the hole (a taco).",
+      showIf: { any: [{ id: "temple_bar_present", extra: "build", in: ["taco", "single_plate"] }, { id: "windshield_reinforcement_present", extra: "build", in: ["taco", "single_plate"] }] },
+      evaluationType: "table",
+      rows: (getAnswer) => reinforcement31GussetRows(getAnswer),
+      columns: [
+        { key: "leg_a", label: "Leg 1", type: "length" },
+        { key: "leg_b", label: "Leg 2", type: "length" },
+        { key: "thickness", label: "Thickness (≥1.0mm)", type: "length", compare: { op: "gte", value: 1 } },
+        { key: "hole_diameter", label: "Hole diameter (<D)", type: "radio", options: [
+          { id: "under", label: "H<D" },
+          { id: "over", label: "H>D", outcome: "fail" },
+          { id: "none", label: "None" },
+        ] },
+      ],
+      visuallyVerifiable: true,
+      hardFail: false,
+    },
+    // 253-15 in one piece, not intersecting the upper door bar: the
+    // compulsory fabricated sheet-metal gusset bridging the 2 tubes. S: the
+    // gap between them; La along the door bar, Lb along 253-15. La >= D1
+    // (the door bar's diameter), Lb >= D2 (253-15's); with S > 20mm, also
+    // La + Lb >= 2 D1 + 2 D2. Thickness at least 1mm.
+    {
+      id: "a_pillar_side_gusset",
+      name: "253-15 side gusset dimensions",
+      category: "Gussets",
+      requirement: "required",
+      reference: "2020 FIA 253 Ch.8.3.2.1",
+      description: "253-15 in one piece passing beside the upper door bar (they don't intersect) takes a fabricated sheet-metal gusset between the 2 tubes, per side.\nS = gap between the 2 tubes. La = length along the door bar, Lb = length along 253-15.\nD1 = outer diameter of the door bar, D2 = of 253-15.\nLa ≥ D1 and Lb ≥ D2; if S > 20mm, La + Lb ≥ 2 D1 + 2 D2.\nThickness at least 1mm.",
+      diagram: "253-15-side-gusset",
+      showIf: { any: ["left", "right"].map((side) => ({ id: "gusset_design__a_pillar_side_" + side + "__design", in: ["taco", "single_plate"] })) },
+      evaluationType: "table",
+      rows: (getAnswer) => gussetJunctionRows(getAnswer)
+        .filter((r) => r.id.indexOf("a_pillar_side_") === 0 && getAnswer("gusset_design__" + r.id + "__design").value !== "")
+        .map((r) => {
+          const side = r.id.slice("a_pillar_side_".length);
+          const d1Rows = doorBarTubeRowsForSide(getAnswer("door_bars_" + side).value, side).map((x) => x.id);
+          const d2Rows = ["a_pillar_" + side];
+          const rule = (which) => ({ op: "sideGusset253_15", which, d1Rows, d2Rows });
+          return { id: r.id, label: side === "left" ? "Left" : "Right", compareFor: { la: rule("a"), lb: rule("b") } };
+        }),
+      tubeRowIdsForRow: (getAnswer, rowId) => gussetRowTubeRowIds(rowId, getAnswer),
+      columns: [
+        { key: "s", label: "S (gap between the tubes)", type: "length" },
+        { key: "la", label: "La (along the door bar, ≥D1)", type: "length" },
+        { key: "lb", label: "Lb (along 253-15, ≥D2)", type: "length" },
+        { key: "thickness", label: "Thickness (≥1mm)", type: "length", compare: { op: "gte", value: 1 } },
+      ],
+      visuallyVerifiable: false,
       hardFail: true,
     },
     // 253-9's 2 bend bars' one-piece gusset (2020 FIA 253 Ch.8.3.2.1.2's
