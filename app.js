@@ -1510,6 +1510,8 @@
     const failures = [];
     const unresolved = [];
     const advisories = [];
+    // The required items that pass (Part 7 lists them under the others).
+    const satisfied = [];
 
     rows.forEach(({ el, status }) => {
       if (el.isRoutingQuestion) {
@@ -1525,7 +1527,7 @@
       const counts = el.requirement === "required" || el.requirement === "conditional" || el.requirement === "exception";
       if (counts) {
         requiredTotal++;
-        if (status === "pass") requiredSatisfied++;
+        if (status === "pass") { requiredSatisfied++; satisfied.push(el); }
         if (status === "fail") failures.push(el);
         if (status === "warn") unresolved.push(el);
       } else if (el.requirement === "recommended" && status === "warn") {
@@ -1548,7 +1550,7 @@
             elementId: el.id,
           };
           requiredTotal++;
-          if (subStatus === "pass") requiredSatisfied++;
+          if (subStatus === "pass") { requiredSatisfied++; satisfied.push(pseudoEl); }
           if (subStatus === "fail") failures.push(pseudoEl);
           if (subStatus === "warn") unresolved.push(pseudoEl);
         });
@@ -1563,7 +1565,7 @@
       if (!r) return;
       const pseudoEl = { name: r.name, reference: r.reference, hardFailMessage: r.message, verifyNote: r.message, elementId: r.jumpTo || undefined };
       requiredTotal++;
-      if (r.status === "pass") requiredSatisfied++;
+      if (r.status === "pass") { requiredSatisfied++; satisfied.push(pseudoEl); }
       if (r.status === "fail") failures.push(pseudoEl);
       if (r.status === "warn") unresolved.push(pseudoEl);
     });
@@ -1586,6 +1588,7 @@
       failures,
       unresolved,
       advisories,
+      satisfied,
       verdict,
       scorePct: requiredTotal ? Math.round((requiredSatisfied / requiredTotal) * 100) : 0,
     };
@@ -8623,42 +8626,29 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     );
     panel.appendChild(el("div", {}, [results.requiredSatisfied + " / " + results.requiredTotal + " required items satisfied (" + results.scorePct + "%)"]));
 
-    if (!results.verdict.exempt && results.failures.length) {
-      panel.appendChild(el("h2", {}, ["Failing required items"]));
-      panel.appendChild(
-        el(
-          "ul",
-          { class: "issue-list" },
-          results.failures.map((f) => {
-            // A dated rule's own reason (e.g. 253-8 for a car from 2007 on).
-            const d = f.id && f.byDate ? dateRuleResult(f, getAnswer(f.id).value) : null;
-            const msg = d && d.status === "fail" ? d.note : f.hardFailMessage || "";
-            // (A note citing its own reference doesn't repeat it.)
-            return issueListItem(f, f.name + " — " + msg + (f.reference && msg.indexOf(f.reference) !== -1 ? "" : refSuffix(f)));
-          })
-        )
-      );
-    }
-    if (!results.verdict.exempt && results.unresolved.length) {
-      panel.appendChild(el("h2", {}, ["Needs verification"]));
-      panel.appendChild(
-        el(
-          "ul",
-          { class: "issue-list" },
-          results.unresolved.map((f) => { const dw = f.id && f.byDate ? dateRuleResult(f, getAnswer(f.id).value) : null; const why = (f.id && tubingVerifyReason(f, getAnswer(f.id))) || f.verifyNote || (dw && dw.status === "warn" ? dw.note : null); return issueListItem(f, f.name + refSuffix(f) + (why ? " — " + why : "")); })
-        )
-      );
-    }
-    if (!results.verdict.exempt && results.advisories.length) {
-      panel.appendChild(el("h2", {}, ["Advisory (recommended, not required)"]));
-      panel.appendChild(
-        el(
-          "ul",
-          { class: "issue-list" },
-          results.advisories.map((f) => issueListItem(f, f.name + refSuffix(f)))
-        )
-      );
-    }
+    if (results.verdict.exempt) return;
+    // The item lists, alike: each folds open with its count, its items in its color.
+    const group = (cls, title, items, text) => {
+      if (!items.length) return;
+      panel.appendChild(el("details", { class: "result-group " + cls, open: "" }, [
+        el("summary", {}, [title + " (" + items.length + ")"]),
+        el("ul", { class: "issue-list" }, items.map((f) => issueListItem(f, text(f)))),
+      ]));
+    };
+    group("result-fail", "Failing required items", results.failures, (f) => {
+      // A dated rule's own reason (e.g. 253-8 for a car from 2007 on).
+      const d = f.id && f.byDate ? dateRuleResult(f, getAnswer(f.id).value) : null;
+      const msg = d && d.status === "fail" ? d.note : f.hardFailMessage || "";
+      // (A note citing its own reference doesn't repeat it; no message, no dash.)
+      return f.name + (f.reference && msg.indexOf(f.reference) !== -1 ? "" : refSuffix(f)) + (msg ? " — " + msg : "");
+    });
+    group("result-warn", "Needs verification", results.unresolved, (f) => {
+      const dw = f.id && f.byDate ? dateRuleResult(f, getAnswer(f.id).value) : null;
+      const why = (f.id && tubingVerifyReason(f, getAnswer(f.id))) || f.verifyNote || (dw && dw.status === "warn" ? dw.note : null);
+      return f.name + refSuffix(f) + (why ? " — " + why : "");
+    });
+    group("result-advisory", "Advisory (recommended, not required)", results.advisories, (f) => f.name + refSuffix(f));
+    group("result-pass", "Satisfied required items", results.satisfied, (f) => f.name + refSuffix(f));
   }
 
   // ---- Live 3D cage view wiring -------------------------------------------
