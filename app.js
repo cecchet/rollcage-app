@@ -631,6 +631,26 @@
   // was first issued); "By the car's homologation year" (the default) picks
   // the edition from it, as the FIA text itself does. Without a year it
   // falls back to the 2020 text, judged at that edition's last year.
+  // Where each sanctioning body's rulebook is (checked 2026-11-12): { label, url }. FIA 253 by
+  // edition; a body whose current file moves every year links its rules page instead.
+  const FIA_RULEBOOKS = {
+    current: { label: "FIA Appendix J Article 253 (2026)", url: "https://api.fia.com/system/files/documents/253_2026_wmsc_2026.06.23_pj-mr.pdf" },
+    "2020": { label: "FIA Appendix J 2020, Article 253-8", url: "https://www.fia.com/sites/default/files/253_2020_chap_8_wmsc_2020.10.09.pdf" },
+    "2016": { label: "FIA Appendix J 2016, Article 253-8", url: "https://motorsport.ch/dokumente/dateien/Dateien-bis-2024/253_8_2016.pdf" },
+    "1994": { label: "FIA Historic Database: period Appendix J (1994-2001)", url: "https://historicdb.fia.com/regulations/period-appendix-j" },
+    "1990": { label: "FIA Historic Database: period Appendix J (1990-1993)", url: "https://historicdb.fia.com/regulations/period-appendix-j" },
+  };
+  const RULEBOOKS = {
+    nasa: { label: "NASA Rally Sport rules (GRR Section 3, Appendix B)", url: "https://nasarallysport.com/main/rules" },
+    ara: { label: "ARA rules and bulletins (Rally Technical Rules)", url: "https://www.americanrallyassociation.org/rulesandbulletins" },
+    cars: { label: "CARS 2026 Rule Book (Technical Rules, Section 12)", url: "https://carsrally.ca/wp-content/uploads/2015/09/CARS-2026-02-En-Rule-Book.pdf" },
+    ffsa: { label: "FFSA sporting regulations (Article 253)", url: "https://www.ffsa.org/reglements/sportif" },
+    omae: { label: "OMAE Technical regulations of safety systems (J 253) 2026", url: "https://www.omae-epa.gr/images/documents/2026/" + encodeURIComponent("ΤΚ Ασφάλειας (J 253) 2026") + ".pdf" },
+  };
+  function rulebookLink(org) {
+    if (org === "fia") { const ctx = fiaRuleContext(); return FIA_RULEBOOKS[ctx ? ctx.edition : "current"] || FIA_RULEBOOKS.current; }
+    return RULEBOOKS[org] || RULEBOOKS[String(org).split("-")[0]] || null;
+  }
   function fiaRuleContext() {
     const rules = RULES[state.vehicle.org];
     if (!rules || (!rules.editions && !rules.datedRules)) return null;
@@ -3922,6 +3942,12 @@
         : ctx.picked === "auto" ? null
         : el("div", { class: "field-hint" }, ["Checked against the " + ctx.label.replace(/ \(.*\)$/, "") + ", whatever the car's year (" + ctx.carYear + ")."]);
       children.push(el("div", { class: "field" }, [el("label", {}, ["Rules to check against"]), select, hint]));
+    }
+    // The rulebook checked against, one click away (for FIA 253, the edition in use).
+    const book = orgRules && !orgRules.agnostic ? rulebookLink(state.vehicle.org) : null;
+    if (book) {
+      children.push(el("div", { class: "field-hint rulebook-link" }, ["Rulebook: ",
+        el("a", { href: book.url, target: "_blank", rel: "noopener" }, [book.label + " ↗"])]));
     }
     // A body's own questions about the car (OMAE: discipline, car category).
     if (orgRules && orgRules.vehicleQuestions) {
