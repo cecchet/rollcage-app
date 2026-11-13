@@ -648,6 +648,12 @@
     omae: { label: "OMAE Technical regulations of safety systems (J 253) 2026", url: "https://www.omae-epa.gr/images/documents/2026/" + encodeURIComponent("ΤΚ Ασφάλειας (J 253) 2026") + ".pdf" },
   };
   function rulebookLink(org) {
+    const pt = RULES[org] && RULES[org].passTech;
+    if (pt) {
+      const rule = passTechRuleFor(pt), c = (rule && rule.citation) || {};
+      const label = [c.title, c.version, c.section].filter(Boolean).join(", ");
+      return label ? { label, url: c.url || null, note: rule.confidence && rule.confidence !== "high" ? " (" + rule.confidence + " confidence)" : "" } : null;
+    }
     if (org === "fia") { const ctx = fiaRuleContext(); return FIA_RULEBOOKS[ctx ? ctx.edition : "current"] || FIA_RULEBOOKS.current; }
     return RULEBOOKS[org] || RULEBOOKS[String(org).split("-")[0]] || null;
   }
@@ -3943,12 +3949,6 @@
         : el("div", { class: "field-hint" }, ["Checked against the " + ctx.label.replace(/ \(.*\)$/, "") + ", whatever the car's year (" + ctx.carYear + ")."]);
       children.push(el("div", { class: "field" }, [el("label", {}, ["Rules to check against"]), select, hint]));
     }
-    // The rulebook checked against, one click away (for FIA 253, the edition in use).
-    const book = orgRules && !orgRules.agnostic ? rulebookLink(state.vehicle.org) : null;
-    if (book) {
-      children.push(el("div", { class: "field-hint rulebook-link" }, ["Rulebook: ",
-        el("a", { href: book.url, target: "_blank", rel: "noopener" }, [book.label + " ↗"])]));
-    }
     // A body's own questions about the car (OMAE: discipline, car category).
     if (orgRules && orgRules.vehicleQuestions) {
       orgRules.vehicleQuestions.forEach((q) => {
@@ -3990,6 +3990,13 @@
         classSelect.appendChild(o);
       });
       children.push(el("div", { class: "field" }, [el("label", {}, ["Class"]), classSelect]));
+    }
+    // The rulebook checked against, one click away, right under the body (and class) choices:
+    // for FIA 253 the edition in use, for a PassTech body its rule's own citation.
+    const book = orgRules && (!orgRules.agnostic || orgRules.passTech) ? rulebookLink(state.vehicle.org) : null;
+    if (book) {
+      children.push(el("div", { class: "field-hint rulebook-link" }, ["Rulebook: ",
+        book.url ? el("a", { href: book.url, target: "_blank", rel: "noopener" }, [book.label + " ↗"]) : book.label, book.note || ""]));
     }
     return el("div", {}, children);
   }
@@ -4143,14 +4150,7 @@
     const details = [];
     if (rule.condition) details.push(el("p", {}, [el("strong", {}, ["When it applies: "]), rule.condition]));
     if (rule.notes) details.push(el("p", {}, [el("strong", {}, ["Rule notes: "]), rule.notes]));
-    const c = rule.citation || {};
-    const cite = [c.title, c.version, c.section].filter(Boolean).join(", ");
-    if (cite) {
-      details.push(el("p", { class: "element-ref" }, [
-        "Source: ", c.url ? el("a", { href: c.url, target: "_blank", rel: "noopener" }, [cite]) : cite,
-        rule.confidence && rule.confidence !== "high" ? " (" + rule.confidence + " confidence)" : "",
-      ]));
-    }
+    // (Its source is the "Rulebook:" link under the body and class choices.)
     panel.appendChild(el("div", { class: "passtech-rule-details" }, details));
   }
 

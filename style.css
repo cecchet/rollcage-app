@@ -354,6 +354,8 @@ body.wide-layout.picture-selecting .cage-viewer-container { flex: 0 0 auto; }
 }
 
 .field label { font-size: 0.82rem; color: var(--muted); }
+/* A field wrapped with its hint: the inner field keeps its own height (a column's 200px basis would stretch it). */
+.field > .field { flex: none; }
 /* The logbook app: a field a logbook can't be issued without, missing or wrong. */
 .field.field-missing input, .field.field-missing select { border-color: var(--fail); box-shadow: 0 0 0 1px var(--fail); }
 .field.field-missing > label { color: var(--fail); }
@@ -372,7 +374,7 @@ body.wide-layout.picture-selecting .cage-viewer-container { flex: 0 0 auto; }
   margin-bottom: 4px;
 }
 
-input[type="text"], input[type="date"], select, textarea {
+input[type="text"], input[type="number"], input[type="date"], select, textarea {
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
