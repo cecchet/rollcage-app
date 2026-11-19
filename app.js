@@ -1951,6 +1951,8 @@
     getPhoto: (id) => getPictureRecord(id).catch(() => null),
     // Stores a photo ({ photo, screenshot? }) and returns its new id.
     putPhoto: (record) => { const id = picUid(); return putPictureRecord(id, record).then(() => id); },
+    // Removes a stored photo (one put by a download that then failed).
+    deletePhoto: (id) => Promise.resolve(deletePictureRecord(id)).catch(() => {}),
     // Links the open logbook to its online copy (after issuing or
     // uploading it) and saves it as it is. shaById: each photo's id -> its
     // SHA-256 once uploaded (kept on the picture as sha256).
