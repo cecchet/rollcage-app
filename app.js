@@ -1951,6 +1951,12 @@
     getPhoto: (id) => getPictureRecord(id).catch(() => null),
     // Stores a photo ({ photo, screenshot? }) and returns its new id.
     putPhoto: (record) => { const id = picUid(); return putPictureRecord(id, record).then(() => id); },
+    // A saved one's export file data (photos included), as Export to file
+    // writes it -- or null.
+    fileData: (sessionId) => { const s = loadAll()[sessionId]; return s ? sessionFileData(s) : Promise.resolve(null); },
+    // Adds (or with opts.replace, replaces) a saved one from export file data
+    // -- see importSessionData. Resolves with its sessionId.
+    importData: (data, opts) => importSessionData(data, opts),
     // Removes a stored photo (one put by a download that then failed).
     deletePhoto: (id) => Promise.resolve(deletePictureRecord(id)).catch(() => {}),
     // Links the open logbook to its online copy (after issuing or
@@ -2048,10 +2054,10 @@
   }
   // Hidden from the start, before any script after this one looks.
   if (CFG.startHidden) document.body.classList.add("workspace-hidden");
-  async function exportSessionToFile(s) {
-    // Same file format in both apps (the rollcage app and Digital logbooks),
-    // so an export from either imports into the other -- exportedFrom just
-    // lets the importing app say where a file came from.
+  // Same file format in both apps (the rollcage app and Digital logbooks),
+  // so an export from either imports into the other -- exportedFrom just
+  // lets the importing app say where a file came from.
+  async function sessionFileData(s) {
     const ids = new Set();
     const refs = mapSessionPictureIds(s, (id) => { if (id) ids.add(id); return id; });
     const images = {};
@@ -2066,6 +2072,10 @@
     };
     if (refs.paperLogbookPhotos.length) data.paperLogbookPhotos = refs.paperLogbookPhotos;
     if (refs.events.length) data.events = refs.events;
+    return data;
+  }
+  async function exportSessionToFile(s) {
+    const data = await sessionFileData(s);
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -2097,12 +2107,19 @@
         alert("That file isn't a valid " + NOUN + " export (not JSON).");
         return;
       }
-      if (!data || typeof data !== "object" || !data.vehicle || !data.answers) {
-        alert("That file isn't a valid " + NOUN + " export.");
-        return;
-      }
+      importSessionData(data, opts).catch((e) => alert(e.message));
+    };
+    reader.readAsText(file);
+  }
+  // opts: open (open it once in), onOpen(sessionId, notice), replace (a saved
+  // one's sessionId to replace -- its photos go too), vehicle (merged into
+  // its vehicle: e.g. a design review's link). Resolves with its sessionId.
+  function importSessionData(data, opts) {
+    return new Promise((resolve, reject) => {
+      if (!data || typeof data !== "object" || !data.vehicle || !data.answers) return reject(new Error("That file isn't a valid " + NOUN + " export."));
       const all = loadAll();
-      const sessionId = uid();
+      const replaced = opts && opts.replace && all[opts.replace] ? all[opts.replace] : null;
+      const sessionId = replaced ? replaced.sessionId : uid();
       const fromOrg = data.vehicle.org;
       const org = knownOrg(fromOrg);
       const name = data.vehicle.name || "Unnamed " + NOUN;
@@ -2130,7 +2147,7 @@
       state.librarySelectedId = sessionId;
       all[sessionId] = {
         sessionId,
-        vehicle: Object.assign({}, data.vehicle, { org }),
+        vehicle: Object.assign({}, data.vehicle, { org }, opts && opts.vehicle),
         pathId: data.pathId || "new_construction",
         answers: data.answers || {},
         pictures: refs.pictures,
@@ -2144,14 +2161,20 @@
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
         } catch (e) {
-          alert("Couldn't save the imported " + NOUN + " (browser storage is full).");
-          return;
+          Object.values(newIds).forEach((id) => deletePictureRecord(id));
+          return reject(new Error("Couldn't save the imported " + NOUN + " (browser storage is full)."));
         }
-        if (opts && opts.open) confirmDiscardIfDirty(() => { state.libraryOpen = false; loadSession(sessionId); setWorkspaceShown(true); render(); if (opts.onOpen) opts.onOpen(sessionId, state.libraryNotice); });
+        // The replaced one's photos (the new copy has its own).
+        if (replaced) mapSessionPictureIds(replaced, (id) => { if (id) deletePictureRecord(id); return id; });
+        resolve(sessionId);
+        if (opts && opts.open) {
+          // (The replaced one, open with no unsaved changes: just reloaded.)
+          const reopen = () => { state.libraryOpen = false; loadSession(sessionId); setWorkspaceShown(true); render(); if (opts.onOpen) opts.onOpen(sessionId, state.libraryNotice); };
+          if (replaced && state.sessionId === sessionId && !state.dirty) reopen(); else confirmDiscardIfDirty(reopen);
+        } else if (replaced && state.sessionId === sessionId && !state.dirty) loadSession(sessionId);
         else render();
-      }, () => alert("Couldn't store the imported " + NOUN + "'s photos in this browser."));
-    };
-    reader.readAsText(file);
+      }, () => reject(new Error("Couldn't store the imported " + NOUN + "'s photos in this browser.")));
+    });
   }
 
   // ---- PDF report --------------------------------------------------------

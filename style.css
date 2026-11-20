@@ -1246,3 +1246,34 @@ img.gusset-loc-shot { cursor: zoom-in; }
 /* Why a dated FIA rule passes or fails this answer (rules-data.js byDate). */
 .date-rule-note { font-size: 0.78rem; margin-top: 6px; padding: 4px 8px; border-radius: 4px; border-left: 3px solid var(--pass); background: color-mix(in srgb, var(--pass) 10%, transparent); }
 .date-rule-note.date-rule-fail { border-left-color: var(--fail); background: color-mix(in srgb, var(--fail) 10%, transparent); }
+
+/* Design reviews (reviews.js): its dialog. */
+.reviews-dialog { max-width: 760px; }
+.reviews-dialog h3 { margin: 0 0 4px; font-size: 1rem; }
+.reviews-desc { color: var(--muted); font-size: 0.88rem; margin: 4px 0; }
+.reviews-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin: 10px 0; }
+.reviews-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.reviews-actions select { max-width: 100%; }
+.reviews-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); margin: 8px 0; flex: 1 1 200px; }
+.reviews-field input, .reviews-field select, .reviews-field textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; }
+.reviews-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.reviews-check { display: flex; gap: 8px; align-items: center; font-size: 0.88rem; margin: 8px 0; }
+.reviews-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; max-height: 320px; overflow-y: auto; margin: 6px 0; }
+.reviews-pick { display: flex; gap: 8px; align-items: flex-start; border: 1px solid var(--border); border-radius: 8px; padding: 8px; cursor: pointer; font-size: 0.88rem; }
+.reviews-pick.picked { border-color: var(--accent); background: var(--info-bg); }
+.reviews-pick small { color: var(--muted); }
+.reviews-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 10px 0 4px; }
+.reviews-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 12px; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer; }
+.reviews-tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+.reviews-signed { font-size: 0.88rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.reviews-busy { margin: 8px 0; padding: 6px 10px; border-radius: 6px; background: var(--info-bg); color: var(--accent); font-size: 0.85rem; }
+.reviews-message { margin: 8px 0; padding: 6px 10px; border-radius: 6px; font-size: 0.88rem; cursor: pointer; }
+.reviews-message.pass { background: var(--pass-bg); color: var(--pass); }
+.reviews-message.fail { background: var(--fail-bg); color: var(--fail); }
+.reviews-badge { font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--info-bg); color: var(--muted); vertical-align: middle; }
+.reviews-badge.open { background: var(--warn-bg); color: var(--warn); }
+.reviews-history { margin: 8px 0 0; padding-left: 20px; font-size: 0.85rem; }
+.reviews-history li { margin: 2px 0; }
+.reviews-history small { color: var(--muted); }
+.reviews-sub { margin-top: 16px !important; color: var(--muted); }
+.reviews-foot { font-size: 0.8rem; color: var(--muted); margin: 14px 0 0; }
