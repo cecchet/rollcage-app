@@ -209,6 +209,8 @@
   }
   const place = (x) => [x.city, x.region, x.country].filter(Boolean).join(", ");
   const scope = (x) => [x.bodyName, x.disciplineName].filter(Boolean).join(" ");
+  // A fabricator's bodies, short: "builds for SCCA, NASA, ARA".
+  const builtFor = (x) => { const names = [...new Set((x.buildsFor || []).map((b) => b.bodyName.replace(/ \(.*\)$/, "")))]; return names.length ? "builds for " + names.join(", ") : ""; };
   function startSend(kind, s, design) {
     ui.form = { kind, sessionId: s ? s.sessionId : null, designId: design ? design.id : null, pick: null, body: "", near: "", message: "", note: "", keepHistory: true };
     if (!ui.dir) loadDirectory();
@@ -241,9 +243,11 @@
     const d = ui.dir;
     const all = !d ? [] : f.kind === "logbook" ? d.scrs.filter((x) => x.issuesLogbooks).map((x) => ["scr", x])
       : d.fabs.map((x) => ["fab", x]).concat(d.scrs.map((x) => ["scr", x]));
-    const bodies = [...new Map(all.map(([, x]) => [x.body, x.bodyName])).entries()];
-    const words = f.near.toLowerCase().split(/\s+/).filter(Boolean);
-    const list = all.filter(([, x]) => (!f.body || x.body === f.body) && words.every((w) => [x.business, x.name, place(x)].join(" ").toLowerCase().includes(w)));
+    // A fabricator: the bodies they build for; a scrutineer: the one they're accredited by.
+    const bodiesOf = (k, x) => (k === "fab" ? (x.buildsFor || []).map((b) => [b.body, b.bodyName]) : [[x.body, x.bodyName]]);
+    const bodies = [...new Map(all.flatMap(([k, x]) => bodiesOf(k, x))).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+    const words =f.near.toLowerCase().split(/\s+/).filter(Boolean);
+    const list = all.filter(([k, x]) => (!f.body || bodiesOf(k, x).some(([id]) => id === f.body)) && words.every((w) => [x.business, x.name, place(x)].join(" ").toLowerCase().includes(w)));
     return h("div", { class: "reviews-card reviews-form" }, [
       h("h3", {}, [f.kind === "logbook" ? "Request a logbook" : "Send for review", ": ", (design && design.title) || (s && s.vehicle.name) || "this rollcage"]),
       desc(f.kind === "logbook"
@@ -260,7 +264,8 @@
       !d ? desc("Loading the directory…") : list.length ? h("div", { class: "reviews-picks" }, list.map(([k, x]) => h("label", { class: "reviews-pick" + (f.pick === k + ":" + x.id ? " picked" : "") }, [
         h("input", { type: "radio", name: "rv-pick", checked: f.pick === k + ":" + x.id, onchange: () => { f.pick = k + ":" + x.id; render(); } }),
         h("span", {}, [h("strong", {}, [x.business || x.name]), " · " + (k === "fab" ? "fabricator" : x.role === "technical_director" ? "technical director" : "scrutineer"),
-          h("br"), h("small", {}, [[place(x), scope(x)].filter(Boolean).join(" · ")])]),
+          (x.certifications || []).length ? " · certified" : "",
+          h("br"), h("small", {}, [[place(x), k === "fab" ? builtFor(x) : scope(x)].filter(Boolean).join(" · ")])]),
       ]))) : desc(all.length ? "Nobody matches." : f.kind === "logbook" ? "No scrutineer who issues logbooks is listed yet." : "Nobody is listed yet."),
       field("Message (optional)", h("textarea", { rows: 3, oninput: (e) => { f.message = e.target.value; } }, [f.message])),
       f.kind === "logbook" ? h("label", { class: "reviews-check" }, [h("input", { type: "checkbox", checked: f.keepHistory, onchange: (e) => { f.keepHistory = e.target.checked; } }),
