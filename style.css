@@ -356,6 +356,8 @@ body.wide-layout.picture-selecting .cage-viewer-container { flex: 0 0 auto; }
 .field label { font-size: 0.82rem; color: var(--muted); }
 /* A field wrapped with its hint: the inner field keeps its own height (a column's 200px basis would stretch it). */
 .field > .field { flex: none; }
+/* The Frog Safety score's disclaimer (Part 8 / its panel). */
+.safety-score-disclaimer { font-size: 0.78rem; font-style: italic; color: var(--muted); margin: 6px 0 10px; padding: 6px 10px; border-left: 3px solid var(--border); }
 /* The logbook app: a field a logbook can't be issued without, missing or wrong. */
 .field.field-missing input, .field.field-missing select { border-color: var(--fail); box-shadow: 0 0 0 1px var(--fail); }
 .field.field-missing > label { color: var(--fail); }

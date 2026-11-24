@@ -8486,6 +8486,9 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
     panel.appendChild(el("div", { class: "safety-score-placeholder" }, [byBody
       ? "Scored against " + bodyName + "'s rules (" + partName(LOGBOOK_PHASE) + "): FIA's design guidelines show in orange but cost no points."
       : "Scored against FIA Article 253's design guidelines" + (bodyName !== "FIA" ? " and " + bodyName + "'s tubing sizes" : "") + "."]));
+    // What the score is (and isn't).
+    panel.appendChild(el("div", { class: "safety-score-disclaimer" }, [
+      "Disclaimer: the Frog Safety score is only an informative score, based on the requirements of the selected ruleset. It isn't a tech inspection, a certification or a guarantee of safety: the sanctioning body's scrutineers have the final say."]));
     if (violations) {
       panel.appendChild(el("div", { class: "safety-score-violation" }, [
         (byBody ? "This cage has a violation of " + bodyName + "'s rules or of construction minimums" : VIOLATION_WARNING) + " (" + violations + " violation" + (violations === 1 ? "" : "s") + " below).",
