@@ -33,7 +33,8 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
-  if (!CACHEABLE_ORIGINS.includes(url.origin) || url.pathname.startsWith("/api/")) return;
+  // (Vercel Web Analytics' own requests go straight to the network, never cached.)
+  if (!CACHEABLE_ORIGINS.includes(url.origin) || url.pathname.startsWith("/api/") || url.pathname.startsWith("/_vercel/")) return;
 
   event.respondWith(
     fetch(request)
