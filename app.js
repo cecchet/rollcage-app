@@ -12298,6 +12298,9 @@ function sillChoiceField(elm) { return (elm.extraFields || []).find((f) => f.key
   function render() {
     failingGussetCache = null;
     pictureDifferenceCount = 0; // (set again if Part 1's differences panel renders)
+    // The library's "Currently editing" snapshot is taken once per opening: whatever closed
+    // the library (Start a new rollcage, opening a saved one...), the next opening takes a new one.
+    if (!state.libraryOpen) libraryCurrentShot = null;
     // This rebuilds the whole tree from scratch (root.innerHTML = "" below)
     // rather than diffing, which loses the focused element AND the page's
     // scroll position -- e.g. typing into a Part 6 contact field commits on
