@@ -1854,6 +1854,11 @@
     listLocal: () => JSON.parse(JSON.stringify(Object.values(loadAll()))),
     currentSessionId: () => state.sessionId,
     isDirty: () => state.dirty,
+    // A button for the library, beside the open rollcage's export buttons (or
+    // in its top row when nothing is open): getButton() returns { label,
+    // title, onclick } at each render. (reviews.js: Design reviews.)
+    addLibraryButton: (getButton) => { libraryExtraButtons.push(getButton); if (state.libraryOpen) render(); },
+    refreshLibrary: () => { if (state.libraryOpen) render(); },
     // Creates or replaces a saved logbook (by sessionId); the open one is
     // reloaded when it has no unsaved changes.
     saveLocal: (record) => {
@@ -3430,6 +3435,8 @@
         el("button", { class: "btn small secondary", onclick: () => confirmDiscardIfDirty(() => { state.libraryOpen = false; startNew(); }) }, ["Start a new " + NOUN]),
         el("button", { class: "btn small secondary", onclick: () => importInput.click() }, [CFG.logbook ? "Import a logbook or rollcage from file" : "Import a " + NOUN + " from file"]),
         importInput,
+        // (Beside the open one's export buttons when there is one -- renderLibraryCurrent.)
+        ...(editingSomething() ? [] : libraryExtraButtonEls()),
       ]),
       // The open one only counts once it's something: saved before, changed,
       // or started (a blank new one on a first visit isn't).
@@ -3472,6 +3479,11 @@
   // snapshot, taken once per library opening -- see libraryCurrentShot) and
   // the actions that apply to it, Save / Save as / PDF report.
   let libraryCurrentShot = null;
+  const libraryExtraButtons = []; // see addLibraryButton
+  function libraryExtraButtonEls() {
+    return libraryExtraButtons.map((get) => get()).filter(Boolean)
+      .map((b) => el("button", { class: "btn small secondary", title: b.title || "", onclick: b.onclick }, [b.label]));
+  }
   function editingSomething() {
     return !!loadAll()[state.sessionId] || state.dirty || !!getAnswer("main_structure_layout").value;
   }
@@ -3513,6 +3525,7 @@
         el("button", { class: "btn small secondary", title: "Includes any unsaved changes", onclick: exportCurrentSessionToFile }, ["Export to file"]),
         el("button", { class: "btn small secondary", title: "Download it as a 3D-printable model (.3mf, for Bambu Studio, PrusaSlicer, OrcaSlicer...) -- with any unsaved changes",
           onclick: () => openPrintDialog({ vehicle: state.vehicle, pathId: state.pathId, answers: state.answers }, true) }, ["3D print"]),
+        ...libraryExtraButtonEls(),
       ]),
     ]);
   }

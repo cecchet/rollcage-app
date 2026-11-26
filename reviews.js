@@ -467,20 +467,14 @@
     overlay = fresh;
     overlay.scrollTop = scroll;
   }
-  // The header's button (with what waits for this person, once signed in).
-  let headerBtn = null;
+  // The library's button, beside the export buttons (with what waits for this person, once signed in).
   function updateButton() {
-    if (!headerBtn) return;
+    if (app.refreshLibrary) app.refreshLibrary();
+  }
+  if (app.addLibraryButton) app.addLibraryButton(() => {
     const waiting = (ui.requests || []).filter((d) => d.requests.some((r) => r.mine && r.status === "open")).length;
-    headerBtn.textContent = "Design reviews" + (waiting ? " (" + waiting + ")" : "");
-  }
-  function addButton() {
-    const holder = document.getElementById("headerHelpLinks");
-    if (!holder || headerBtn) return;
-    headerBtn = h("button", { type: "button", class: "btn small secondary", id: "designReviewsLink", onclick: openDialog }, ["Design reviews"]);
-    holder.insertBefore(headerBtn, holder.firstChild);
-  }
-  addButton();
+    return { label: "Design reviews" + (waiting ? " (" + waiting + ")" : ""), title: "Send a rollcage to a fabricator or scrutineer for review, or request a logbook", onclick: openDialog };
+  });
   // A sign-in link from the email lands here (#access_token=...): sign in and open the dialog.
   if (/access_token=|[?&]code=/.test(location.hash + location.search)) openDialog();
   // Already signed in on this device: what's waiting, on the button.
